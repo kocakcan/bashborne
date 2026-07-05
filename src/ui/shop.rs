@@ -1,0 +1,236 @@
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::Frame;
+
+use crate::game::inventory_ui::InventoryTab;
+use crate::game::item::Inventory;
+use crate::game::party::Party;
+use crate::game::shop::{shop_item_stock, shop_weapon_stock, ShopMode, ShopUiState};
+
+pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &Inventory) {
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ])
+        .split(frame.size());
+
+    draw_header(frame, outer[0], shop, party);
+
+    let mid = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(outer[1]);
+
+    match shop.mode {
+        ShopMode::Buy => draw_buy_list(frame, mid[0], shop, party),
+        ShopMode::Sell => draw_sell_list(frame, mid[0], shop, inventory),
+    }
+    draw_party_gear(frame, mid[1], party);
+
+    draw_footer(frame, outer[2], shop);
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party) {
+    let mode_span = |label: &str, active: bool| {
+        let style = if active {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        Span::styled(format!(" {label} "), style)
+    };
+    let tab_span = |label: &str, active: bool| {
+        let style = if active {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        Span::styled(format!(" {label} "), style)
+    };
+    let line = Line::from(vec![
+        mode_span("Buy", shop.mode == ShopMode::Buy),
+        Span::raw(" "),
+        mode_span("Sell", shop.mode == ShopMode::Sell),
+        Span::raw("   |  "),
+        tab_span("Items", shop.tab == InventoryTab::Items),
+        tab_span("Weapons", shop.tab == InventoryTab::Weapons),
+        Span::raw(format!("   Gold: {}", party.gold)),
+    ]);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Town Shop (←→ Buy/Sell, Tab items/weapons, Esc leave)");
+    frame.render_widget(Paragraph::new(line).block(block), area);
+}
+
+fn cursor_style(selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    }
+}
+
+fn draw_buy_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party) {
+    let items: Vec<ListItem> = match shop.tab {
+        InventoryTab::Items => shop_item_stock()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (factory, price))| {
+                let sample = factory();
+                let affordable = party.gold >= price;
+                let style = if i == shop.cursor {
+                    cursor_style(true)
+                } else if !affordable {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(Span::styled(
+                    format!("{:<16} {price} gold", sample.name),
+                    style,
+                )))
+            })
+            .collect(),
+        InventoryTab::Weapons => shop_weapon_stock()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (factory, price))| {
+                let sample = factory();
+                let affordable = party.gold >= price;
+                let color = crate::ui::rarity_color(sample.rarity);
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                let name_style = if !affordable {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(color).add_modifier(Modifier::BOLD)
+                };
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(format!("{:<20}", sample.name), name_style),
+                    Span::styled(format!("[{}] ", sample.rarity), Style::default().fg(color)),
+                    Span::raw(format!("ATK +{}  {price} gold", sample.attack_bonus)),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("For sale (↑↓ select, Enter to buy)");
+    frame.render_widget(List::new(items).block(block), area);
+}
+
+fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: &Inventory) {
+    let items: Vec<ListItem> = match shop.tab {
+        InventoryTab::Items => inventory
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, (item, qty))| {
+                let style = cursor_style(i == shop.cursor);
+                ListItem::new(Line::from(Span::styled(
+                    format!("{:<16} x{qty}   sells for {} gold", item.name, item.value / 2),
+                    style,
+                )))
+            })
+            .collect(),
+        InventoryTab::Weapons => inventory
+            .weapons
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                let color = crate::ui::rarity_color(w.rarity);
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(
+                        format!("{:<20}", w.name),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(format!("[{}] ", w.rarity), Style::default().fg(color)),
+                    Span::raw(format!("sells for {} gold", w.rarity.base_value() / 2)),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
+    };
+    let title = match shop.tab {
+        InventoryTab::Items => "Your items (↑↓ select, Enter to sell)",
+        InventoryTab::Weapons => "Your spare weapons (↑↓ select, Enter to sell)",
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
+    if items.is_empty() {
+        let msg = match shop.tab {
+            InventoryTab::Items => "Nothing to sell.",
+            InventoryTab::Weapons => {
+                "No spare weapons to sell. Unequip one in the inventory screen first."
+            }
+        };
+        frame.render_widget(Paragraph::new(msg).block(block), area);
+    } else {
+        frame.render_widget(List::new(items).block(block), area);
+    }
+}
+
+fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party) {
+    let mut lines = Vec::new();
+    for m in &party.members {
+        let hp_color = crate::ui::hp_color(m.hp_ratio());
+        let hp_bar = crate::ui::hp_bar(m.stats.hp, m.stats.max_hp, 10);
+        lines.push(Line::from(Span::styled(
+            m.name.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {hp_bar} "), Style::default().fg(hp_color)),
+            Span::raw(format!("{:>3}/{:<3} HP", m.stats.hp, m.stats.max_hp)),
+        ]));
+        lines.push(Line::from(format!(
+            "  MP {:>3}/{:<3}",
+            m.stats.mp, m.stats.max_mp
+        )));
+        if let Some(w) = &m.equipped_weapon {
+            let color = crate::ui::rarity_color(w.rarity);
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(w.name.clone(), Style::default().fg(color)),
+                Span::styled(format!(" [{}]", w.rarity), Style::default().fg(color)),
+            ]));
+        } else {
+            lines.push(Line::from("  (unarmed)"));
+        }
+        lines.push(Line::from(""));
+    }
+    let block = Block::default().borders(Borders::ALL).title("Party");
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, shop: &ShopUiState) {
+    let text = shop
+        .message
+        .clone()
+        .unwrap_or_else(|| "Epic and Legendary gear can't be bought — you'll have to earn it.".to_string());
+    let block = Block::default().borders(Borders::ALL).title("Status");
+    frame.render_widget(Paragraph::new(text).block(block), area);
+}
