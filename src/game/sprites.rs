@@ -65,6 +65,30 @@ pub fn sprite_for(species_name: &str) -> &'static [&'static str] {
             "\\ \\/\\/ /",
             " \\____/ ",
         ],
+        "The Barrow Knight" => &[
+            "  /^^^\\   ",
+            " |[o_o]|  ",
+            " |=====|  ",
+            "/|##|##|\\ ",
+            " |  |  |  ",
+            " '--'--'  ",
+        ],
+        "Wyrmscale Warden" => &[
+            "  /\\/\\/\\  ",
+            " ( o   o )",
+            "  \\  ^^ / ",
+            " //|VVVV|\\\\",
+            "   |    |  ",
+            "  //    \\\\ ",
+        ],
+        "The Ashen Sovereign" => &[
+            "   /##\\    ",
+            "  |[**]|   ",
+            "  |=><=|   ",
+            " /|#|##|#\\ ",
+            "  |  ||  | ",
+            " ^^^  ^^^^ ",
+        ],
         _ => &["  ???  ", " ????? ", "  ???  "],
     }
 }
@@ -80,6 +104,9 @@ pub fn color_for(species_name: &str) -> Color {
         "Orc" => Color::LightGreen,
         "Wraith" => Color::Magenta,
         "Mimic" => Color::Red,
+        "The Barrow Knight" => Color::LightRed,
+        "Wyrmscale Warden" => Color::LightGreen,
+        "The Ashen Sovereign" => Color::LightYellow,
         _ => Color::Red,
     }
 }

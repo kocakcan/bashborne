@@ -1,6 +1,7 @@
 use crate::game::inventory_ui::InventoryTab;
 use crate::game::item::{
-    ether, iron_sword, potion, sunken_relic_blade, travelers_spear, ItemFactory, WeaponFactory,
+    chainmail_hauberk, copper_band, ether, iron_sword, potion, ring_of_vigor, rangers_cloak,
+    sunken_relic_blade, travelers_spear, ArmorFactory, ItemFactory, RingFactory, WeaponFactory,
 };
 use crate::game::map::Position;
 
@@ -64,6 +65,22 @@ pub fn shop_weapon_stock() -> Vec<(WeaponFactory, u32)> {
     ]
 }
 
+/// Fixed armor stock, paired with its gold price. Same Rare cap as weapons.
+pub fn shop_armor_stock() -> Vec<(ArmorFactory, u32)> {
+    vec![
+        (rangers_cloak as ArmorFactory, 50),
+        (chainmail_hauberk as ArmorFactory, 50),
+    ]
+}
+
+/// Fixed ring stock, paired with its gold price. Same Rare cap as weapons.
+pub fn shop_ring_stock() -> Vec<(RingFactory, u32)> {
+    vec![
+        (copper_band as RingFactory, 20),
+        (ring_of_vigor as RingFactory, 50),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,6 +108,31 @@ mod tests {
                 rarity < Rarity::Epic,
                 "shop stock should stop at Rare; found {rarity}"
             );
+        }
+    }
+
+    #[test]
+    fn armor_stock_prices_match_their_rarity_value() {
+        for (factory, price) in shop_armor_stock() {
+            assert_eq!(factory().rarity.base_value(), price);
+        }
+    }
+
+    #[test]
+    fn ring_stock_prices_match_their_rarity_value() {
+        for (factory, price) in shop_ring_stock() {
+            assert_eq!(factory().rarity.base_value(), price);
+        }
+    }
+
+    #[test]
+    fn armor_and_ring_stock_never_carry_epic_or_legendary_gear() {
+        use crate::game::item::Rarity;
+        for (factory, _) in shop_armor_stock() {
+            assert!(factory().rarity < Rarity::Epic);
+        }
+        for (factory, _) in shop_ring_stock() {
+            assert!(factory().rarity < Rarity::Epic);
         }
     }
 }

@@ -9,6 +9,7 @@ mod combat;
 mod event;
 mod explore;
 mod inventory;
+mod quest_log;
 mod shop;
 
 pub fn draw(frame: &mut Frame, world: &World) {
@@ -18,6 +19,7 @@ pub fn draw(frame: &mut Frame, world: &World) {
         GameState::Event(ev) => event::draw(frame, ev),
         GameState::Inventory(inv) => inventory::draw(frame, inv, &world.party, &world.inventory),
         GameState::Shop(shop_ui) => shop::draw(frame, shop_ui, &world.party, &world.inventory),
+        GameState::QuestLog(ui) => quest_log::draw(frame, ui, &world.quest_log),
         GameState::GameOver { victory } => draw_game_over(frame, *victory),
     }
 }

@@ -1,5 +1,6 @@
 use rand::Rng;
 
+use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::Character;
 use crate::game::combat::CombatState;
 use crate::game::inventory_ui::InventoryUiState;
@@ -8,6 +9,8 @@ use crate::game::item::{
     Weapon,
 };
 use crate::game::map::{Map, Position};
+use crate::game::npc::NpcId;
+use crate::game::quest_ui::QuestLogUiState;
 use crate::game::shop::ShopUiState;
 use crate::game::status::{roll_blessing, roll_curse, StatusEffect};
 
@@ -19,24 +22,32 @@ pub struct ExploreState {
 }
 
 impl ExploreState {
-    pub fn new() -> Self {
+    /// Builds the explore screen for `chapter`: its map (with that
+    /// chapter's NPCs folded in) and its spawn point.
+    pub fn for_chapter(chapter: ChapterId) -> Self {
+        let def = chapter_def(chapter);
+        let mut map = (def.map)();
+        map.npcs = def.npcs.clone();
         Self {
-            map: Map::starting_area(),
-            player_pos: Position { x: 4, y: 2 },
-            log: vec!["You enter the fields outside town. Watch the tall grass...".to_string()],
+            map,
+            player_pos: def.spawn,
+            log: vec![format!("You arrive at {}. Watch the tall grass...", def.name)],
             steps_in_grass: 0,
         }
     }
 }
 
-/// A one-off narrative beat (blessing, curse, or treasure find) shown as its own
-/// screen before returning to exploration. Combat is handled separately since it
-/// needs its own interactive state.
+/// A one-off narrative beat (blessing, curse, treasure find, or NPC
+/// dialogue) shown as its own screen before returning to exploration.
+/// Combat is handled separately since it needs its own interactive state.
 pub struct EventState {
     pub title: String,
     pub lines: Vec<String>,
     /// Where to place the player back on the map once this notice is dismissed.
     pub return_pos: Position,
+    /// Which NPC this event is dialogue for, if any — `None` for the
+    /// blessing/curse/treasure events below.
+    pub npc: Option<NpcId>,
 }
 
 pub enum GameState {
@@ -45,6 +56,7 @@ pub enum GameState {
     Event(EventState),
     Inventory(InventoryUiState),
     Shop(ShopUiState),
+    QuestLog(QuestLogUiState),
     GameOver { victory: bool },
 }
 

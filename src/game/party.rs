@@ -20,7 +20,6 @@ impl Party {
         self.members.iter().filter(|c| c.is_alive())
     }
 
-    #[allow(dead_code)] // reserved for status-effect ticking, out-of-combat rest, etc.
     pub fn alive_members_mut(&mut self) -> impl Iterator<Item = &mut Character> {
         self.members.iter_mut().filter(|c| c.is_alive())
     }

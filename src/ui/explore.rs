@@ -40,6 +40,12 @@ fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
                 ));
                 continue;
             }
+            if let Some(id) = explore.map.npc_at(pos) {
+                let ch = crate::game::npc::glyph_for(id).to_string();
+                let color = crate::game::npc::color_for(id);
+                spans.push(Span::styled(ch, Style::default().fg(color).add_modifier(Modifier::BOLD)));
+                continue;
+            }
             let (ch, style) = match explore.map.tile_at(pos) {
                 Tile::Wall => ("#", Style::default().fg(Color::DarkGray)),
                 Tile::Floor => (".", Style::default().fg(Color::Gray)),

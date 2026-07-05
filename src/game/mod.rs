@@ -1,9 +1,13 @@
+pub mod chapter;
 pub mod character;
 pub mod combat;
 pub mod inventory_ui;
 pub mod item;
 pub mod map;
+pub mod npc;
 pub mod party;
+pub mod quest;
+pub mod quest_ui;
 pub mod shop;
 pub mod sprites;
 pub mod state;

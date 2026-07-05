@@ -31,10 +31,12 @@ pub fn ether() -> Item {
 }
 
 /// Factory function types shared by loot tables and the shop's fixed stock —
-/// both just need "a function that conjures a fresh Item/Weapon" paired with
-/// a probability or a price.
+/// both just need "a function that conjures a fresh Item/Weapon/Armor/Ring"
+/// paired with a probability or a price.
 pub type ItemFactory = fn() -> Item;
 pub type WeaponFactory = fn() -> Weapon;
+pub type ArmorFactory = fn() -> Armor;
+pub type RingFactory = fn() -> Ring;
 
 /// Weapon rarity tier. Declared in ascending power order so `Rarity::Legendary`
 /// is greater than `Rarity::Common` etc. via the derived `Ord` — the rarer a
@@ -78,10 +80,11 @@ impl Rarity {
     }
 }
 
-/// Where a weapon came from — purely descriptive, shown in the inventory
-/// screen so the player knows how they got it.
+/// Where a piece of gear came from — purely descriptive, shown in the
+/// inventory screen so the player knows how they got it. Shared by
+/// `Weapon`, `Armor`, and `Ring` alike.
 #[derive(Debug, Clone)]
-pub enum WeaponSource {
+pub enum GearSource {
     /// Carried from the start of the game.
     Starting,
     /// Found while exploring the field (hidden caches, buried relics).
@@ -90,12 +93,12 @@ pub enum WeaponSource {
     EnemyDrop(&'static str),
 }
 
-impl fmt::Display for WeaponSource {
+impl fmt::Display for GearSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WeaponSource::Starting => write!(f, "Starting gear"),
-            WeaponSource::World => write!(f, "Found in the world"),
-            WeaponSource::EnemyDrop(species) => write!(f, "Dropped by {species}"),
+            GearSource::Starting => write!(f, "Starting gear"),
+            GearSource::World => write!(f, "Found in the world"),
+            GearSource::EnemyDrop(species) => write!(f, "Dropped by {species}"),
         }
     }
 }
@@ -111,7 +114,7 @@ pub struct Weapon {
     pub attack_bonus: i32,
     pub defense_bonus: i32,
     pub description: String,
-    pub source: WeaponSource,
+    pub source: GearSource,
 }
 
 // --- Weapon factory functions, grouped by rarity tier. ---
@@ -125,7 +128,7 @@ pub fn worn_shortsword() -> Weapon {
         attack_bonus: 2,
         defense_bonus: 0,
         description: "A nicked, well-used blade. Better than fists.".into(),
-        source: WeaponSource::Starting,
+        source: GearSource::Starting,
     }
 }
 
@@ -136,7 +139,7 @@ pub fn apprentice_wand() -> Weapon {
         attack_bonus: 1,
         defense_bonus: 0,
         description: "A simple wand every mage starts with.".into(),
-        source: WeaponSource::Starting,
+        source: GearSource::Starting,
     }
 }
 
@@ -147,7 +150,7 @@ pub fn acolytes_mace() -> Weapon {
         attack_bonus: 2,
         defense_bonus: 1,
         description: "Blunt and humble, blessed only lightly.".into(),
-        source: WeaponSource::Starting,
+        source: GearSource::Starting,
     }
 }
 
@@ -158,7 +161,7 @@ pub fn iron_sword() -> Weapon {
         attack_bonus: 3,
         defense_bonus: 0,
         description: "A sturdy, mass-produced blade left behind by a traveler.".into(),
-        source: WeaponSource::World,
+        source: GearSource::World,
     }
 }
 
@@ -169,7 +172,7 @@ pub fn goblin_shiv() -> Weapon {
         attack_bonus: 4,
         defense_bonus: 0,
         description: "Crude but wickedly sharp.".into(),
-        source: WeaponSource::EnemyDrop("Goblin"),
+        source: GearSource::EnemyDrop("Goblin"),
     }
 }
 
@@ -180,7 +183,7 @@ pub fn travelers_spear() -> Weapon {
         attack_bonus: 6,
         defense_bonus: 1,
         description: "Light, well-balanced, and easy to keep an enemy at range.".into(),
-        source: WeaponSource::World,
+        source: GearSource::World,
     }
 }
 
@@ -191,7 +194,7 @@ pub fn bone_blade() -> Weapon {
         attack_bonus: 7,
         defense_bonus: 0,
         description: "Carved from a fallen skeleton's own femur.".into(),
-        source: WeaponSource::EnemyDrop("Skeleton"),
+        source: GearSource::EnemyDrop("Skeleton"),
     }
 }
 
@@ -202,7 +205,7 @@ pub fn orcish_greataxe() -> Weapon {
         attack_bonus: 10,
         defense_bonus: 0,
         description: "Heavy enough to fell a tree in one swing.".into(),
-        source: WeaponSource::EnemyDrop("Orc"),
+        source: GearSource::EnemyDrop("Orc"),
     }
 }
 
@@ -213,7 +216,7 @@ pub fn wraithbane_edge() -> Weapon {
         attack_bonus: 9,
         defense_bonus: 2,
         description: "Etched with wards that flare hot near the restless dead.".into(),
-        source: WeaponSource::EnemyDrop("Wraith"),
+        source: GearSource::EnemyDrop("Wraith"),
     }
 }
 
@@ -224,7 +227,7 @@ pub fn sunken_relic_blade() -> Weapon {
         attack_bonus: 11,
         defense_bonus: 0,
         description: "Pulled from somewhere it should never have been found.".into(),
-        source: WeaponSource::World,
+        source: GearSource::World,
     }
 }
 
@@ -235,7 +238,7 @@ pub fn mimics_fang() -> Weapon {
         attack_bonus: 15,
         defense_bonus: 1,
         description: "Still faintly warm. It was a tooth a moment ago.".into(),
-        source: WeaponSource::EnemyDrop("Mimic"),
+        source: GearSource::EnemyDrop("Mimic"),
     }
 }
 
@@ -246,7 +249,7 @@ pub fn dragonslayers_oath() -> Weapon {
         attack_bonus: 22,
         defense_bonus: 3,
         description: "A greatsword said to have ended an age. Absurdly rare to find.".into(),
-        source: WeaponSource::World,
+        source: GearSource::World,
     }
 }
 
@@ -261,7 +264,256 @@ pub fn knightsbane() -> Weapon {
         attack_bonus: 24,
         defense_bonus: 4,
         description: "Forged in the barrow's cold fire; still hums with the Knight's fury.".into(),
-        source: WeaponSource::EnemyDrop("The Barrow Knight"),
+        source: GearSource::EnemyDrop("The Barrow Knight"),
+    }
+}
+
+/// The Wyrmscale Warden's signature weapon — chapter two's guaranteed boss
+/// drop. On par with Knightsbane; the Ashen Sovereign's drop below is what
+/// finally outclasses both.
+pub fn wardens_fang() -> Weapon {
+    Weapon {
+        name: "Warden's Fang".into(),
+        rarity: Rarity::Legendary,
+        attack_bonus: 24,
+        defense_bonus: 4,
+        description: "Torn from the Warden's own jaw; the scales along its edge still shed."
+            .into(),
+        source: GearSource::EnemyDrop("Wyrmscale Warden"),
+    }
+}
+
+/// The Ashen Sovereign's signature weapon — the single strongest item in
+/// the game, and the only reward for beating the final chapter's boss.
+pub fn sovereigns_reckoning() -> Weapon {
+    Weapon {
+        name: "Sovereign's Reckoning".into(),
+        rarity: Rarity::Legendary,
+        attack_bonus: 27,
+        defense_bonus: 5,
+        description: "What's left of a throne, reforged into something that only takes.".into(),
+        source: GearSource::EnemyDrop("The Ashen Sovereign"),
+    }
+}
+
+/// A suit of armor, worn in a character's dedicated armor slot. Unlike
+/// weapons, armor only ever bolsters defense — no attack bonus — so it's
+/// the clearest way to build a tankier frontline.
+#[derive(Debug, Clone)]
+pub struct Armor {
+    pub name: String,
+    pub rarity: Rarity,
+    pub defense_bonus: i32,
+    pub description: String,
+    pub source: GearSource,
+}
+
+// --- Armor factory functions, grouped by rarity tier. ---
+// Defense scales with rarity, same ladder as weapons:
+// Common ~2-4, Uncommon ~5-7, Rare ~9-11, Epic ~15, Legendary ~22-24.
+
+pub fn padded_vest() -> Armor {
+    Armor {
+        name: "Padded Vest".into(),
+        rarity: Rarity::Common,
+        defense_bonus: 2,
+        description: "Quilted cloth over leather. Better than bare skin.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn worn_leather_jerkin() -> Armor {
+    Armor {
+        name: "Worn Leather Jerkin".into(),
+        rarity: Rarity::Common,
+        defense_bonus: 3,
+        description: "Cracked with age, but the stitching still holds.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn travelers_chestguard() -> Armor {
+    Armor {
+        name: "Traveler's Chestguard".into(),
+        rarity: Rarity::Common,
+        defense_bonus: 4,
+        description: "Boiled leather plates, favored by wandering merchants.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn rangers_cloak() -> Armor {
+    Armor {
+        name: "Ranger's Cloak".into(),
+        rarity: Rarity::Uncommon,
+        defense_bonus: 5,
+        description: "Woven to shed rain, blades, and notice alike.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn chainmail_hauberk() -> Armor {
+    Armor {
+        name: "Chainmail Hauberk".into(),
+        rarity: Rarity::Uncommon,
+        defense_bonus: 6,
+        description: "Interlocked rings stripped from a fallen skeleton.".into(),
+        source: GearSource::EnemyDrop("Skeleton"),
+    }
+}
+
+pub fn warded_chainmail() -> Armor {
+    Armor {
+        name: "Warded Chainmail".into(),
+        rarity: Rarity::Rare,
+        defense_bonus: 9,
+        description: "Cold to the touch, etched with wards against the restless dead.".into(),
+        source: GearSource::EnemyDrop("Wraith"),
+    }
+}
+
+pub fn knights_plate() -> Armor {
+    Armor {
+        name: "Knight's Plate".into(),
+        rarity: Rarity::Rare,
+        defense_bonus: 10,
+        description: "Dented but unbroken, stripped from a brute of an orc.".into(),
+        source: GearSource::EnemyDrop("Orc"),
+    }
+}
+
+pub fn barrow_touched_plate() -> Armor {
+    Armor {
+        name: "Barrow-Touched Plate".into(),
+        rarity: Rarity::Epic,
+        defense_bonus: 15,
+        description: "Unearthed from the barrow's outer vaults, still faintly humming.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn dragonscale_aegis() -> Armor {
+    Armor {
+        name: "Dragonscale Aegis".into(),
+        rarity: Rarity::Legendary,
+        defense_bonus: 24,
+        description: "Overlapping scales said to have turned aside a dragon's breath.".into(),
+        source: GearSource::World,
+    }
+}
+
+/// A ring, worn in one of a character's two ring slots. Rings lean toward
+/// attack, defense, or a bit of both — the flexible build-around slot.
+#[derive(Debug, Clone)]
+pub struct Ring {
+    pub name: String,
+    pub rarity: Rarity,
+    pub attack_bonus: i32,
+    pub defense_bonus: i32,
+    pub description: String,
+    pub source: GearSource,
+}
+
+// --- Ring factory functions, grouped by rarity tier. ---
+// Bonuses are roughly half the weapon/armor ladder, since two rings can be
+// worn at once: Common ~1-2, Uncommon ~2-3, Rare ~4-5, Epic ~7-8, Legendary ~11-12.
+
+pub fn copper_band() -> Ring {
+    Ring {
+        name: "Copper Band".into(),
+        rarity: Rarity::Common,
+        attack_bonus: 2,
+        defense_bonus: 0,
+        description: "A plain band, faintly warm to the touch.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn iron_loop() -> Ring {
+    Ring {
+        name: "Iron Loop".into(),
+        rarity: Rarity::Common,
+        attack_bonus: 0,
+        defense_bonus: 2,
+        description: "Heavy and unadorned. Purely functional.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn travelers_ring() -> Ring {
+    Ring {
+        name: "Traveler's Ring".into(),
+        rarity: Rarity::Common,
+        attack_bonus: 1,
+        defense_bonus: 1,
+        description: "Worn smooth by a hundred roads.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn ring_of_vigor() -> Ring {
+    Ring {
+        name: "Ring of Vigor".into(),
+        rarity: Rarity::Uncommon,
+        attack_bonus: 3,
+        defense_bonus: 0,
+        description: "Pried from a goblin's clenched, still-twitching fist.".into(),
+        source: GearSource::EnemyDrop("Goblin"),
+    }
+}
+
+pub fn ring_of_warding() -> Ring {
+    Ring {
+        name: "Ring of Warding".into(),
+        rarity: Rarity::Uncommon,
+        attack_bonus: 0,
+        defense_bonus: 3,
+        description: "Threaded with a ward-sigil, dulled but still active.".into(),
+        source: GearSource::EnemyDrop("Skeleton"),
+    }
+}
+
+pub fn wolfsbane_signet() -> Ring {
+    Ring {
+        name: "Wolfsbane Signet".into(),
+        rarity: Rarity::Rare,
+        attack_bonus: 5,
+        defense_bonus: 0,
+        description: "Carved with a snarling wolf's-head, still sharp-edged.".into(),
+        source: GearSource::EnemyDrop("Wolf"),
+    }
+}
+
+pub fn warded_loop() -> Ring {
+    Ring {
+        name: "Warded Loop".into(),
+        rarity: Rarity::Rare,
+        attack_bonus: 0,
+        defense_bonus: 5,
+        description: "A closed circuit of old wards, humming under strain.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn mimics_coil() -> Ring {
+    Ring {
+        name: "Mimic's Coil".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 4,
+        defense_bonus: 4,
+        description: "Still faintly shifting, as if unsure what shape to hold.".into(),
+        source: GearSource::EnemyDrop("Mimic"),
+    }
+}
+
+pub fn band_of_the_barrow() -> Ring {
+    Ring {
+        name: "Band of the Barrow".into(),
+        rarity: Rarity::Legendary,
+        attack_bonus: 6,
+        defense_bonus: 6,
+        description: "Buried alongside the Knight himself. It has not gone cold.".into(),
+        source: GearSource::World,
     }
 }
 
@@ -270,6 +522,10 @@ pub struct Inventory {
     pub items: Vec<(Item, u32)>,
     /// Weapons currently carried but not equipped by anyone.
     pub weapons: Vec<Weapon>,
+    /// Armor currently carried but not equipped by anyone.
+    pub armors: Vec<Armor>,
+    /// Rings currently carried but not equipped by anyone.
+    pub rings: Vec<Ring>,
 }
 
 impl Inventory {
@@ -277,6 +533,8 @@ impl Inventory {
         Self {
             items: vec![(potion(), 3), (ether(), 2)],
             weapons: Vec::new(),
+            armors: Vec::new(),
+            rings: Vec::new(),
         }
     }
 
@@ -290,6 +548,14 @@ impl Inventory {
 
     pub fn add_weapon(&mut self, weapon: Weapon) {
         self.weapons.push(weapon);
+    }
+
+    pub fn add_armor(&mut self, armor: Armor) {
+        self.armors.push(armor);
+    }
+
+    pub fn add_ring(&mut self, ring: Ring) {
+        self.rings.push(ring);
     }
 
     /// Decrements the count of the item at `idx`, removing the slot if it hits zero.
@@ -343,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn knightsbane_is_the_single_strongest_weapon() {
+    fn sovereigns_reckoning_is_the_single_strongest_weapon() {
         let contenders = [
             worn_shortsword(),
             iron_sword(),
@@ -355,11 +621,50 @@ mod tests {
             sunken_relic_blade(),
             mimics_fang(),
             dragonslayers_oath(),
+            knightsbane(),
+            wardens_fang(),
         ];
-        let knightsbane_atk = knightsbane().attack_bonus;
+        let strongest_atk = sovereigns_reckoning().attack_bonus;
         assert!(
-            contenders.iter().all(|w| w.attack_bonus < knightsbane_atk),
-            "the boss's signature weapon should outclass every other weapon in the game"
+            contenders.iter().all(|w| w.attack_bonus < strongest_atk),
+            "the final boss's signature weapon should outclass every other weapon in the game"
         );
+    }
+
+    #[test]
+    fn boss_signature_weapons_are_at_least_as_strong_chapter_over_chapter() {
+        assert!(wardens_fang().attack_bonus >= knightsbane().attack_bonus);
+        assert!(sovereigns_reckoning().attack_bonus > wardens_fang().attack_bonus);
+    }
+
+    #[test]
+    fn add_armor_appends_to_inventory() {
+        let mut inv = Inventory::starting();
+        assert!(inv.armors.is_empty());
+        inv.add_armor(padded_vest());
+        assert_eq!(inv.armors.len(), 1);
+        assert_eq!(inv.armors[0].name, "Padded Vest");
+    }
+
+    #[test]
+    fn add_ring_appends_to_inventory() {
+        let mut inv = Inventory::starting();
+        assert!(inv.rings.is_empty());
+        inv.add_ring(copper_band());
+        assert_eq!(inv.rings.len(), 1);
+        assert_eq!(inv.rings[0].name, "Copper Band");
+    }
+
+    #[test]
+    fn rarer_armor_has_bigger_defense_within_the_world_find_ladder() {
+        assert!(padded_vest().defense_bonus < barrow_touched_plate().defense_bonus);
+        assert!(barrow_touched_plate().defense_bonus < dragonscale_aegis().defense_bonus);
+    }
+
+    #[test]
+    fn rarer_rings_have_bigger_combined_bonus() {
+        let combined = |r: &Ring| r.attack_bonus + r.defense_bonus;
+        assert!(combined(&copper_band()) < combined(&mimics_coil()));
+        assert!(combined(&mimics_coil()) < combined(&band_of_the_barrow()));
     }
 }

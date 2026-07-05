@@ -7,7 +7,9 @@ use ratatui::Frame;
 use crate::game::inventory_ui::InventoryTab;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
-use crate::game::shop::{shop_item_stock, shop_weapon_stock, ShopMode, ShopUiState};
+use crate::game::shop::{
+    shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopUiState,
+};
 
 pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &Inventory) {
     let outer = Layout::default()
@@ -62,11 +64,13 @@ fn draw_header(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party)
         Span::raw("   |  "),
         tab_span("Items", shop.tab == InventoryTab::Items),
         tab_span("Weapons", shop.tab == InventoryTab::Weapons),
+        tab_span("Armor", shop.tab == InventoryTab::Armor),
+        tab_span("Rings", shop.tab == InventoryTab::Rings),
         Span::raw(format!("   Gold: {}", party.gold)),
     ]);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Town Shop (←→ Buy/Sell, Tab items/weapons, Esc leave)");
+        .title("Town Shop (←→ Buy/Sell, Tab cycles tabs, Esc leave)");
     frame.render_widget(Paragraph::new(line).block(block), area);
 }
 
@@ -141,6 +145,67 @@ fn draw_buy_list(
                 .style(base_style)
             })
             .collect(),
+        InventoryTab::Armor => shop_armor_stock()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (factory, price))| {
+                let sample = factory();
+                let affordable = party.gold >= price;
+                let color = crate::ui::rarity_color(sample.rarity);
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                let name_style = if !affordable {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(color).add_modifier(Modifier::BOLD)
+                };
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(format!("{:<20}", sample.name), name_style),
+                    Span::styled(format!("[{}] ", sample.rarity), Style::default().fg(color)),
+                    Span::raw(format!("DEF +{}  {price} gold", sample.defense_bonus)),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
+        InventoryTab::Rings => shop_ring_stock()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (factory, price))| {
+                let sample = factory();
+                let affordable = party.gold >= price;
+                let color = crate::ui::rarity_color(sample.rarity);
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                let name_style = if !affordable {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(color).add_modifier(Modifier::BOLD)
+                };
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                let mut bonus = String::new();
+                if sample.attack_bonus > 0 {
+                    bonus.push_str(&format!("ATK +{} ", sample.attack_bonus));
+                }
+                if sample.defense_bonus > 0 {
+                    bonus.push_str(&format!("DEF +{} ", sample.defense_bonus));
+                }
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(format!("{:<20}", sample.name), name_style),
+                    Span::styled(format!("[{}] ", sample.rarity), Style::default().fg(color)),
+                    Span::raw(format!("{bonus} {price} gold")),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -186,10 +251,60 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
                 .style(base_style)
             })
             .collect(),
+        InventoryTab::Armor => inventory
+            .armors
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let color = crate::ui::rarity_color(a.rarity);
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(
+                        format!("{:<20}", a.name),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(format!("[{}] ", a.rarity), Style::default().fg(color)),
+                    Span::raw(format!("sells for {} gold", a.rarity.base_value() / 2)),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
+        InventoryTab::Rings => inventory
+            .rings
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let color = crate::ui::rarity_color(r.rarity);
+                let marker = if i == shop.cursor { "> " } else { "  " };
+                let base_style = if i == shop.cursor {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(
+                        format!("{:<20}", r.name),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(format!("[{}] ", r.rarity), Style::default().fg(color)),
+                    Span::raw(format!("sells for {} gold", r.rarity.base_value() / 2)),
+                ]))
+                .style(base_style)
+            })
+            .collect(),
     };
     let title = match shop.tab {
         InventoryTab::Items => "Your items (↑↓ select, Enter to sell)",
         InventoryTab::Weapons => "Your spare weapons (↑↓ select, Enter to sell)",
+        InventoryTab::Armor => "Your spare armor (↑↓ select, Enter to sell)",
+        InventoryTab::Rings => "Your spare rings (↑↓ select, Enter to sell)",
     };
     let block = Block::default().borders(Borders::ALL).title(title);
     if items.is_empty() {
@@ -197,6 +312,12 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             InventoryTab::Items => "Nothing to sell.",
             InventoryTab::Weapons => {
                 "No spare weapons to sell. Unequip one in the inventory screen first."
+            }
+            InventoryTab::Armor => {
+                "No spare armor to sell. Unequip some in the inventory screen first."
+            }
+            InventoryTab::Rings => {
+                "No spare rings to sell. Unequip some in the inventory screen first."
             }
         };
         frame.render_widget(Paragraph::new(msg).block(block), area);
@@ -231,6 +352,22 @@ fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party) {
             ]));
         } else {
             lines.push(Line::from("  (unarmed)"));
+        }
+        if let Some(a) = &m.equipped_armor {
+            let color = crate::ui::rarity_color(a.rarity);
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(a.name.clone(), Style::default().fg(color)),
+                Span::styled(format!(" [{}]", a.rarity), Style::default().fg(color)),
+            ]));
+        }
+        for ring in m.equipped_rings.iter().flatten() {
+            let color = crate::ui::rarity_color(ring.rarity);
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(ring.name.clone(), Style::default().fg(color)),
+                Span::styled(format!(" [{}]", ring.rarity), Style::default().fg(color)),
+            ]));
         }
         lines.push(Line::from(""));
     }

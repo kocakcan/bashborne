@@ -1,9 +1,11 @@
 use rand::Rng;
 
+use crate::game::chapter::BossKind;
 use crate::game::character::{AbilityKind, Character};
 use crate::game::item::{
     bone_blade, ether, goblin_shiv, knightsbane, mimics_fang, orcish_greataxe, potion,
-    wraithbane_edge, Item, ItemFactory, ItemKind, Weapon, WeaponFactory,
+    sovereigns_reckoning, wardens_fang, wraithbane_edge, Item, ItemFactory, ItemKind, Weapon,
+    WeaponFactory,
 };
 use crate::game::map::Position;
 use crate::game::party::Party;
@@ -60,14 +62,36 @@ fn loot_profile(
             Some((potion as ItemFactory, 0.6)),
             Some((mimics_fang as WeaponFactory, 0.4)),
         ),
-        // The boss's signature weapon isn't a dice roll — beating the fight
-        // itself is the gate, so the chance here is effectively 100%.
-        "The Barrow Knight" => (
+        _ => (5..=10, None, None),
+    }
+}
+
+/// Per-boss gold range, an optional (item, drop-chance) pair, and its
+/// guaranteed signature weapon. Unlike `loot_profile`, the weapon here is
+/// never a dice roll — beating the fight itself is the gate.
+fn boss_loot_profile(
+    kind: BossKind,
+) -> (
+    std::ops::RangeInclusive<u32>,
+    Option<(ItemFactory, f32)>,
+    WeaponFactory,
+) {
+    match kind {
+        BossKind::BarrowKnight => (
             80..=150,
             Some((potion as ItemFactory, 0.5)),
-            Some((knightsbane as WeaponFactory, 1.0)),
+            knightsbane as WeaponFactory,
         ),
-        _ => (5..=10, None, None),
+        BossKind::WyrmscaleWarden => (
+            150..=250,
+            Some((ether as ItemFactory, 0.5)),
+            wardens_fang as WeaponFactory,
+        ),
+        BossKind::AshenSovereign => (
+            250..=400,
+            Some((potion as ItemFactory, 0.5)),
+            sovereigns_reckoning as WeaponFactory,
+        ),
     }
 }
 
@@ -77,7 +101,13 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
     let mut weapons = Vec::new();
     let mut overkill_bonus = 0u32;
     for (i, e) in enemies.iter().enumerate() {
-        let (gold_range, item_chance, weapon_chance) = loot_profile(&e.name);
+        let (gold_range, item_chance, weapon_chance) = match e.boss_kind {
+            Some(kind) => {
+                let (gold_range, item_chance, weapon_factory) = boss_loot_profile(kind);
+                (gold_range, item_chance, Some((weapon_factory, 1.0)))
+            }
+            None => loot_profile(&e.name),
+        };
         let base_gold = rng.gen_range(gold_range);
         if overkills.get(i).copied().unwrap_or(false) {
             let bonus = base_gold / 2;
@@ -147,10 +177,11 @@ pub struct CombatState {
     /// Parallel to `enemies`: whether that enemy died to a hit dealing at
     /// least 1.5x its max HP in one blow, which earns bonus gold on victory.
     pub overkills: Vec<bool>,
-    /// Whether the boss has already used its one-time "Second Wind" rally
-    /// this fight. Irrelevant for every other enemy; see
-    /// `resolve_enemy_action`.
-    pub enraged: bool,
+    /// How many of the current boss's rally thresholds have already fired
+    /// this fight (0 = none yet). Most bosses only ever reach 1; the final
+    /// boss's two-stage Ashen Rebirth can reach 2. Irrelevant for every
+    /// non-boss enemy; see `resolve_boss_move`.
+    pub enrage_stage: u8,
     /// Where to place the player back on the map once this fight ends.
     /// Set explicitly by the caller (`World`) right after construction —
     /// `None` here just means "use the default spawn," which only matters
@@ -204,7 +235,7 @@ impl CombatState {
             menu_cursor: 0,
             loot: None,
             overkills,
-            enraged: false,
+            enrage_stage: 0,
             return_pos: None,
         }
     }
@@ -362,14 +393,9 @@ impl CombatState {
             return;
         }
         let target_idx = alive_targets[rng.gen_range(0..alive_targets.len())];
-        let (ename, atk, is_wraith, is_boss) = {
+        let (ename, atk, is_wraith, boss_kind) = {
             let e = &self.enemies[ei];
-            (
-                e.name.clone(),
-                e.stats.attack,
-                e.name == "Wraith",
-                e.name == "The Barrow Knight",
-            )
+            (e.name.clone(), e.stats.attack, e.name == "Wraith", e.boss_kind)
         };
 
         // Wraiths spend some turns cursing the party instead of attacking directly.
@@ -384,41 +410,10 @@ impl CombatState {
             return;
         }
 
-        // The Barrow Knight rallies once, the instant it's beaten down to a
-        // sliver of health, rather than just dying quietly. This check runs
-        // before its normal attack roll and doesn't consume any RNG itself,
-        // so it can't shift outcomes for any other enemy.
-        if is_boss && !self.enraged {
-            let boss = &self.enemies[ei];
-            let hp_ratio = boss.stats.hp as f32 / boss.stats.max_hp as f32;
-            if hp_ratio <= 0.3 {
-                self.enraged = true;
-                let heal_amount = self.enemies[ei].stats.max_hp / 5; // 20% of max HP
-                self.enemies[ei].heal(heal_amount);
-                self.enemies[ei].stats.attack += 6;
-                self.push_log(format!("{ename} roars and calls on a second wind!"));
-                self.push_log(format!(
-                    "{ename} recovers {heal_amount} HP and fights harder!"
-                ));
+        if let Some(kind) = boss_kind {
+            if self.resolve_boss_move(ei, kind, &ename, atk, target_idx, party, rng) {
                 return;
             }
-        }
-
-        // The Barrow Knight occasionally winds up a much heavier blow.
-        if is_boss && rng.gen_bool(0.35) {
-            let boosted_atk = (atk as f32 * 1.8) as i32;
-            let def =
-                party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
-            let dmg = roll_damage(boosted_atk, def, rng);
-            party.members[target_idx].take_damage(dmg);
-            let tname = party.members[target_idx].name.clone();
-            self.push_log(format!(
-                "{ename} winds up a Rending Cleave on {tname} for {dmg} damage!"
-            ));
-            if !party.members[target_idx].is_alive() {
-                self.push_log(format!("{tname} falls!"));
-            }
-            return;
         }
 
         let def = party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
@@ -428,6 +423,141 @@ impl CombatState {
         self.push_log(format!("{ename} attacks {tname} for {dmg} damage."));
         if !party.members[target_idx].is_alive() {
             self.push_log(format!("{tname} falls!"));
+        }
+    }
+
+    /// Runs `kind`'s scripted moves, if one fires this turn. Returns `true`
+    /// if it did (the caller should skip the default attack roll), `false`
+    /// if it should fall through to a normal attack. One arm per `BossKind`
+    /// — the direct generalization of what was previously a pair of
+    /// `is_boss`-gated `if` blocks hardcoded to the Barrow Knight alone.
+    fn resolve_boss_move(
+        &mut self,
+        ei: usize,
+        kind: BossKind,
+        ename: &str,
+        atk: i32,
+        target_idx: usize,
+        party: &mut Party,
+        rng: &mut impl Rng,
+    ) -> bool {
+        match kind {
+            BossKind::BarrowKnight => {
+                // Rallies once, the instant it's beaten down to a sliver of
+                // health, rather than just dying quietly. This check runs
+                // before its normal attack roll and doesn't consume any RNG
+                // itself, so it can't shift outcomes for any other enemy.
+                if self.enrage_stage == 0 {
+                    let boss = &self.enemies[ei];
+                    let hp_ratio = boss.stats.hp as f32 / boss.stats.max_hp as f32;
+                    if hp_ratio <= 0.3 {
+                        self.enrage_stage = 1;
+                        let heal_amount = self.enemies[ei].stats.max_hp / 5; // 20% of max HP
+                        self.enemies[ei].heal(heal_amount);
+                        self.enemies[ei].stats.attack += 6;
+                        self.push_log(format!("{ename} roars and calls on a second wind!"));
+                        self.push_log(format!(
+                            "{ename} recovers {heal_amount} HP and fights harder!"
+                        ));
+                        return true;
+                    }
+                }
+
+                // Occasionally winds up a much heavier blow.
+                if rng.gen_bool(0.35) {
+                    let boosted_atk = (atk as f32 * 1.8) as i32;
+                    let def = party.members[target_idx].total_defense()
+                        + party.stat_delta(StatEffectTarget::Defense);
+                    let dmg = roll_damage(boosted_atk, def, rng);
+                    party.members[target_idx].take_damage(dmg);
+                    let tname = party.members[target_idx].name.clone();
+                    self.push_log(format!(
+                        "{ename} winds up a Rending Cleave on {tname} for {dmg} damage!"
+                    ));
+                    if !party.members[target_idx].is_alive() {
+                        self.push_log(format!("{tname} falls!"));
+                    }
+                    return true;
+                }
+
+                false
+            }
+            BossKind::WyrmscaleWarden => {
+                // Rallies once, permanently hardening its hide, once beaten
+                // down under 40% HP.
+                if self.enrage_stage == 0 {
+                    let boss = &self.enemies[ei];
+                    let hp_ratio = boss.stats.hp as f32 / boss.stats.max_hp as f32;
+                    if hp_ratio <= 0.4 {
+                        self.enrage_stage = 1;
+                        self.enemies[ei].stats.defense += 8;
+                        self.push_log(format!("{ename} sheds a layer of scale, hardening its hide!"));
+                        self.push_log(format!("{ename}'s defense rises!"));
+                        return true;
+                    }
+                }
+
+                // Occasionally sweeps its tail across the whole party at once —
+                // the first party-wide enemy move in the game.
+                if rng.gen_bool(0.3) {
+                    self.push_log(format!("{ename} sweeps its tail across the whole party!"));
+                    let def_delta = party.stat_delta(StatEffectTarget::Defense);
+                    for member in party.alive_members_mut() {
+                        let def = member.total_defense() + def_delta;
+                        let dmg = roll_damage(atk, def, rng);
+                        member.take_damage(dmg);
+                        let tname = member.name.clone();
+                        let alive = member.is_alive();
+                        self.push_log(format!("{tname} takes {dmg} damage."));
+                        if !alive {
+                            self.push_log(format!("{tname} falls!"));
+                        }
+                    }
+                    return true;
+                }
+
+                false
+            }
+            BossKind::AshenSovereign => {
+                // Two-stage rebirth: rallies once below 50% HP, and again
+                // below 20% — each stage heals a bit less but still hits harder.
+                if self.enrage_stage < 2 {
+                    let boss = &self.enemies[ei];
+                    let hp_ratio = boss.stats.hp as f32 / boss.stats.max_hp as f32;
+                    let threshold = if self.enrage_stage == 0 { 0.5 } else { 0.2 };
+                    if hp_ratio <= threshold {
+                        self.enrage_stage += 1;
+                        let heal_pct = if self.enrage_stage == 1 { 0.15 } else { 0.10 };
+                        let heal_amount = (self.enemies[ei].stats.max_hp as f32 * heal_pct) as i32;
+                        self.enemies[ei].heal(heal_amount);
+                        self.enemies[ei].stats.attack += 5;
+                        self.push_log(format!("{ename} crumbles to ash and reforms!"));
+                        self.push_log(format!(
+                            "{ename} recovers {heal_amount} HP and fights harder!"
+                        ));
+                        return true;
+                    }
+                }
+
+                // Occasionally unleashes a devastating single-target nova.
+                if rng.gen_bool(0.4) {
+                    let boosted_atk = (atk as f32 * 2.0) as i32;
+                    let def = party.members[target_idx].total_defense()
+                        + party.stat_delta(StatEffectTarget::Defense);
+                    let dmg = roll_damage(boosted_atk, def, rng);
+                    party.members[target_idx].take_damage(dmg);
+                    let tname = party.members[target_idx].name.clone();
+                    self.push_log(format!(
+                        "{ename} unleashes a Cinder Nova on {tname} for {dmg} damage!"
+                    ));
+                    if !party.members[target_idx].is_alive() {
+                        self.push_log(format!("{tname} falls!"));
+                    }
+                    return true;
+                }
+
+                false
+            }
         }
     }
 
@@ -503,7 +633,9 @@ pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::character::{barrow_knight, mimic, orc, slime, warrior, wraith};
+    use crate::game::character::{
+        ashen_sovereign, barrow_knight, mimic, orc, slime, warrior, wraith, wyrmscale_warden,
+    };
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -913,7 +1045,7 @@ mod tests {
         };
         combat.resolve_current_turn(&mut party, &mut rng);
 
-        assert!(combat.enraged, "boss should enrage below 30% hp");
+        assert!(combat.enrage_stage > 0, "boss should enrage below 30% hp");
         assert!(
             combat.enemies[0].stats.hp > hp_before,
             "second wind should heal the boss"
@@ -936,7 +1068,7 @@ mod tests {
             actor: ActorRef::Enemy(0),
         };
         combat.resolve_current_turn(&mut party, &mut rng);
-        assert!(!combat.enraged, "boss should not enrage while healthy");
+        assert!(combat.enrage_stage == 0, "boss should not enrage while healthy");
     }
 
     #[test]
@@ -1034,6 +1166,182 @@ mod tests {
         assert!(
             loot.overkill_bonus > 0,
             "an overkilled fight should report a bonus"
+        );
+    }
+
+    #[test]
+    fn warden_rallies_below_40_percent_hp() {
+        let mut party = test_party();
+        let mut enemies = vec![wyrmscale_warden("Wyrmscale Warden")];
+        let max_hp = enemies[0].stats.max_hp;
+        enemies[0].stats.hp = (max_hp as f32 * 0.35) as i32; // below the 40% threshold
+        let def_before = enemies[0].stats.defense;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(5);
+        combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+
+        assert!(combat.enrage_stage > 0, "warden should enrage below 40% hp");
+        assert!(
+            combat.enemies[0].stats.defense > def_before,
+            "molting rage should permanently raise defense"
+        );
+    }
+
+    #[test]
+    fn warden_does_not_enrage_above_the_threshold() {
+        let mut party = test_party();
+        let enemies = vec![wyrmscale_warden("Wyrmscale Warden")]; // full HP
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(5);
+        combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert_eq!(combat.enrage_stage, 0, "warden should not enrage while healthy");
+    }
+
+    #[test]
+    fn warden_tail_sweep_hits_every_alive_party_member() {
+        // Probabilistic move (30% chance per turn) — sweep seeds like the
+        // other special-move tests.
+        let mut swept = false;
+        for seed in 0..50u64 {
+            let mut party = Party::new(vec![warrior("Bram"), warrior("Second")]);
+            let enemies = vec![wyrmscale_warden("Wyrmscale Warden")]; // full HP, won't enrage
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0), ActorRef::Player(1)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            let hp_before: Vec<i32> = party.members.iter().map(|m| m.stats.hp).collect();
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if combat.log.iter().any(|line| line.contains("sweeps its tail")) {
+                assert!(
+                    party.members.iter().enumerate().all(|(i, m)| m.stats.hp < hp_before[i]),
+                    "tail sweep should damage every party member, not just one"
+                );
+                swept = true;
+                break;
+            }
+        }
+        assert!(swept, "warden should use Tail Sweep at least once across many trials");
+    }
+
+    #[test]
+    fn defeating_the_warden_guarantees_its_signature_weapon() {
+        let mut party = test_party();
+        let mut enemies = vec![wyrmscale_warden("Wyrmscale Warden")];
+        enemies[0].stats.hp = 1;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(3);
+        // The warden (speed 8) is faster than the test party (speed 6), so
+        // the natural turn order would put it first — force the player's
+        // turn explicitly instead.
+        combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert!(matches!(combat.phase, CombatPhase::Victory));
+        let loot = combat.loot.expect("victory should always roll loot");
+        assert!(
+            loot.weapons.iter().any(|w| w.name == "Warden's Fang"),
+            "defeating the warden should always drop Warden's Fang"
+        );
+    }
+
+    #[test]
+    fn ashen_sovereign_can_reach_both_rebirth_stages() {
+        let mut party = test_party();
+        let mut enemies = vec![ashen_sovereign("The Ashen Sovereign")];
+        let max_hp = enemies[0].stats.max_hp;
+        enemies[0].stats.hp = (max_hp as f32 * 0.15) as i32; // below both thresholds at once
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(5);
+        combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+        combat.turn_cursor = 0;
+
+        // First enemy turn should trigger stage 1 (the 50% threshold, since
+        // hp_ratio <= 0.5 is checked before <= 0.2 within a single stage).
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert_eq!(combat.enrage_stage, 1);
+
+        // Re-lower HP below the second threshold and let it act again.
+        combat.enemies[0].stats.hp = (max_hp as f32 * 0.15) as i32;
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert_eq!(
+            combat.enrage_stage, 2,
+            "a second rebirth should fire once hp drops below the 20% threshold again"
+        );
+    }
+
+    #[test]
+    fn ashen_sovereign_can_use_cinder_nova() {
+        let mut used_nova = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            let enemies = vec![ashen_sovereign("The Ashen Sovereign")]; // full HP, won't enrage
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if combat.log.iter().any(|line| line.contains("Cinder Nova")) {
+                used_nova = true;
+                break;
+            }
+        }
+        assert!(
+            used_nova,
+            "the sovereign should use Cinder Nova at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn defeating_the_ashen_sovereign_guarantees_its_signature_weapon() {
+        let mut party = test_party();
+        let mut enemies = vec![ashen_sovereign("The Ashen Sovereign")];
+        enemies[0].stats.hp = 1;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(3);
+        // The sovereign (speed 10) is faster than the test party (speed 6),
+        // so force the player's turn explicitly rather than relying on the
+        // natural speed-sorted order.
+        combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert!(matches!(combat.phase, CombatPhase::Victory));
+        let loot = combat.loot.expect("victory should always roll loot");
+        assert!(
+            loot.weapons.iter().any(|w| w.name == "Sovereign's Reckoning"),
+            "defeating the sovereign should always drop Sovereign's Reckoning"
         );
     }
 }
