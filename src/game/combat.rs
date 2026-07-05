@@ -108,6 +108,9 @@ pub enum CombatPhase {
     SelectAction { actor: ActorRef },
     // A player-controlled actor chose "Ability" and is picking which one.
     SelectAbility { actor: ActorRef, cursor: usize },
+    // A player-controlled actor chose "Item" and is picking which one
+    // (e.g. Potion vs. Ether) before it's applied.
+    SelectItem { actor: ActorRef, cursor: usize },
     // A player-controlled actor picked an action that needs a target.
     SelectTarget {
         actor: ActorRef,

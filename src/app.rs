@@ -206,12 +206,9 @@ impl World {
                             }
                         }
                         2 => {
-                            // Items (potions/ethers) are always ally-targeted right now.
-                            combat.phase = CombatPhase::SelectTarget {
-                                actor,
-                                action: CombatAction::Item(0),
-                                target_idx: pi,
-                            };
+                            if !self.inventory.items.is_empty() {
+                                combat.phase = CombatPhase::SelectItem { actor, cursor: 0 };
+                            }
                         }
                         _ => {
                             combat.phase = CombatPhase::SelectTarget {
@@ -262,6 +259,39 @@ impl World {
                     _ => {}
                 }
             }
+            CombatPhase::SelectItem { actor, cursor } => {
+                let ActorRef::Player(pi) = actor else { return };
+                let item_count = self.inventory.items.len().max(1);
+                match key {
+                    KeyCode::Up | KeyCode::Char('w') => {
+                        let new_cursor = (cursor + item_count - 1) % item_count;
+                        combat.phase = CombatPhase::SelectItem {
+                            actor,
+                            cursor: new_cursor,
+                        };
+                    }
+                    KeyCode::Down | KeyCode::Char('s') => {
+                        let new_cursor = (cursor + 1) % item_count;
+                        combat.phase = CombatPhase::SelectItem {
+                            actor,
+                            cursor: new_cursor,
+                        };
+                    }
+                    KeyCode::Enter => {
+                        if cursor < self.inventory.items.len() {
+                            combat.phase = CombatPhase::SelectTarget {
+                                actor,
+                                action: CombatAction::Item(cursor),
+                                target_idx: pi,
+                            };
+                        }
+                    }
+                    KeyCode::Esc => {
+                        combat.phase = CombatPhase::SelectAction { actor };
+                    }
+                    _ => {}
+                }
+            }
             CombatPhase::SelectTarget {
                 actor,
                 action,
@@ -296,6 +326,9 @@ impl World {
                             CombatAction::Ability(idx) => {
                                 CombatPhase::SelectAbility { actor, cursor: idx }
                             }
+                            CombatAction::Item(idx) => {
+                                CombatPhase::SelectItem { actor, cursor: idx }
+                            }
                             _ => CombatPhase::SelectAction { actor },
                         };
                     }
@@ -325,20 +358,17 @@ impl World {
         };
         let ActorRef::Player(pi) = actor else { return };
 
-        if let CombatAction::Item(_) = action {
+        if let CombatAction::Item(idx) = action {
             // Items are drawn from Inventory (owned by World), applied, then we advance the turn.
-            if let Some((item, _)) = self.inventory.items.first().cloned() {
-                if let Some(kind) = self.inventory.use_at(0) {
-                    let user_name = self.party.members[pi].name.clone();
-                    combat.apply_item_and_advance(
-                        kind,
-                        &user_name,
-                        target_idx,
-                        &mut self.party,
-                        &mut self.rng,
-                    );
-                }
-                let _ = item; // silence unused warning if item struct fields go unused later
+            if let Some(kind) = self.inventory.use_at(idx) {
+                let user_name = self.party.members[pi].name.clone();
+                combat.apply_item_and_advance(
+                    kind,
+                    &user_name,
+                    target_idx,
+                    &mut self.party,
+                    &mut self.rng,
+                );
             } else {
                 combat.phase = CombatPhase::SelectAction { actor };
             }
@@ -822,6 +852,49 @@ mod tests {
             world.party.members[0].stats.hp > 1,
             "using a potion out of combat should heal the target"
         );
+    }
+
+    #[test]
+    fn combat_item_submenu_lets_you_pick_ether_over_potion() {
+        use crate::game::character::slime;
+
+        let mut world = World::new();
+        world.party.members[0].stats.mp = 0;
+        let combat = CombatState::new(&world.party, vec![slime("Slime")]);
+        world.state = GameState::Combat(combat);
+        let GameState::Combat(combat) = &mut world.state else {
+            unreachable!()
+        };
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Player(0),
+        };
+        combat.menu_cursor = 2; // Item
+
+        world.handle_key(KeyCode::Enter); // open the item submenu (starts on Potion)
+        world.handle_key(KeyCode::Down); // move to Ether
+        world.handle_key(KeyCode::Enter); // pick Ether, target self by default
+        world.handle_key(KeyCode::Enter); // confirm target
+
+        assert_eq!(
+            world.party.members[0].stats.mp, 10,
+            "picking Ether from the submenu should restore MP, not HP"
+        );
+        let potions = world
+            .inventory
+            .items
+            .iter()
+            .find(|(i, _)| i.name == "Potion")
+            .map(|(_, q)| *q)
+            .unwrap_or(0);
+        let ethers = world
+            .inventory
+            .items
+            .iter()
+            .find(|(i, _)| i.name == "Ether")
+            .map(|(_, q)| *q)
+            .unwrap_or(0);
+        assert_eq!(potions, 3, "the untouched item slot should keep its count");
+        assert_eq!(ethers, 1, "the picked item slot should be the one consumed");
     }
 
     #[test]

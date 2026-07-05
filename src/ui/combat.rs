@@ -260,12 +260,42 @@ fn draw_menu_or_result(
                 .title("Choose ability (↑↓ Enter, Esc back)");
             frame.render_widget(List::new(items).block(block), area);
         }
+        CombatPhase::SelectItem {
+            actor: ActorRef::Player(_),
+            cursor,
+        } => {
+            let items: Vec<ListItem> = inventory
+                .items
+                .iter()
+                .enumerate()
+                .map(|(i, (item, qty))| {
+                    let label = format!("{} x{qty}", item.name);
+                    let style = if i == cursor {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(Line::from(Span::styled(label, style)))
+                })
+                .collect();
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Choose item (↑↓ Enter, Esc back)");
+            if items.is_empty() {
+                frame.render_widget(Paragraph::new("No items.").block(block), area);
+            } else {
+                frame.render_widget(List::new(items).block(block), area);
+            }
+        }
         CombatPhase::SelectTarget { action, .. } => {
             let hint = match action {
-                CombatAction::Item(_) => {
+                CombatAction::Item(idx) => {
                     let item_name = inventory
                         .items
-                        .first()
+                        .get(idx)
                         .map(|(i, qty)| format!("{} x{qty}", i.name))
                         .unwrap_or_else(|| "no items".to_string());
                     format!("Using: {item_name}\n←→ target, Enter confirm, Esc back")
@@ -324,6 +354,10 @@ fn draw_menu_or_result(
             actor: ActorRef::Enemy(_),
         }
         | CombatPhase::SelectAbility {
+            actor: ActorRef::Enemy(_),
+            ..
+        }
+        | CombatPhase::SelectItem {
             actor: ActorRef::Enemy(_),
             ..
         } => {

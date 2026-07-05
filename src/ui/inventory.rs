@@ -118,11 +118,17 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
                             Span::raw("")
                         },
                     ]);
+                    let selected = i == inv_ui.cursor;
+                    let detail_style = if selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
                     let detail = Line::from(Span::styled(
                         format!("     {} — {}", w.description, w.source),
-                        Style::default().fg(Color::DarkGray),
+                        detail_style,
                     ));
-                    let bg = if i == inv_ui.cursor {
+                    let bg = if selected {
                         Style::default().bg(Color::DarkGray)
                     } else {
                         Style::default()

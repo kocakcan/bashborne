@@ -27,7 +27,7 @@ pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &In
         .split(outer[1]);
 
     match shop.mode {
-        ShopMode::Buy => draw_buy_list(frame, mid[0], shop, party),
+        ShopMode::Buy => draw_buy_list(frame, mid[0], shop, party, inventory),
         ShopMode::Sell => draw_sell_list(frame, mid[0], shop, inventory),
     }
     draw_party_gear(frame, mid[1], party);
@@ -81,7 +81,13 @@ fn cursor_style(selected: bool) -> Style {
     }
 }
 
-fn draw_buy_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party) {
+fn draw_buy_list(
+    frame: &mut Frame,
+    area: Rect,
+    shop: &ShopUiState,
+    party: &Party,
+    inventory: &Inventory,
+) {
     let items: Vec<ListItem> = match shop.tab {
         InventoryTab::Items => shop_item_stock()
             .into_iter()
@@ -89,6 +95,12 @@ fn draw_buy_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Part
             .map(|(i, (factory, price))| {
                 let sample = factory();
                 let affordable = party.gold >= price;
+                let owned = inventory
+                    .items
+                    .iter()
+                    .find(|(item, _)| item.name == sample.name)
+                    .map(|(_, qty)| *qty)
+                    .unwrap_or(0);
                 let style = if i == shop.cursor {
                     cursor_style(true)
                 } else if !affordable {
@@ -97,7 +109,7 @@ fn draw_buy_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Part
                     Style::default()
                 };
                 ListItem::new(Line::from(Span::styled(
-                    format!("{:<16} {price} gold", sample.name),
+                    format!("{:<16} {price} gold   (have x{owned})", sample.name),
                     style,
                 )))
             })
