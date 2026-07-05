@@ -1,9 +1,10 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
+use crate::game::character::AbilityKind;
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
 use crate::game::item::Inventory;
 use crate::game::party::Party;
@@ -241,8 +242,9 @@ fn draw_menu_or_result(
                 .enumerate()
                 .map(|(i, ability)| {
                     let affordable = party.members[pi].stats.mp >= ability.mp_cost;
+                    let selected = i == cursor;
                     let label = format!("{} (MP {})", ability.name, ability.mp_cost);
-                    let style = if i == cursor {
+                    let header_style = if selected {
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::White)
@@ -252,7 +254,22 @@ fn draw_menu_or_result(
                     } else {
                         Style::default()
                     };
-                    ListItem::new(Line::from(Span::styled(label, style)))
+                    let header = Line::from(Span::styled(label, header_style));
+                    let description = match ability.kind {
+                        AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
+                            format!("     Deals ~{} damage to one enemy", ability.power)
+                        }
+                        AbilityKind::Heal => {
+                            format!("     Heals {} HP to one ally", ability.power)
+                        }
+                    };
+                    let detail_style = if selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    let detail = Line::from(Span::styled(description, detail_style));
+                    ListItem::new(Text::from(vec![header, detail]))
                 })
                 .collect();
             let block = Block::default()
@@ -316,6 +333,14 @@ fn draw_menu_or_result(
             if let Some(loot) = &combat.loot {
                 if loot.gold > 0 {
                     lines.push(Line::from(format!("Found {} gold.", loot.gold)));
+                }
+                if loot.overkill_bonus > 0 {
+                    lines.push(Line::from(Span::styled(
+                        format!("Overkill bonus: +{} gold!", loot.overkill_bonus),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )));
                 }
                 for item in &loot.items {
                     lines.push(Line::from(format!("Found: {}", item.name)));

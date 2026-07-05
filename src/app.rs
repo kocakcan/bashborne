@@ -727,6 +727,12 @@ impl World {
                     self.party.gold += loot.gold;
                     messages.push(format!("You found {} gold.", loot.gold));
                 }
+                if loot.overkill_bonus > 0 {
+                    messages.push(format!(
+                        "Overkill! That earned {} bonus gold.",
+                        loot.overkill_bonus
+                    ));
+                }
                 for item in loot.items {
                     messages.push(format!("You found a {}!", item.name));
                     self.inventory.add(item, 1);

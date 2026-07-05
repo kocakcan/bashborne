@@ -14,6 +14,9 @@ pub struct Loot {
     pub gold: u32,
     pub items: Vec<Item>,
     pub weapons: Vec<Weapon>,
+    /// Extra gold earned from overkill kills this fight (already folded into
+    /// `gold`); kept separate so the UI can call it out.
+    pub overkill_bonus: u32,
 }
 
 /// Per-species gold range, an optional (item, drop-chance) pair, and an
@@ -68,13 +71,21 @@ fn loot_profile(
     }
 }
 
-fn roll_loot(enemies: &[Character], rng: &mut impl Rng) -> Loot {
+fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> Loot {
     let mut gold = 0u32;
     let mut items = Vec::new();
     let mut weapons = Vec::new();
-    for e in enemies {
+    let mut overkill_bonus = 0u32;
+    for (i, e) in enemies.iter().enumerate() {
         let (gold_range, item_chance, weapon_chance) = loot_profile(&e.name);
-        gold += rng.gen_range(gold_range);
+        let base_gold = rng.gen_range(gold_range);
+        if overkills.get(i).copied().unwrap_or(false) {
+            let bonus = base_gold / 2;
+            overkill_bonus += bonus;
+            gold += base_gold + bonus;
+        } else {
+            gold += base_gold;
+        }
         if let Some((make_item, chance)) = item_chance {
             if rng.gen::<f32>() < chance {
                 items.push(make_item());
@@ -86,7 +97,7 @@ fn roll_loot(enemies: &[Character], rng: &mut impl Rng) -> Loot {
             }
         }
     }
-    Loot { gold, items, weapons }
+    Loot { gold, items, weapons, overkill_bonus }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +144,9 @@ pub struct CombatState {
     pub log: Vec<String>,
     pub menu_cursor: usize,
     pub loot: Option<Loot>,
+    /// Parallel to `enemies`: whether that enemy died to a hit dealing at
+    /// least 1.5x its max HP in one blow, which earns bonus gold on victory.
+    pub overkills: Vec<bool>,
     /// Whether the boss has already used its one-time "Second Wind" rally
     /// this fight. Irrelevant for every other enemy; see
     /// `resolve_enemy_action`.
@@ -179,6 +193,8 @@ impl CombatState {
             }
         }
 
+        let overkills = vec![false; enemies.len()];
+
         Self {
             enemies,
             turn_order: order,
@@ -187,6 +203,7 @@ impl CombatState {
             log,
             menu_cursor: 0,
             loot: None,
+            overkills,
             enraged: false,
             return_pos: None,
         }
@@ -259,10 +276,12 @@ impl CombatState {
                     let dmg = roll_damage(atk, enemy.stats.defense, rng);
                     enemy.take_damage(dmg);
                     let ename = enemy.name.clone();
+                    let max_hp = enemy.stats.max_hp;
                     let alive = enemy.is_alive();
                     self.push_log(format!("{attacker_name} attacks {ename} for {dmg} damage."));
                     if !alive {
                         self.push_log(format!("{ename} is defeated!"));
+                        self.check_overkill(target_idx, dmg, max_hp, &ename);
                     }
                 }
             }
@@ -286,6 +305,7 @@ impl CombatState {
                         if let Some(enemy) = self.enemies.get_mut(target_idx) {
                             enemy.take_damage(dmg);
                             let ename = enemy.name.clone();
+                            let max_hp = enemy.stats.max_hp;
                             let alive = enemy.is_alive();
                             self.push_log(format!(
                                 "{attacker_name} casts {} on {ename} for {dmg} damage.",
@@ -293,6 +313,7 @@ impl CombatState {
                             ));
                             if !alive {
                                 self.push_log(format!("{ename} is defeated!"));
+                                self.check_overkill(target_idx, dmg, max_hp, &ename);
                             }
                         }
                     }
@@ -321,6 +342,17 @@ impl CombatState {
                     self.push_log(format!("{attacker_name} tries to flee, but can't get away!"));
                 }
             }
+        }
+    }
+
+    /// Flags `target_idx` as overkilled (for bonus gold on victory) if the
+    /// killing blow dealt at least 1.5x the enemy's max HP in one hit.
+    fn check_overkill(&mut self, target_idx: usize, dmg: i32, max_hp: i32, ename: &str) {
+        if dmg as f32 >= max_hp as f32 * 1.5 {
+            self.overkills[target_idx] = true;
+            self.push_log(format!(
+                "Overkill! {ename} never stood a chance — expect a bigger bounty."
+            ));
         }
     }
 
@@ -405,7 +437,7 @@ impl CombatState {
             return;
         }
         if self.alive_enemy_indices().is_empty() {
-            self.loot = Some(roll_loot(&self.enemies, rng));
+            self.loot = Some(roll_loot(&self.enemies, &self.overkills, rng));
             self.phase = CombatPhase::Victory;
             return;
         }
@@ -952,6 +984,56 @@ mod tests {
         assert!(
             loot.weapons.iter().any(|w| w.name == "Knightsbane"),
             "defeating the boss should always drop Knightsbane"
+        );
+    }
+
+    #[test]
+    fn overkill_grants_bonus_gold() {
+        let enemies = vec![slime("Slime")];
+        let mut rng1 = StdRng::seed_from_u64(50);
+        let normal = roll_loot(&enemies, &[false], &mut rng1);
+        let mut rng2 = StdRng::seed_from_u64(50);
+        let overkill = roll_loot(&enemies, &[true], &mut rng2);
+
+        assert!(
+            overkill.gold > normal.gold,
+            "an overkilled kill should pay out more gold than a normal one for the same roll"
+        );
+        assert!(
+            overkill.overkill_bonus > 0,
+            "overkill_bonus should reflect the extra gold earned"
+        );
+    }
+
+    #[test]
+    fn one_shotting_an_enemy_with_massive_damage_triggers_overkill() {
+        let mut party = test_party();
+        let enemies = vec![slime("Slime")]; // max_hp 18, so overkill needs >= 27 damage in one hit
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(1);
+        // Force damage far past the 1.5x-max-HP threshold regardless of variance.
+        party.members[0].stats.attack = 200;
+
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+
+        assert!(matches!(combat.phase, CombatPhase::Victory));
+        assert!(
+            combat.overkills[0],
+            "massive damage should flag the kill as an overkill"
+        );
+        assert!(
+            combat.log.iter().any(|line| line.contains("Overkill")),
+            "the log should call out the overkill"
+        );
+        let loot = combat.loot.expect("victory should always roll loot");
+        assert!(
+            loot.overkill_bonus > 0,
+            "an overkilled fight should report a bonus"
         );
     }
 }
