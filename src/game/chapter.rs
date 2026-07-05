@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::game::character::{ashen_sovereign, barrow_knight, wyrmscale_warden, Character};
 use crate::game::map::{Map, Position};
 use crate::game::npc::NpcId;
@@ -7,7 +9,7 @@ use crate::game::npc::NpcId;
 /// new chapter is a compile error everywhere until it's wired up, rather
 /// than a silent gap (the same reasoning CLAUDE.md gives for `GameState`
 /// avoiding trait objects).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChapterId {
     One,
     Two,
@@ -18,7 +20,7 @@ pub enum ChapterId {
 /// can dispatch scripted moves by matching this enum instead of comparing
 /// display-name strings (which is how the Barrow Knight was special-cased
 /// before this refactor — fragile, and it only gets more so with more bosses).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BossKind {
     BarrowKnight,
     WyrmscaleWarden,
@@ -35,6 +37,10 @@ pub struct ChapterDef {
     pub spawn: Position,
     pub boss: fn(&str) -> Character,
     pub boss_display_name: &'static str,
+    /// The level every regular (non-boss) monster on this chapter's map is
+    /// scaled up to via `Character::scale_to_level` — the knob that makes
+    /// each chapter's tall grass genuinely harder than the last chapter's.
+    pub enemy_level: u32,
     pub npcs: Vec<(Position, NpcId)>,
     /// The chapter that follows once this one's boss is defeated. `None`
     /// only for the final chapter.
@@ -50,6 +56,7 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 2 },
             boss: barrow_knight,
             boss_display_name: "The Barrow Knight",
+            enemy_level: 1,
             npcs: vec![
                 (Position { x: 12, y: 5 }, NpcId::OldHerbalist),
                 (Position { x: 2, y: 3 }, NpcId::Blacksmith),
@@ -63,6 +70,7 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 7 },
             boss: wyrmscale_warden,
             boss_display_name: "Wyrmscale Warden",
+            enemy_level: 4,
             npcs: vec![
                 (Position { x: 10, y: 5 }, NpcId::WoundedScout),
                 (Position { x: 3, y: 7 }, NpcId::Blacksmith),
@@ -76,6 +84,7 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 2 },
             boss: ashen_sovereign,
             boss_display_name: "The Ashen Sovereign",
+            enemy_level: 7,
             npcs: vec![
                 (Position { x: 5, y: 5 }, NpcId::AshenPilgrim),
                 (Position { x: 3, y: 2 }, NpcId::Blacksmith),
@@ -108,6 +117,14 @@ mod tests {
             };
             assert_eq!(boss.boss_kind, Some(expected));
         }
+    }
+
+    #[test]
+    fn regular_enemy_levels_escalate_chapter_over_chapter() {
+        let one = chapter_def(ChapterId::One).enemy_level;
+        let two = chapter_def(ChapterId::Two).enemy_level;
+        let three = chapter_def(ChapterId::Three).enemy_level;
+        assert!(one < two && two < three);
     }
 
     #[test]

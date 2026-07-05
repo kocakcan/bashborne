@@ -64,10 +64,13 @@ pub enum GameState {
     GameOver { victory: bool },
 }
 
-/// Simple encounter table used when the player steps into tall grass and a fight occurs.
-pub fn roll_encounter(rng: &mut impl Rng) -> Vec<Character> {
+/// Simple encounter table used when the player steps into tall grass and a
+/// fight occurs. Every rolled enemy is then scaled up to `enemy_level` (the
+/// current chapter's `ChapterDef::enemy_level`), so the same species table
+/// gets genuinely harder chapter over chapter.
+pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32) -> Vec<Character> {
     use crate::game::character::{bat, goblin, orc, skeleton, slime, wolf, wraith};
-    match rng.gen_range(0..10) {
+    let mut enemies = match rng.gen_range(0..10) {
         0 => vec![slime("Slime")],
         1 => vec![slime("Slime"), slime("Slime")],
         2 => vec![goblin("Goblin")],
@@ -78,7 +81,11 @@ pub fn roll_encounter(rng: &mut impl Rng) -> Vec<Character> {
         7 => vec![orc("Orc")],
         8 => vec![wraith("Wraith")],
         _ => vec![goblin("Goblin"), bat("Bat")],
+    };
+    for enemy in &mut enemies {
+        enemy.scale_to_level(enemy_level);
     }
+    enemies
 }
 
 /// What happens when a tall-grass encounter roll fires: not always a fight.
@@ -97,16 +104,19 @@ pub enum FieldEvent {
 }
 
 /// Weighted table for grass encounters: 55% combat, 15% blessing, 15% curse,
-/// 15% treasure. Tune the ranges below to rebalance.
-pub fn roll_field_event(rng: &mut impl Rng) -> FieldEvent {
+/// 15% treasure. Tune the ranges below to rebalance. `enemy_level` scales
+/// any combat outcome (including a Mimic ambush) to the current chapter.
+pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
     match rng.gen_range(0..20) {
-        0..=10 => FieldEvent::Combat(roll_encounter(rng)), // 11/20
+        0..=10 => FieldEvent::Combat(roll_encounter(rng, enemy_level)), // 11/20
         11..=13 => FieldEvent::Blessing(roll_blessing(rng)), // 3/20
         14..=16 => FieldEvent::Curse(roll_curse(rng)),       // 3/20
         _ => {
             // 3/20: usually real treasure, but occasionally it bites back.
             if rng.gen_ratio(1, 6) {
-                FieldEvent::Combat(vec![crate::game::character::mimic("Mimic")])
+                let mut mimic = crate::game::character::mimic("Mimic");
+                mimic.scale_to_level(enemy_level);
+                FieldEvent::Combat(vec![mimic])
             } else {
                 let gold = rng.gen_range(10..=25);
                 let item = if rng.gen_bool(0.5) {
@@ -134,5 +144,46 @@ pub fn roll_field_event(rng: &mut impl Rng) -> FieldEvent {
                 FieldEvent::Treasure { gold, item, weapon, materials }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn later_chapters_field_stronger_versions_of_the_same_species() {
+        // Same seed rolls the same composition; only the scaling differs.
+        for seed in 0..20u64 {
+            let ch1 = roll_encounter(&mut StdRng::seed_from_u64(seed), 1);
+            let ch3 = roll_encounter(&mut StdRng::seed_from_u64(seed), 7);
+            for (weak, strong) in ch1.iter().zip(ch3.iter()) {
+                assert_eq!(weak.name, strong.name);
+                assert_eq!(weak.level, 1);
+                assert_eq!(strong.level, 7);
+                assert!(strong.stats.max_hp > weak.stats.max_hp);
+                assert!(strong.stats.attack > weak.stats.attack);
+                assert!(strong.stats.defense > weak.stats.defense);
+            }
+        }
+    }
+
+    #[test]
+    fn a_mimic_ambush_is_scaled_to_the_chapters_enemy_level() {
+        // Sweep seeds until the treasure arm rolls a Mimic, then check its level.
+        let mut saw_a_mimic = false;
+        for seed in 0..500u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            if let FieldEvent::Combat(enemies) = roll_field_event(&mut rng, 7) {
+                if enemies.iter().any(|e| e.name == "Mimic") {
+                    assert!(enemies.iter().all(|e| e.level == 7));
+                    saw_a_mimic = true;
+                    break;
+                }
+            }
+        }
+        assert!(saw_a_mimic, "some seed should roll a Mimic ambush");
     }
 }

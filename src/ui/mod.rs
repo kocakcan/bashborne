@@ -21,7 +21,13 @@ mod shop;
 pub fn draw(frame: &mut Frame, world: &World) {
     match &world.state {
         GameState::Explore(explore) => explore::draw(frame, explore, &world.party),
-        GameState::Combat(combat) => combat::draw(frame, combat, &world.party, &world.inventory),
+        GameState::Combat(combat) => combat::draw(
+            frame,
+            combat,
+            &world.party,
+            &world.inventory,
+            world.anim_frame(),
+        ),
         GameState::Event(ev) => event::draw(frame, ev),
         GameState::Inventory(inv) => inventory::draw(frame, inv, &world.party, &world.inventory),
         GameState::Shop(shop_ui) => shop::draw(frame, shop_ui, &world.party, &world.inventory),

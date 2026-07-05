@@ -1,8 +1,9 @@
 use std::fmt;
 
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StatEffectTarget {
     Attack,
     Defense,
@@ -23,7 +24,7 @@ impl fmt::Display for StatEffectTarget {
 /// A party-wide buff (positive delta) or curse (negative delta) that lasts a fixed
 /// number of *encounters* (not turns) — it survives until the party has fought
 /// through (or fled) that many battles, then wears off.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusEffect {
     pub name: String,
     pub target: StatEffectTarget,

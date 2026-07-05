@@ -152,7 +152,10 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
             }
             None => loot_profile(&e.name),
         };
-        let base_gold = rng.gen_range(gold_range);
+        // Tougher, later-chapter specimens of the same species pay out more:
+        // +15% per level past the first (see `Character::scale_to_level`).
+        let rolled = rng.gen_range(gold_range);
+        let base_gold = rolled + rolled * 15 * e.level.saturating_sub(1) / 100;
         if overkills.get(i).copied().unwrap_or(false) {
             let bonus = base_gold / 2;
             overkill_bonus += bonus;
@@ -1673,6 +1676,21 @@ mod tests {
         }
         assert!(high_luck_crit, "a high-luck attacker should crit at least once");
         assert!(!low_luck_crit, "a zero-luck attacker should never crit");
+    }
+
+    #[test]
+    fn a_level_scaled_enemy_pays_more_gold_and_xp_than_its_base_form() {
+        let base = vec![orc("Orc")];
+        let mut tough = orc("Orc");
+        tough.scale_to_level(7);
+        let scaled = vec![tough];
+
+        // Same seed, so the underlying gold roll is identical — only the
+        // level multiplier differs.
+        let base_loot = roll_loot(&base, &[false], &mut StdRng::seed_from_u64(9));
+        let scaled_loot = roll_loot(&scaled, &[false], &mut StdRng::seed_from_u64(9));
+        assert!(scaled_loot.gold > base_loot.gold);
+        assert!(scaled_loot.xp > base_loot.xp);
     }
 
     #[test]

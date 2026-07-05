@@ -1,6 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use crate::game::character::Character;
 use crate::game::status::{StatEffectTarget, StatusEffect};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Party {
     pub members: Vec<Character>,
     pub gold: u32,

@@ -1,4 +1,5 @@
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 
 use crate::game::quest::QuestId;
 
@@ -7,7 +8,7 @@ use crate::game::quest::QuestId;
 /// plain enum + exhaustive match, the same pattern the rest of this
 /// codebase uses instead of string-keyed lookups (see how fragile the
 /// boss's name-string checks are).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NpcId {
     OldHerbalist,
     WoundedScout,

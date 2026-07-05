@@ -1,6 +1,8 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ItemKind {
     /// Heals a fraction of the target's max HP, so potency scales with the
     /// target's stats (a leveled-up character with more max HP heals for
@@ -10,7 +12,7 @@ pub enum ItemKind {
     Ether { mp_percent: f32 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub name: String,
     pub kind: ItemKind,
@@ -45,7 +47,7 @@ pub type RingFactory = fn() -> Ring;
 /// Weapon rarity tier. Declared in ascending power order so `Rarity::Legendary`
 /// is greater than `Rarity::Common` etc. via the derived `Ord` — the rarer a
 /// weapon, the stronger it is, full stop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Rarity {
     Common,
     Uncommon,
@@ -87,14 +89,15 @@ impl Rarity {
 /// Where a piece of gear came from — purely descriptive, shown in the
 /// inventory screen so the player knows how they got it. Shared by
 /// `Weapon`, `Armor`, and `Ring` alike.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GearSource {
     /// Carried from the start of the game.
     Starting,
     /// Found while exploring the field (hidden caches, buried relics).
     World,
-    /// Dropped by a specific enemy species after combat.
-    EnemyDrop(&'static str),
+    /// Dropped by a specific enemy species after combat. An owned `String`
+    /// (rather than `&'static str`) so saved games can deserialize it.
+    EnemyDrop(String),
 }
 
 impl fmt::Display for GearSource {
@@ -111,7 +114,7 @@ impl fmt::Display for GearSource {
 /// are hand-assigned one-to-one in the factory functions below, not a
 /// generic rarity-tier bonus, so each Legendary feels distinct rather than
 /// just "bigger numbers." Read by `game::combat`'s damage resolution.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum WeaponPassive {
     /// Basic Attacks heal the wielder for this fraction of the damage dealt.
     Lifesteal(f32),
@@ -149,7 +152,7 @@ impl WeaponPassive {
 /// equipped (`Character::equipped_weapon`); better ones are found while
 /// exploring the field or won by defeating certain enemies. Rarity is a
 /// straightforward power ladder — the rarer the weapon, the stronger it is.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Weapon {
     pub name: String,
     pub rarity: Rarity,
@@ -235,6 +238,19 @@ pub fn acolytes_mace() -> Weapon {
     }
 }
 
+pub fn thieves_dirk() -> Weapon {
+    Weapon {
+        name: "Thief's Dirk".into(),
+        rarity: Rarity::Common,
+        attack_bonus: 3,
+        defense_bonus: 0,
+        description: "Slim, quick, and honest about none of its history.".into(),
+        source: GearSource::Starting,
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
 pub fn iron_sword() -> Weapon {
     Weapon {
         name: "Iron Sword".into(),
@@ -255,7 +271,7 @@ pub fn goblin_shiv() -> Weapon {
         attack_bonus: 4,
         defense_bonus: 0,
         description: "Crude but wickedly sharp.".into(),
-        source: GearSource::EnemyDrop("Goblin"),
+        source: GearSource::EnemyDrop("Goblin".into()),
         upgrade_level: 0,
         passive: None,
     }
@@ -281,7 +297,7 @@ pub fn bone_blade() -> Weapon {
         attack_bonus: 7,
         defense_bonus: 0,
         description: "Carved from a fallen skeleton's own femur.".into(),
-        source: GearSource::EnemyDrop("Skeleton"),
+        source: GearSource::EnemyDrop("Skeleton".into()),
         upgrade_level: 0,
         passive: None,
     }
@@ -294,7 +310,7 @@ pub fn orcish_greataxe() -> Weapon {
         attack_bonus: 10,
         defense_bonus: 0,
         description: "Heavy enough to fell a tree in one swing.".into(),
-        source: GearSource::EnemyDrop("Orc"),
+        source: GearSource::EnemyDrop("Orc".into()),
         upgrade_level: 0,
         passive: None,
     }
@@ -307,7 +323,7 @@ pub fn wraithbane_edge() -> Weapon {
         attack_bonus: 9,
         defense_bonus: 2,
         description: "Etched with wards that flare hot near the restless dead.".into(),
-        source: GearSource::EnemyDrop("Wraith"),
+        source: GearSource::EnemyDrop("Wraith".into()),
         upgrade_level: 0,
         passive: None,
     }
@@ -333,7 +349,7 @@ pub fn mimics_fang() -> Weapon {
         attack_bonus: 15,
         defense_bonus: 1,
         description: "Still faintly warm. It was a tooth a moment ago.".into(),
-        source: GearSource::EnemyDrop("Mimic"),
+        source: GearSource::EnemyDrop("Mimic".into()),
         upgrade_level: 0,
         passive: None,
     }
@@ -363,7 +379,7 @@ pub fn knightsbane() -> Weapon {
         attack_bonus: 24,
         defense_bonus: 4,
         description: "Forged in the barrow's cold fire; still hums with the Knight's fury.".into(),
-        source: GearSource::EnemyDrop("The Barrow Knight"),
+        source: GearSource::EnemyDrop("The Barrow Knight".into()),
         upgrade_level: 0,
         passive: Some(WeaponPassive::Lifesteal(0.15)),
     }
@@ -380,7 +396,7 @@ pub fn wardens_fang() -> Weapon {
         defense_bonus: 4,
         description: "Torn from the Warden's own jaw; the scales along its edge still shed."
             .into(),
-        source: GearSource::EnemyDrop("Wyrmscale Warden"),
+        source: GearSource::EnemyDrop("Wyrmscale Warden".into()),
         upgrade_level: 0,
         passive: Some(WeaponPassive::DamageReduction(0.15)),
     }
@@ -395,7 +411,7 @@ pub fn sovereigns_reckoning() -> Weapon {
         attack_bonus: 27,
         defense_bonus: 5,
         description: "What's left of a throne, reforged into something that only takes.".into(),
-        source: GearSource::EnemyDrop("The Ashen Sovereign"),
+        source: GearSource::EnemyDrop("The Ashen Sovereign".into()),
         upgrade_level: 0,
         passive: Some(WeaponPassive::ArmorPierce(0.5)),
     }
@@ -404,7 +420,7 @@ pub fn sovereigns_reckoning() -> Weapon {
 /// A suit of armor, worn in a character's dedicated armor slot. Unlike
 /// weapons, armor only ever bolsters defense — no attack bonus — so it's
 /// the clearest way to build a tankier frontline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Armor {
     pub name: String,
     pub rarity: Rarity,
@@ -463,7 +479,7 @@ pub fn chainmail_hauberk() -> Armor {
         rarity: Rarity::Uncommon,
         defense_bonus: 6,
         description: "Interlocked rings stripped from a fallen skeleton.".into(),
-        source: GearSource::EnemyDrop("Skeleton"),
+        source: GearSource::EnemyDrop("Skeleton".into()),
     }
 }
 
@@ -473,7 +489,7 @@ pub fn warded_chainmail() -> Armor {
         rarity: Rarity::Rare,
         defense_bonus: 9,
         description: "Cold to the touch, etched with wards against the restless dead.".into(),
-        source: GearSource::EnemyDrop("Wraith"),
+        source: GearSource::EnemyDrop("Wraith".into()),
     }
 }
 
@@ -483,7 +499,7 @@ pub fn knights_plate() -> Armor {
         rarity: Rarity::Rare,
         defense_bonus: 10,
         description: "Dented but unbroken, stripped from a brute of an orc.".into(),
-        source: GearSource::EnemyDrop("Orc"),
+        source: GearSource::EnemyDrop("Orc".into()),
     }
 }
 
@@ -509,7 +525,7 @@ pub fn dragonscale_aegis() -> Armor {
 
 /// A ring, worn in one of a character's two ring slots. Rings lean toward
 /// attack, defense, or a bit of both — the flexible build-around slot.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ring {
     pub name: String,
     pub rarity: Rarity,
@@ -563,7 +579,7 @@ pub fn ring_of_vigor() -> Ring {
         attack_bonus: 3,
         defense_bonus: 0,
         description: "Pried from a goblin's clenched, still-twitching fist.".into(),
-        source: GearSource::EnemyDrop("Goblin"),
+        source: GearSource::EnemyDrop("Goblin".into()),
     }
 }
 
@@ -574,7 +590,7 @@ pub fn ring_of_warding() -> Ring {
         attack_bonus: 0,
         defense_bonus: 3,
         description: "Threaded with a ward-sigil, dulled but still active.".into(),
-        source: GearSource::EnemyDrop("Skeleton"),
+        source: GearSource::EnemyDrop("Skeleton".into()),
     }
 }
 
@@ -585,7 +601,7 @@ pub fn wolfsbane_signet() -> Ring {
         attack_bonus: 5,
         defense_bonus: 0,
         description: "Carved with a snarling wolf's-head, still sharp-edged.".into(),
-        source: GearSource::EnemyDrop("Wolf"),
+        source: GearSource::EnemyDrop("Wolf".into()),
     }
 }
 
@@ -607,7 +623,7 @@ pub fn mimics_coil() -> Ring {
         attack_bonus: 4,
         defense_bonus: 4,
         description: "Still faintly shifting, as if unsure what shape to hold.".into(),
-        source: GearSource::EnemyDrop("Mimic"),
+        source: GearSource::EnemyDrop("Mimic".into()),
     }
 }
 
@@ -622,6 +638,7 @@ pub fn band_of_the_barrow() -> Ring {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Inventory {
     // (item, quantity)
     pub items: Vec<(Item, u32)>,

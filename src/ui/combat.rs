@@ -12,7 +12,13 @@ use crate::game::sprites;
 
 const ACTION_LABELS: [&str; 4] = ["Attack", "Ability", "Item", "Flee"];
 
-pub fn draw(frame: &mut Frame, combat: &CombatState, party: &Party, inventory: &Inventory) {
+pub fn draw(
+    frame: &mut Frame,
+    combat: &CombatState,
+    party: &Party,
+    inventory: &Inventory,
+    anim_frame: usize,
+) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -22,7 +28,7 @@ pub fn draw(frame: &mut Frame, combat: &CombatState, party: &Party, inventory: &
         ])
         .split(frame.size());
 
-    draw_enemies(frame, outer[0], combat, party);
+    draw_enemies(frame, outer[0], combat, party, anim_frame);
 
     let mid = Layout::default()
         .direction(Direction::Horizontal)
@@ -50,7 +56,13 @@ fn targets_party(action: CombatAction, actor_idx: usize, party: &Party) -> bool 
     }
 }
 
-fn draw_enemies(frame: &mut Frame, area: Rect, combat: &CombatState, party: &Party) {
+fn draw_enemies(
+    frame: &mut Frame,
+    area: Rect,
+    combat: &CombatState,
+    party: &Party,
+    anim_frame: usize,
+) {
     let target_idx = match combat.phase {
         CombatPhase::SelectTarget {
             actor: ActorRef::Player(pi),
@@ -84,7 +96,7 @@ fn draw_enemies(frame: &mut Frame, area: Rect, combat: &CombatState, party: &Par
         let mut lines: Vec<Line> = Vec::new();
 
         if enemy.is_alive() {
-            for sprite_line in sprites::sprite_for(&enemy.name) {
+            for sprite_line in sprites::sprite_for(&enemy.name, anim_frame) {
                 lines.push(Line::from(Span::styled(
                     sprite_line.to_string(),
                     Style::default().fg(species_color),
@@ -112,7 +124,8 @@ fn draw_enemies(frame: &mut Frame, area: Rect, combat: &CombatState, party: &Par
             ]));
         } else {
             // Keep the column height stable even once an enemy is down.
-            for _ in 0..sprites::sprite_for(&enemy.name).len() {
+            // (Both frames of a sprite are the same height, so frame 0 works.)
+            for _ in 0..sprites::sprite_for(&enemy.name, 0).len() {
                 lines.push(Line::from(""));
             }
             lines.push(Line::from(""));

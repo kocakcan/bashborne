@@ -22,7 +22,8 @@ Dependency versions in `Cargo.toml` are pinned exactly
 (`ratatui = "=0.26.3"`, `crossterm = "=0.27.0"`, `rand = "=0.8.5"`) because
 the project was originally built against an old rustc. Don't loosen these
 without checking the toolchain actually in use — nothing in the code
-requires the older versions.
+requires the older versions. `anyhow`, `serde`, and `serde_json` are
+ordinary caret deps.
 
 There is no lint/format config checked in (no `rustfmt.toml`/`.clippy.toml`);
 use standard `cargo fmt` / `cargo clippy` defaults if asked to clean up code.
@@ -33,31 +34,42 @@ use standard `cargo fmt` / `cargo clippy` defaults if asked to clean up code.
 src/
   main.rs          — terminal setup/teardown (raw mode, alt screen, panic hook), run loop
   event.rs         — thin crossterm key-poll wrapper
-  app.rs           — World (Party + Inventory + GameState + rng), all input handling
+  app.rs           — World (Party + Inventory + GameState + chapter progress + rng), all input handling, save/load hooks
   ui/
     mod.rs         — dispatches to the right screen based on GameState; shared HP-bar/rarity-color helpers
-    explore.rs     — map viewport + party panel (incl. active effects) + log
-    combat.rs      — enemy sprites/HP bars + party panel + action/ability menu + log
-    event.rs       — blessing/curse/treasure narrative screen
-    inventory.rs   — out-of-combat inventory screen (equip weapons, use items)
+    explore.rs     — map viewport + party panel (incl. levels/XP and active effects) + log
+    combat.rs      — animated enemy sprites/HP bars + party panel + action/ability/item menus + log
+    event.rs       — blessing/curse/treasure/NPC-dialogue narrative screen
+    inventory.rs   — out-of-combat inventory screen (equip gear, use items, move gear between members)
     shop.rs        — town shop screen (buy/sell)
+    quest_log.rs   — active/completed quest list
+    levelup.rs     — stat-point allocation screen
+    blacksmith.rs  — weapon-upgrade screen
   game/
-    character.rs   — Stats, Class, Character (incl. equipped_weapon), Ability, full roster + boss factory fns
+    character.rs   — Stats, Class, Character, Ability, per-class LevelGrowth, XP curve, roster + boss factory fns
     party.rs       — Party (Vec<Character> + gold + active status effects)
-    item.rs        — Item, Rarity, Weapon, Inventory, item/weapon factory functions
+    item.rs        — Item, Rarity, Weapon/Armor/Ring, WeaponPassive, Inventory, gear factory functions
     inventory_ui.rs — InventoryUiState/Tab/Mode backing the out-of-combat inventory screen
     shop.rs        — fixed buy stock, ShopUiState, buy/sell pricing
-    map.rs         — Tile, Map, Position (hand-authored ASCII layout, incl. the boss lair)
-    combat.rs      — CombatState: turn order, action resolution, loot, boss AI, win/lose detection
-    sprites.rs     — ASCII art + per-species color for the combat screen
+    map.rs         — Tile, Map, Position (hand-authored ASCII layouts, one per chapter, incl. boss lairs)
+    combat.rs      — CombatState: turn order, action resolution, crits, loot/XP, boss AI, win/lose detection
+    chapter.rs     — ChapterId/ChapterDef registry (map, boss, NPCs, enemy_level), BossKind
+    npc.rs         — NpcId registry: dialogue, map glyphs, quest hooks
+    quest.rs       — QuestId registry, objectives, rewards, QuestLog
+    quest_ui.rs    — QuestLogUiState backing the quest-log screen
+    levelup.rs     — LevelUpUiState backing the allocation screen
+    blacksmith.rs  — upgrade costs/increments, BlacksmithUiState
+    sprites.rs     — two-frame animated ASCII art + per-species color for the combat screen
     status.rs      — StatusEffect: buffs/curses that persist across encounters
-    state.rs       — GameState enum (Explore | Combat | Event | Inventory | Shop | GameOver), field-event table
+    save.rs        — SaveData (serde/JSON) + read/write of bashborne_save.json
+    state.rs       — GameState enum, ExploreState, field-event table
 ```
 
 ### State machine
 
 `GameState` is a plain enum (`Explore | Combat | Event | Inventory | Shop |
-GameOver`) rather than `Box<dyn Screen>` trait objects — for a fixed, known
+QuestLog | LevelUp | Blacksmith | GameOver`) rather than `Box<dyn Screen>`
+trait objects — for a fixed, known
 set of screens this gives exhaustive `match` checking at compile time with
 no dynamic dispatch. `CombatPhase` is the same idea one level down:
 `SelectAction → SelectAbility → SelectTarget → {Victory, Defeat, Fled}`, all
@@ -80,14 +92,28 @@ Wolf, Skeleton, Orc, Wraith, Mimic), each with a distinct stat profile.
 in the normal encounter table — it's a 1-in-6 chance hiding inside what
 looked like a treasure find.
 
-The **Barrow Knight** boss (`character.rs`) is reachable only via the fixed
-`Tile::BossLair` tile, not a random roll, and has two scripted moves in
-`resolve_enemy_action` alongside the Wraith's curse: **Rending Cleave**
-(~1.8x damage, ~35% of turns) and a one-time **Second Wind** (heals 20% max
-HP, permanently +6 attack, triggers once at ≤30% HP). Beating it guarantees
-**Knightsbane**, the strongest weapon in the game. `World.boss_defeated`
-prevents the lair from re-triggering. Additional bosses would follow the
-same name-checked pattern inside `resolve_enemy_action`.
+Each chapter has one boss, reachable only via its fixed `Tile::BossLair`
+tile, not a random roll. Bosses are identified by `Character::boss_kind`
+(`BossKind` in `chapter.rs`) and their scripted moves live in
+`combat::resolve_boss_move`, one match arm per boss — the **Barrow Knight**
+(Rending Cleave + one-time Second Wind at ≤30% HP), the **Wyrmscale Warden**
+(party-wide Tail Sweep + one-time defense rally at ≤40% HP), and the
+**Ashen Sovereign** (Cinder Nova + two-stage Ashen Rebirth at ≤50%/≤20% HP).
+Beating a boss guarantees its Legendary signature weapon, marks the chapter
+in `World.bosses_defeated` (so the lair never re-triggers), and advances
+`World.current_chapter`; beating the final boss ends the game in victory.
+
+### Leveling & chapter difficulty
+
+Victory XP (`combat::xp_value`, derived from the enemy's stats; 3x for
+bosses) goes to every party member. Each level-up banks `POINTS_PER_LEVEL`
+allocatable points (spent on the `u` screen) *and* applies the class's
+automatic `level_growth` profile — Warriors toughen, Mages deepen their MP
+pool, Rogues gain speed/luck — so party members diverge even before any
+points are spent. Regular monsters use the same machinery in reverse:
+`ChapterDef::enemy_level` (1/4/7) is applied to every tall-grass roll via
+`Character::scale_to_level`, so later chapters field stronger specimens of
+the same species, which in turn raises the XP and gold they pay out.
 
 ### Weapons, rarity, inventory, shop
 
@@ -100,20 +126,20 @@ field-treasure rolls, per-species drop chances (`combat::loot_profile`),
 the shop (Common/Uncommon/Rare only), or the boss (Legendary, guaranteed).
 
 `i` from Explore opens the out-of-combat inventory (`ui/inventory.rs`,
-state in `game/inventory_ui.rs`) to equip weapons or use consumables on any
-party member — displaced weapons return to the bag. `e` on a town tile
-opens the shop (`ui/shop.rs`, `game/shop.rs`); selling only works on spare
-(unequipped) weapons, so unequip via the inventory screen first.
-**In-combat item use is hardcoded to inventory slot 0** —
-`resolve_pending_target` in `app.rs` always uses
-`self.inventory.items.first()`; there's no item submenu yet.
+state in `game/inventory_ui.rs`) to equip gear or use consumables on any
+party member — displaced gear returns to the bag, and the `p` party-gear
+mode can unequip or move pieces between members directly. `e` on a town
+tile opens the shop (`ui/shop.rs`, `game/shop.rs`); selling only works on
+spare (unequipped) gear. In combat, "Item" opens a submenu
+(`CombatPhase::SelectItem`) to pick which consumable to use.
 
 ### Field events & status effects
 
 Stepping into tall grass rolls a weighted outcome via `roll_field_event`
 (`game/state.rs`): 55% combat, 15% blessing, 15% curse, 15% treasure (which
 itself has a small chance of being a Mimic ambush, or of burying a bonus
-weapon). Blessings/curses (`game/status.rs`) are party-wide stat deltas
+weapon). All rolled enemies — Mimic included — are scaled to the current
+chapter's `enemy_level` before the fight starts. Blessings/curses (`game/status.rs`) are party-wide stat deltas
 (`StatusEffect { target, delta, encounters_remaining }`) that persist for a
 fixed number of *encounters*, not turns — `Party::tick_effects()` counts one
 down each time a combat encounter concludes (win or flee). `CombatState`
@@ -148,14 +174,28 @@ the real PTY output through a proper terminal emulator (e.g. the `pyte`
 Python package) to reconstruct an accurate screen buffer before asserting
 against it.
 
+## Save/load
+
+`S` while exploring writes `bashborne_save.json` (serde/JSON, in the
+working directory) via `game/save.rs`; startup (`World::load_or_new`)
+resumes from it automatically if present — deleting the file is how a
+player declines the continue. Only exploration state persists (party,
+inventory, chapter/boss/NPC/quest progress, position); combat and menus are
+never saved. `SaveData.version` gates loading: any mismatch or parse
+failure silently falls back to a fresh game.
+
+## Sprite animation
+
+Combat sprites have two idle frames (`sprites::ANIM_FRAMES`), flipped about
+twice a second by `World::anim_tick` (stepped once per ~100ms app-loop
+tick). Two invariants, enforced by unit tests in `sprites.rs`: a species'
+frames must share a line count (so the HP bar doesn't jump), and every line
+within a frame must be the same width — the combat screen centers lines
+independently, so a ragged line visibly drifts sideways.
+
 ## Known stubs / deliberately unfinished seams
 
-- `Class::Rogue` exists but has no factory function yet.
 - Only two blessings and two curses exist in `status.rs`'s pools
   (`roll_blessing`, `roll_curse`).
-- No leveling: `Character.level` is hardcoded to `1` everywhere; gear is the
-  only progression axis.
-- No armor/accessory slot — `equipped_weapon` is the only equipment slot.
-- No save/load — nothing implements `Serialize`/`Deserialize` yet.
-- Single overworld map (`Map::starting_area()`), single boss.
-- In-combat item selection is hardcoded to inventory slot 0 (see above).
+- The playable-class roster (Warrior/Mage/Cleric/Rogue) is fixed at game
+  start; there's no party selection or recruitment.

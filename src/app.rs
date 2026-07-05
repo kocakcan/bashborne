@@ -6,7 +6,7 @@ use crate::game::blacksmith::{
     upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState,
 };
 use crate::game::chapter::{chapter_def, ChapterId};
-use crate::game::character::{cleric, mage, warrior, Character, RingSlot, ALLOC_STATS};
+use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
 use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
 use crate::game::item::{Armor, Inventory, Ring, Weapon};
@@ -36,6 +36,9 @@ pub struct World {
     /// pick intro vs. repeat dialogue.
     pub npc_flags: std::collections::HashSet<NpcId>,
     pub quest_log: crate::game::quest::QuestLog,
+    /// Bumped once per app-loop tick (~100ms); drives the combat screen's
+    /// sprite animation via `anim_frame`.
+    pub anim_tick: u64,
 }
 
 impl World {
@@ -44,6 +47,7 @@ impl World {
             warrior("Bram"),
             mage("Sella"),
             cleric("Idris"),
+            rogue("Wren"),
         ]);
         Self {
             party,
@@ -55,7 +59,60 @@ impl World {
             bosses_defeated: std::collections::HashSet::new(),
             npc_flags: std::collections::HashSet::new(),
             quest_log: crate::game::quest::QuestLog::new(),
+            anim_tick: 0,
         }
+    }
+
+    /// Resumes from the save file if a valid one exists, otherwise starts
+    /// fresh. Deleting `bashborne_save.json` is how you decline a continue.
+    pub fn load_or_new() -> Self {
+        match crate::game::save::read() {
+            Some(data) => Self::from_save(data),
+            None => Self::new(),
+        }
+    }
+
+    /// Snapshots everything persistent into a `SaveData`. Only meaningful
+    /// while exploring — `player_pos` is where a loaded game will resume.
+    pub fn to_save(&self, player_pos: Position) -> crate::game::save::SaveData {
+        crate::game::save::SaveData {
+            version: crate::game::save::SAVE_VERSION,
+            party: self.party.clone(),
+            inventory: self.inventory.clone(),
+            current_chapter: self.current_chapter,
+            bosses_defeated: self.bosses_defeated.clone(),
+            npc_flags: self.npc_flags.clone(),
+            quest_log: self.quest_log.clone(),
+            player_pos,
+        }
+    }
+
+    /// Rebuilds a `World` from a snapshot, dropping the player back onto the
+    /// saved chapter's map at the saved position.
+    pub fn from_save(data: crate::game::save::SaveData) -> Self {
+        let mut explore = ExploreState::for_chapter(data.current_chapter);
+        explore.player_pos = data.player_pos;
+        explore.log.push("Loaded saved game.".to_string());
+        Self {
+            party: data.party,
+            inventory: data.inventory,
+            state: GameState::Explore(explore),
+            rng: rand::thread_rng(),
+            should_quit: false,
+            current_chapter: data.current_chapter,
+            bosses_defeated: data.bosses_defeated,
+            npc_flags: data.npc_flags,
+            quest_log: data.quest_log,
+            anim_tick: 0,
+        }
+    }
+
+    /// Which sprite animation frame the combat screen should show right now.
+    /// The app loop ticks roughly every 100ms, so dividing by 4 flips the
+    /// frame about twice a second — enough to read as idle motion without
+    /// being distracting.
+    pub fn anim_frame(&self) -> usize {
+        (self.anim_tick / 4) as usize % crate::game::sprites::ANIM_FRAMES
     }
 
     pub fn handle_key(&mut self, key: KeyCode) {
@@ -91,6 +148,21 @@ impl World {
     }
 
     fn handle_explore_key(&mut self, key: KeyCode) {
+        if key == KeyCode::Char('S') {
+            let GameState::Explore(explore) = &self.state else {
+                return;
+            };
+            let data = self.to_save(explore.player_pos);
+            let message = match crate::game::save::write(&data) {
+                Ok(()) => "Game saved.".to_string(),
+                Err(e) => format!("Couldn't save the game: {e}"),
+            };
+            let GameState::Explore(explore) = &mut self.state else {
+                return;
+            };
+            explore.log.push(message);
+            return;
+        }
         if key == KeyCode::Char('i') {
             let GameState::Explore(explore) = &self.state else {
                 return;
@@ -157,7 +229,8 @@ impl World {
             explore.steps_in_grass += 1;
             // ~1 in 4 steps through grass triggers *some* field event (not always a fight).
             if self.rng.gen_ratio(1, 4) {
-                match roll_field_event(&mut self.rng) {
+                let enemy_level = chapter_def(self.current_chapter).enemy_level;
+                match roll_field_event(&mut self.rng, enemy_level) {
                     FieldEvent::Combat(enemies) => {
                         let mut combat = CombatState::new(&self.party, enemies);
                         combat.return_pos = Some(next);
@@ -1417,8 +1490,9 @@ impl World {
     }
 
     /// Called once per app loop tick; advances enemy turns automatically since they
-    /// don't wait on keyboard input.
+    /// don't wait on keyboard input, and steps the sprite-animation clock.
     pub fn tick(&mut self) {
+        self.anim_tick = self.anim_tick.wrapping_add(1);
         if let GameState::Combat(combat) = &mut self.state {
             if let CombatPhase::SelectAction {
                 actor: ActorRef::Enemy(_),
@@ -2034,6 +2108,67 @@ mod tests {
         assert!(
             !world.inventory.weapons.iter().any(|w| w.name == "Iron Sword"),
             "the sold weapon should leave the bag"
+        );
+    }
+
+    #[test]
+    fn the_starting_party_includes_the_rogue() {
+        use crate::game::character::Class;
+        let world = World::new();
+        assert_eq!(world.party.members.len(), 4);
+        assert!(
+            world.party.members.iter().any(|m| m.class == Class::Rogue),
+            "the rogue should be part of the starting party"
+        );
+    }
+
+    #[test]
+    fn saving_and_restoring_a_world_round_trips_its_progress() {
+        let mut world = World::new();
+        world.party.gold = 777;
+        world.current_chapter = ChapterId::Two;
+        world.bosses_defeated.insert(ChapterId::One);
+        world.npc_flags.insert(NpcId::OldHerbalist);
+        world
+            .quest_log
+            .accept(crate::game::quest::QuestId::ScoutsCommendation);
+        world.party.members[0].gain_xp(60); // level 2, growth applied
+        world.inventory.add_weapon(iron_sword());
+        let pos = Position { x: 5, y: 6 };
+
+        // Round-trip through the actual JSON representation, not just the
+        // in-memory structs, since that's what the save file stores.
+        let json = serde_json::to_string(&world.to_save(pos)).expect("save should serialize");
+        let restored = World::from_save(serde_json::from_str(&json).expect("save should parse"));
+
+        assert_eq!(restored.party.gold, 777);
+        assert_eq!(restored.current_chapter, ChapterId::Two);
+        assert!(restored.bosses_defeated.contains(&ChapterId::One));
+        assert!(restored.npc_flags.contains(&NpcId::OldHerbalist));
+        assert!(restored
+            .quest_log
+            .is_active(crate::game::quest::QuestId::ScoutsCommendation));
+        assert_eq!(restored.party.members[0].level, 2);
+        assert_eq!(
+            restored.party.members[0].stats.max_hp,
+            world.party.members[0].stats.max_hp
+        );
+        assert!(restored
+            .inventory
+            .weapons
+            .iter()
+            .any(|w| w.name == "Iron Sword"));
+        let GameState::Explore(explore) = &restored.state else {
+            panic!("a loaded game should resume in Explore");
+        };
+        assert_eq!(
+            explore.player_pos, pos,
+            "the player should resume where they saved"
+        );
+        assert_eq!(
+            explore.map.tile_at(Position { x: 26, y: 1 }),
+            Tile::BossLair,
+            "the loaded map should be chapter two's"
         );
     }
 

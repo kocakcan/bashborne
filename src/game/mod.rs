@@ -10,6 +10,7 @@ pub mod npc;
 pub mod party;
 pub mod quest;
 pub mod quest_ui;
+pub mod save;
 pub mod shop;
 pub mod sprites;
 pub mod state;

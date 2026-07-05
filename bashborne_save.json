@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "party": {
+    "members": [
+      {
+        "name": "Bram",
+        "class": "Warrior",
+        "level": 3,
+        "xp": 62,
+        "unspent_points": 6,
+        "stats": {
+          "max_hp": 56,
+          "hp": 56,
+          "max_mp": 12,
+          "mp": 12,
+          "attack": 16,
+          "defense": 12,
+          "speed": 6,
+          "luck": 5
+        },
+        "abilities": [
+          {
+            "name": "Power Strike",
+            "mp_cost": 3,
+            "base_power": 10,
+            "kind": "PhysicalDamage"
+          },
+          {
+            "name": "Crushing Blow",
+            "mp_cost": 6,
+            "base_power": 18,
+            "kind": "PhysicalDamage"
+          }
+        ],
+        "equipped_weapon": {
+          "name": "Worn Shortsword",
+          "rarity": "Common",
+          "attack_bonus": 2,
+          "defense_bonus": 0,
+          "description": "A nicked, well-used blade. Better than fists.",
+          "source": "Starting",
+          "upgrade_level": 0,
+          "passive": null
+        },
+        "equipped_armor": null,
+        "equipped_rings": [
+          null,
+          null
+        ],
+        "boss_kind": null
+      },
+      {
+        "name": "Sella",
+        "class": "Mage",
+        "level": 3,
+        "xp": 62,
+        "unspent_points": 6,
+        "stats": {
+          "max_hp": 32,
+          "hp": 32,
+          "max_mp": 40,
+          "mp": 40,
+          "attack": 7,
+          "defense": 6,
+          "speed": 10,
+          "luck": 8
+        },
+        "abilities": [
+          {
+            "name": "Firebolt",
+            "mp_cost": 6,
+            "base_power": 16,
+            "kind": "MagicDamage"
+          },
+          {
+            "name": "Lightning Bolt",
+            "mp_cost": 12,
+            "base_power": 26,
+            "kind": "MagicDamage"
+          }
+        ],
+        "equipped_weapon": {
+          "name": "Apprentice's Wand",
+          "rarity": "Common",
+          "attack_bonus": 1,
+          "defense_bonus": 0,
+          "description": "A simple wand every mage starts with.",
+          "source": "Starting",
+          "upgrade_level": 0,
+          "passive": null
+        },
+        "equipped_armor": null,
+        "equipped_rings": [
+          null,
+          null
+        ],
+        "boss_kind": null
+      },
+      {
+        "name": "Idris",
+        "class": "Cleric",
+        "level": 3,
+        "xp": 62,
+        "unspent_points": 6,
+        "stats": {
+          "max_hp": 42,
+          "hp": 42,
+          "max_mp": 32,
+          "mp": 32,
+          "attack": 8,
+          "defense": 10,
+          "speed": 7,
+          "luck": 6
+        },
+        "abilities": [
+          {
+            "name": "Mend",
+            "mp_cost": 8,
+            "base_power": 18,
+            "kind": "Heal"
+          },
+          {
+            "name": "Smite",
+            "mp_cost": 5,
+            "base_power": 12,
+            "kind": "PhysicalDamage"
+          }
+        ],
+        "equipped_weapon": {
+          "name": "Acolyte's Mace",
+          "rarity": "Common",
+          "attack_bonus": 2,
+          "defense_bonus": 1,
+          "description": "Blunt and humble, blessed only lightly.",
+          "source": "Starting",
+          "upgrade_level": 0,
+          "passive": null
+        },
+        "equipped_armor": null,
+        "equipped_rings": [
+          null,
+          null
+        ],
+        "boss_kind": null
+      },
+      {
+        "name": "Wren",
+        "class": "Rogue",
+        "level": 3,
+        "xp": 62,
+        "unspent_points": 6,
+        "stats": {
+          "max_hp": 38,
+          "hp": 38,
+          "max_mp": 18,
+          "mp": 18,
+          "attack": 13,
+          "defense": 7,
+          "speed": 15,
+          "luck": 16
+        },
+        "abilities": [
+          {
+            "name": "Backstab",
+            "mp_cost": 4,
+            "base_power": 12,
+            "kind": "PhysicalDamage"
+          },
+          {
+            "name": "Fan of Knives",
+            "mp_cost": 9,
+            "base_power": 22,
+            "kind": "PhysicalDamage"
+          }
+        ],
+        "equipped_weapon": {
+          "name": "Thief's Dirk",
+          "rarity": "Common",
+          "attack_bonus": 3,
+          "defense_bonus": 0,
+          "description": "Slim, quick, and honest about none of its history.",
+          "source": "Starting",
+          "upgrade_level": 0,
+          "passive": null
+        },
+        "equipped_armor": null,
+        "equipped_rings": [
+          null,
+          null
+        ],
+        "boss_kind": null
+      }
+    ],
+    "gold": 210,
+    "effects": [
+      {
+        "name": "Warrior's Blessing",
+        "target": "Attack",
+        "delta": 5,
+        "encounters_remaining": 1
+      }
+    ]
+  },
+  "inventory": {
+    "items": [
+      [
+        {
+          "name": "Potion",
+          "kind": {
+            "Potion": {
+              "heal_percent": 0.35
+            }
+          },
+          "value": 15
+        },
+        3
+      ],
+      [
+        {
+          "name": "Ether",
+          "kind": {
+            "Ether": {
+              "mp_percent": 0.35
+            }
+          },
+          "value": 20
+        },
+        2
+      ]
+    ],
+    "weapons": [
+      {
+        "name": "Knightsbane",
+        "rarity": "Legendary",
+        "attack_bonus": 24,
+        "defense_bonus": 4,
+        "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
+        "source": {
+          "EnemyDrop": "The Barrow Knight"
+        },
+        "upgrade_level": 0,
+        "passive": {
+          "Lifesteal": 0.15
+        }
+      }
+    ],
+    "armors": [],
+    "rings": [],
+    "upgrade_materials": 9
+  },
+  "current_chapter": "Two",
+  "bosses_defeated": [
+    "One"
+  ],
+  "npc_flags": [],
+  "quest_log": {
+    "active": [],
+    "completed": []
+  },
+  "player_pos": {
+    "x": 4,
+    "y": 7
+  }
+}

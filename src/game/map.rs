@@ -9,7 +9,7 @@ pub enum Tile {
     BossLair,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Position {
     pub x: i32,
     pub y: i32,

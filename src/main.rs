@@ -35,7 +35,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> anyhow::Result<()> {
-    let mut world = World::new();
+    // Resume from the save file if one exists, otherwise start fresh.
+    let mut world = World::load_or_new();
 
     while !world.should_quit {
         terminal.draw(|frame| ui::draw(frame, &world))?;

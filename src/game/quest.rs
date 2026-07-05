@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::game::chapter::ChapterId;
 use crate::game::item::{ArmorFactory, Inventory, ItemFactory, RingFactory, WeaponFactory};
 use crate::game::npc::NpcId;
@@ -5,7 +7,7 @@ use crate::game::npc::NpcId;
 /// Identifies a specific quest. Each variant has a fixed registry entry in
 /// `quest_def` — a plain enum + exhaustive match, the same pattern used
 /// throughout this codebase instead of string-keyed lookups.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum QuestId {
     HerbalistsRequest,
     ScoutsCommendation,
@@ -101,6 +103,7 @@ pub fn objective_satisfied(
 
 /// Tracks which quests the party has accepted and finished. A quest can
 /// only ever be in one of "not yet offered", `active`, or `completed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuestLog {
     pub active: Vec<QuestId>,
     pub completed: Vec<QuestId>,

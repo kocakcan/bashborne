@@ -62,7 +62,7 @@ fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
     }
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Fields — arrows/WASD to move, i inventory, e shop/NPC, u level up, q to quit");
+        .title("Fields — arrows/WASD move, i inventory, e shop/NPC, u level up, S save, q quit");
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
 }

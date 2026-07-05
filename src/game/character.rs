@@ -1,9 +1,13 @@
 use std::fmt;
 
-use crate::game::chapter::BossKind;
-use crate::game::item::{acolytes_mace, apprentice_wand, worn_shortsword, Armor, Ring, Weapon};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy)]
+use crate::game::chapter::BossKind;
+use crate::game::item::{
+    acolytes_mace, apprentice_wand, thieves_dirk, worn_shortsword, Armor, Ring, Weapon,
+};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Stats {
     pub max_hp: i32,
     pub hp: i32,
@@ -16,11 +20,10 @@ pub struct Stats {
     pub luck: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Class {
     Warrior,
     Mage,
-    #[allow(dead_code)] // reserved for a future playable class
     Rogue,
     Cleric,
     Monster,
@@ -39,14 +42,14 @@ impl fmt::Display for Class {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum AbilityKind {
     PhysicalDamage,
     MagicDamage,
     Heal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ability {
     pub name: String,
     pub mp_cost: i32,
@@ -116,7 +119,69 @@ pub fn xp_to_next_level(level: u32) -> u32 {
     20 * level + 30
 }
 
-#[derive(Debug, Clone)]
+/// Automatic per-level stat growth, applied on every level-up *in addition*
+/// to the banked points the player spends by hand — so each class grows into
+/// a different shape on its own (the Warrior toughens, the Mage's mana pool
+/// deepens, the Rogue gets faster and luckier) even before any allocation.
+#[derive(Debug, Clone, Copy)]
+pub struct LevelGrowth {
+    pub max_hp: i32,
+    pub max_mp: i32,
+    pub attack: i32,
+    pub defense: i32,
+    pub speed: i32,
+    pub luck: i32,
+}
+
+/// Each class's growth profile. `Monster` gets a flat, modest curve — it's
+/// what `Character::scale_to_level` uses to toughen enemies up for later
+/// chapters, not something the player ever sees on a party member.
+pub fn level_growth(class: Class) -> LevelGrowth {
+    match class {
+        Class::Warrior => LevelGrowth {
+            max_hp: 7,
+            max_mp: 1,
+            attack: 2,
+            defense: 2,
+            speed: 0,
+            luck: 0,
+        },
+        Class::Mage => LevelGrowth {
+            max_hp: 3,
+            max_mp: 5,
+            attack: 1,
+            defense: 1,
+            speed: 1,
+            luck: 1,
+        },
+        Class::Rogue => LevelGrowth {
+            max_hp: 4,
+            max_mp: 2,
+            attack: 2,
+            defense: 1,
+            speed: 2,
+            luck: 2,
+        },
+        Class::Cleric => LevelGrowth {
+            max_hp: 5,
+            max_mp: 4,
+            attack: 1,
+            defense: 2,
+            speed: 0,
+            luck: 1,
+        },
+        Class::Monster => LevelGrowth {
+            max_hp: 5,
+            max_mp: 0,
+            attack: 1,
+            defense: 1,
+            speed: 0,
+            luck: 0,
+        },
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Character {
     pub name: String,
     pub class: Class,
@@ -178,6 +243,7 @@ impl Character {
             self.xp -= xp_to_next_level(self.level);
             self.level += 1;
             self.unspent_points += POINTS_PER_LEVEL;
+            self.apply_level_growth();
             levels += 1;
         }
         if levels > 0 {
@@ -185,6 +251,36 @@ impl Character {
             self.stats.mp = self.stats.max_mp;
         }
         levels
+    }
+
+    /// Applies one level's worth of this class's automatic growth (see
+    /// `level_growth`). Current HP/MP grow alongside their maxima so the
+    /// bump is never a phantom gain that still has to be healed up to.
+    fn apply_level_growth(&mut self) {
+        let g = level_growth(self.class);
+        self.stats.max_hp += g.max_hp;
+        self.stats.hp += g.max_hp;
+        self.stats.max_mp += g.max_mp;
+        self.stats.mp += g.max_mp;
+        self.stats.attack += g.attack;
+        self.stats.defense += g.defense;
+        self.stats.speed += g.speed;
+        self.stats.luck += g.luck;
+    }
+
+    /// Raises this character straight to `level` (if higher than its current
+    /// one), applying its class's automatic growth for every level gained
+    /// and topping HP/MP off. This is how later chapters toughen up their
+    /// regular monsters — same species, more dangerous specimen — and since
+    /// `combat::xp_value` reads the resulting stats, XP rewards scale along
+    /// with the threat automatically.
+    pub fn scale_to_level(&mut self, level: u32) {
+        while self.level < level {
+            self.level += 1;
+            self.apply_level_growth();
+        }
+        self.stats.hp = self.stats.max_hp;
+        self.stats.mp = self.stats.max_mp;
     }
 
     /// Spends one banked point on `stat`, if any are available. Returns
@@ -420,6 +516,44 @@ pub fn cleric(name: &str) -> Character {
             },
         ],
         equipped_weapon: Some(acolytes_mace()),
+        equipped_armor: None,
+        equipped_rings: [None, None],
+        boss_kind: None,
+    }
+}
+
+pub fn rogue(name: &str) -> Character {
+    Character {
+        name: name.to_string(),
+        class: Class::Rogue,
+        level: 1,
+        xp: 0,
+        unspent_points: 0,
+        stats: Stats {
+            max_hp: 30,
+            hp: 30,
+            max_mp: 14,
+            mp: 14,
+            attack: 9,
+            defense: 5,
+            speed: 11,
+            luck: 12,
+        },
+        abilities: vec![
+            Ability {
+                name: "Backstab".into(),
+                mp_cost: 4,
+                base_power: 12,
+                kind: AbilityKind::PhysicalDamage,
+            },
+            Ability {
+                name: "Fan of Knives".into(),
+                mp_cost: 9,
+                base_power: 22,
+                kind: AbilityKind::PhysicalDamage,
+            },
+        ],
+        equipped_weapon: Some(thieves_dirk()),
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
@@ -956,6 +1090,91 @@ mod tests {
     fn total_luck_reflects_the_base_stat() {
         let hero = warrior("Bram");
         assert_eq!(hero.total_luck(), hero.stats.luck);
+    }
+
+    #[test]
+    fn the_rogue_is_a_playable_class_with_a_weapon_and_abilities() {
+        let vex = rogue("Wren");
+        assert_eq!(vex.class, Class::Rogue);
+        assert!(vex.equipped_weapon.is_some());
+        assert_eq!(vex.abilities.len(), 2);
+        assert!(vex.boss_kind.is_none());
+    }
+
+    #[test]
+    fn the_rogue_is_faster_and_luckier_than_the_other_starters() {
+        let vex = rogue("Wren");
+        for other in [warrior("Bram"), mage("Sella"), cleric("Idris")] {
+            assert!(vex.stats.speed > other.stats.speed);
+            assert!(vex.stats.luck > other.stats.luck);
+        }
+    }
+
+    #[test]
+    fn each_class_grows_into_a_different_shape_on_level_up() {
+        let level_once = |mut c: Character| {
+            c.gain_xp(xp_to_next_level(1));
+            c
+        };
+        let bram = level_once(warrior("Bram"));
+        let sella = level_once(mage("Sella"));
+        let wren = level_once(rogue("Wren"));
+
+        // Same level-up, different automatic growth per class.
+        assert!(
+            bram.stats.max_hp - warrior("Bram").stats.max_hp
+                > sella.stats.max_hp - mage("Sella").stats.max_hp,
+            "the warrior should gain more HP per level than the mage"
+        );
+        assert!(
+            sella.stats.max_mp - mage("Sella").stats.max_mp
+                > bram.stats.max_mp - warrior("Bram").stats.max_mp,
+            "the mage should gain more MP per level than the warrior"
+        );
+        assert!(
+            wren.stats.speed - rogue("Wren").stats.speed
+                > bram.stats.speed - warrior("Bram").stats.speed,
+            "the rogue should gain more speed per level than the warrior"
+        );
+    }
+
+    #[test]
+    fn level_ups_grow_stats_automatically_on_top_of_banked_points() {
+        let mut hero = warrior("Bram");
+        let hp_before = hero.stats.max_hp;
+        let atk_before = hero.stats.attack;
+        hero.gain_xp(xp_to_next_level(1));
+        assert!(
+            hero.stats.max_hp > hp_before,
+            "growth applies without spending points"
+        );
+        assert!(hero.stats.attack > atk_before);
+        assert_eq!(
+            hero.unspent_points, POINTS_PER_LEVEL,
+            "banked points still accrue"
+        );
+    }
+
+    #[test]
+    fn scale_to_level_toughens_a_monster_and_heals_it_to_full() {
+        let mut enemy = orc("Orc");
+        let base = enemy.stats;
+        enemy.scale_to_level(5);
+        assert_eq!(enemy.level, 5);
+        assert!(enemy.stats.max_hp > base.max_hp);
+        assert!(enemy.stats.attack > base.attack);
+        assert!(enemy.stats.defense > base.defense);
+        assert_eq!(enemy.stats.hp, enemy.stats.max_hp);
+    }
+
+    #[test]
+    fn scale_to_level_never_lowers_a_level() {
+        let mut enemy = orc("Orc");
+        enemy.scale_to_level(5);
+        let stats_at_five = enemy.stats;
+        enemy.scale_to_level(2); // no-op: already past level 2
+        assert_eq!(enemy.level, 5);
+        assert_eq!(enemy.stats.max_hp, stats_at_five.max_hp);
     }
 
     #[test]
