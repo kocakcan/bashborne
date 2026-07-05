@@ -168,7 +168,9 @@ impl Character {
 
     /// Adds `amount` XP, applying as many level-ups as it covers (a single
     /// large award — e.g. a boss kill — can cross several thresholds at
-    /// once). Returns the number of levels gained, 0 if none.
+    /// once). Returns the number of levels gained, 0 if none. Any level gained
+    /// fully restores HP and MP, so leveling up always feels like a reward
+    /// rather than leaving the party mid-fight at whatever HP it was at.
     pub fn gain_xp(&mut self, amount: u32) -> u32 {
         self.xp += amount;
         let mut levels = 0;
@@ -177,6 +179,10 @@ impl Character {
             self.level += 1;
             self.unspent_points += POINTS_PER_LEVEL;
             levels += 1;
+        }
+        if levels > 0 {
+            self.stats.hp = self.stats.max_hp;
+            self.stats.mp = self.stats.max_mp;
         }
         levels
     }
@@ -907,6 +913,24 @@ mod tests {
         assert_eq!(hero.level, 4);
         assert_eq!(hero.unspent_points, POINTS_PER_LEVEL * 3);
         assert_eq!(hero.xp, 5);
+    }
+
+    #[test]
+    fn gaining_a_level_heals_hp_and_mp_to_full() {
+        let mut hero = warrior("Bram");
+        hero.stats.hp = 1;
+        hero.stats.mp = 0;
+        hero.gain_xp(xp_to_next_level(1));
+        assert_eq!(hero.stats.hp, hero.stats.max_hp);
+        assert_eq!(hero.stats.mp, hero.stats.max_mp);
+    }
+
+    #[test]
+    fn gaining_xp_without_a_level_up_does_not_heal() {
+        let mut hero = warrior("Bram");
+        hero.stats.hp = 1;
+        hero.gain_xp(1);
+        assert_eq!(hero.stats.hp, 1);
     }
 
     #[test]

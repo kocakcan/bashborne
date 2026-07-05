@@ -1,6 +1,6 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
@@ -71,16 +71,20 @@ fn draw_weapon_list(
                     Some((gold, shards)) => {
                         let affordable =
                             party.gold >= gold && inventory.upgrade_materials >= shards;
+                        // Selected rows get a DarkGray background (below), so an
+                        // unaffordable label styled DarkGray-on-DarkGray used to be
+                        // effectively invisible on the highlighted row. Red reads
+                        // clearly against both the normal and highlighted background.
                         let style = if affordable {
-                            Style::default().fg(Color::Green)
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                         } else {
-                            Style::default().fg(Color::DarkGray)
+                            Style::default().fg(Color::Red)
                         };
                         Span::styled(format!("Upgrade: {gold}g + {shards} shards"), style)
                     }
                     None => Span::styled("MAX", Style::default().fg(Color::Yellow)),
                 };
-                ListItem::new(Line::from(vec![
+                let header = Line::from(vec![
                     Span::raw(marker),
                     Span::styled(
                         format!("{:<22}", weapon.display_name()),
@@ -94,8 +98,15 @@ fn draw_weapon_list(
                         weapon_ref_label(r, party)
                     )),
                     cost_label,
-                ]))
-                .style(base_style)
+                ]);
+                let mut lines = vec![header];
+                if let Some(passive) = weapon.passive {
+                    lines.push(Line::from(Span::styled(
+                        format!("     {}", passive.description()),
+                        Style::default().fg(Color::Yellow),
+                    )));
+                }
+                ListItem::new(Text::from(lines)).style(base_style)
             })
             .collect()
     };

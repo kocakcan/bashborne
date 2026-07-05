@@ -4,11 +4,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::game::inventory_ui::InventoryTab;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 use crate::game::shop::{
-    shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopUiState,
+    shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopTab,
+    ShopUiState,
 };
 
 pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &Inventory) {
@@ -62,10 +62,10 @@ fn draw_header(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party)
         Span::raw(" "),
         mode_span("Sell", shop.mode == ShopMode::Sell),
         Span::raw("   |  "),
-        tab_span("Items", shop.tab == InventoryTab::Items),
-        tab_span("Weapons", shop.tab == InventoryTab::Weapons),
-        tab_span("Armor", shop.tab == InventoryTab::Armor),
-        tab_span("Rings", shop.tab == InventoryTab::Rings),
+        tab_span("Items", shop.tab == ShopTab::Items),
+        tab_span("Weapons", shop.tab == ShopTab::Weapons),
+        tab_span("Armor", shop.tab == ShopTab::Armor),
+        tab_span("Rings", shop.tab == ShopTab::Rings),
         Span::raw(format!("   Gold: {}", party.gold)),
     ]);
     let block = Block::default()
@@ -82,7 +82,7 @@ fn draw_buy_list(
     inventory: &Inventory,
 ) {
     let items: Vec<ListItem> = match shop.tab {
-        InventoryTab::Items => shop_item_stock()
+        ShopTab::Items => shop_item_stock()
             .into_iter()
             .enumerate()
             .map(|(i, (factory, price))| {
@@ -107,7 +107,7 @@ fn draw_buy_list(
                 )))
             })
             .collect(),
-        InventoryTab::Weapons => shop_weapon_stock()
+        ShopTab::Weapons => shop_weapon_stock()
             .into_iter()
             .enumerate()
             .map(|(i, (factory, price))| {
@@ -134,7 +134,7 @@ fn draw_buy_list(
                 .style(base_style)
             })
             .collect(),
-        InventoryTab::Armor => shop_armor_stock()
+        ShopTab::Armor => shop_armor_stock()
             .into_iter()
             .enumerate()
             .map(|(i, (factory, price))| {
@@ -161,7 +161,7 @@ fn draw_buy_list(
                 .style(base_style)
             })
             .collect(),
-        InventoryTab::Rings => shop_ring_stock()
+        ShopTab::Rings => shop_ring_stock()
             .into_iter()
             .enumerate()
             .map(|(i, (factory, price))| {
@@ -204,7 +204,7 @@ fn draw_buy_list(
 
 fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: &Inventory) {
     let items: Vec<ListItem> = match shop.tab {
-        InventoryTab::Items => inventory
+        ShopTab::Items => inventory
             .items
             .iter()
             .enumerate()
@@ -216,7 +216,7 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
                 )))
             })
             .collect(),
-        InventoryTab::Weapons => inventory
+        ShopTab::Weapons => inventory
             .weapons
             .iter()
             .enumerate()
@@ -240,7 +240,7 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
                 .style(base_style)
             })
             .collect(),
-        InventoryTab::Armor => inventory
+        ShopTab::Armor => inventory
             .armors
             .iter()
             .enumerate()
@@ -264,7 +264,7 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
                 .style(base_style)
             })
             .collect(),
-        InventoryTab::Rings => inventory
+        ShopTab::Rings => inventory
             .rings
             .iter()
             .enumerate()
@@ -290,22 +290,22 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             .collect(),
     };
     let title = match shop.tab {
-        InventoryTab::Items => "Your items (↑↓ select, Enter to sell)",
-        InventoryTab::Weapons => "Your spare weapons (↑↓ select, Enter to sell)",
-        InventoryTab::Armor => "Your spare armor (↑↓ select, Enter to sell)",
-        InventoryTab::Rings => "Your spare rings (↑↓ select, Enter to sell)",
+        ShopTab::Items => "Your items (↑↓ select, Enter to sell)",
+        ShopTab::Weapons => "Your spare weapons (↑↓ select, Enter to sell)",
+        ShopTab::Armor => "Your spare armor (↑↓ select, Enter to sell)",
+        ShopTab::Rings => "Your spare rings (↑↓ select, Enter to sell)",
     };
     let block = Block::default().borders(Borders::ALL).title(title);
     if items.is_empty() {
         let msg = match shop.tab {
-            InventoryTab::Items => "Nothing to sell.",
-            InventoryTab::Weapons => {
+            ShopTab::Items => "Nothing to sell.",
+            ShopTab::Weapons => {
                 "No spare weapons to sell. Unequip one in the inventory screen first."
             }
-            InventoryTab::Armor => {
+            ShopTab::Armor => {
                 "No spare armor to sell. Unequip some in the inventory screen first."
             }
-            InventoryTab::Rings => {
+            ShopTab::Rings => {
                 "No spare rings to sell. Unequip some in the inventory screen first."
             }
         };

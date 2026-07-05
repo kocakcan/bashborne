@@ -641,6 +641,14 @@ impl World {
                     }
                 }
                 KeyCode::Enter => {
+                    if tab == InventoryTab::Materials {
+                        let GameState::Inventory(inv) = &mut self.state else {
+                            return;
+                        };
+                        inv.message =
+                            Some("Titanite Shards are spent at the blacksmith.".to_string());
+                        return;
+                    }
                     let len = self.inventory_tab_len(tab);
                     if len > 0 {
                         let GameState::Inventory(inv) = &mut self.state else {
@@ -911,6 +919,7 @@ impl World {
             InventoryTab::Weapons => self.inventory.weapons.len(),
             InventoryTab::Armor => self.inventory.armors.len(),
             InventoryTab::Rings => self.inventory.rings.len(),
+            InventoryTab::Materials => usize::from(self.inventory.upgrade_materials > 0),
         }
     }
 
@@ -969,6 +978,7 @@ impl World {
                 }
             }
             InventoryTab::Rings => None, // routed through apply_inventory_ring_selection instead
+            InventoryTab::Materials => None, // never reaches here; handled in the Enter handler above
         };
 
         let items_len = self.inventory.items.len();
@@ -983,7 +993,7 @@ impl World {
                 InventoryTab::Items => inv.cursor.min(items_len.saturating_sub(1)),
                 InventoryTab::Weapons => inv.cursor.min(weapons_len.saturating_sub(1)),
                 InventoryTab::Armor => inv.cursor.min(armors_len.saturating_sub(1)),
-                InventoryTab::Rings => inv.cursor,
+                InventoryTab::Rings | InventoryTab::Materials => inv.cursor,
             };
             inv.mode = InventoryMode::Browsing;
         }

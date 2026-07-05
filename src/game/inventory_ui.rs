@@ -8,6 +8,10 @@ pub enum InventoryTab {
     Weapons,
     Armor,
     Rings,
+    /// Fungible/non-equippable resources — currently just Titanite Shards,
+    /// the blacksmith's upgrade material. A natural home for quest items too,
+    /// once those exist; browsing-only, nothing here is equipped on a member.
+    Materials,
 }
 
 impl InventoryTab {
@@ -16,16 +20,18 @@ impl InventoryTab {
             InventoryTab::Items => InventoryTab::Weapons,
             InventoryTab::Weapons => InventoryTab::Armor,
             InventoryTab::Armor => InventoryTab::Rings,
-            InventoryTab::Rings => InventoryTab::Items,
+            InventoryTab::Rings => InventoryTab::Materials,
+            InventoryTab::Materials => InventoryTab::Items,
         }
     }
 
     pub fn prev(self) -> Self {
         match self {
-            InventoryTab::Items => InventoryTab::Rings,
+            InventoryTab::Items => InventoryTab::Materials,
             InventoryTab::Weapons => InventoryTab::Items,
             InventoryTab::Armor => InventoryTab::Weapons,
             InventoryTab::Rings => InventoryTab::Armor,
+            InventoryTab::Materials => InventoryTab::Rings,
         }
     }
 }
@@ -120,7 +126,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tabs_cycle_forward_through_all_four_and_back_to_items() {
+    fn tabs_cycle_forward_through_all_five_and_back_to_items() {
         let mut tab = InventoryTab::Items;
         tab = tab.next();
         assert_eq!(tab, InventoryTab::Weapons);
@@ -129,12 +135,16 @@ mod tests {
         tab = tab.next();
         assert_eq!(tab, InventoryTab::Rings);
         tab = tab.next();
+        assert_eq!(tab, InventoryTab::Materials);
+        tab = tab.next();
         assert_eq!(tab, InventoryTab::Items);
     }
 
     #[test]
     fn tabs_cycle_backward_symmetrically() {
         let mut tab = InventoryTab::Items;
+        tab = tab.prev();
+        assert_eq!(tab, InventoryTab::Materials);
         tab = tab.prev();
         assert_eq!(tab, InventoryTab::Rings);
         tab = tab.prev();

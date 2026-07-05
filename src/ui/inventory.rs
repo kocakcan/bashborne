@@ -75,6 +75,8 @@ fn draw_tabs(frame: &mut Frame, area: Rect, active: InventoryTab) {
         make_span("Armor", InventoryTab::Armor),
         Span::raw("  "),
         make_span("Rings", InventoryTab::Rings),
+        Span::raw("  "),
+        make_span("Materials", InventoryTab::Materials),
     ]);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -154,7 +156,14 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
                     } else {
                         Style::default()
                     };
-                    ListItem::new(Text::from(vec![header, detail])).style(bg)
+                    let mut lines = vec![header, detail];
+                    if let Some(passive) = w.passive {
+                        lines.push(Line::from(Span::styled(
+                            format!("     {}", passive.description()),
+                            Style::default().fg(Color::Yellow),
+                        )));
+                    }
+                    ListItem::new(Text::from(lines)).style(bg)
                 })
                 .collect();
             let block = Block::default()
@@ -273,6 +282,21 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
                 frame.render_widget(List::new(items).block(block), area);
             }
         }
+        InventoryTab::Materials => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Materials (used by the blacksmith)");
+            if inventory.upgrade_materials == 0 {
+                frame.render_widget(Paragraph::new("No materials yet.").block(block), area);
+            } else {
+                let style = cursor_style(inv_ui.cursor == 0);
+                let item = ListItem::new(Line::from(Span::styled(
+                    format!("Titanite Shard x{}", inventory.upgrade_materials),
+                    style,
+                )));
+                frame.render_widget(List::new(vec![item]).block(block), area);
+            }
+        }
     }
 }
 
@@ -290,6 +314,9 @@ fn draw_member_picker(
         InventoryTab::Weapons => inventory.weapons.get(idx).map(|w| w.display_name()),
         InventoryTab::Armor => inventory.armors.get(idx).map(|a| a.name.clone()),
         InventoryTab::Rings => inventory.rings.get(idx).map(|r| r.name.clone()),
+        // Materials never reach the member-picker (see app.rs's Browsing Enter
+        // handler), but the match must stay exhaustive.
+        InventoryTab::Materials => None,
     }
     .unwrap_or_else(|| "???".to_string());
 
@@ -316,7 +343,9 @@ fn draw_member_picker(
                         .unwrap_or("no armor");
                     format!("{:<8} (currently: {current})", m.name)
                 }
-                InventoryTab::Items | InventoryTab::Rings => format!("{:<8}", m.name),
+                InventoryTab::Items | InventoryTab::Rings | InventoryTab::Materials => {
+                    format!("{:<8}", m.name)
+                }
             };
             ListItem::new(Line::from(Span::styled(label, style)))
         })

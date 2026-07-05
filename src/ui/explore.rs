@@ -80,6 +80,14 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
             Span::styled(format!(" {bar} "), Style::default().fg(color)),
             Span::raw(format!("{:>3}/{:<3}", m.stats.hp, m.stats.max_hp)),
             Span::raw(format!("  MP {:>3}/{:<3}", m.stats.mp, m.stats.max_mp)),
+            Span::styled(
+                format!(
+                    "  XP {:>3}/{:<3}",
+                    m.xp,
+                    crate::game::character::xp_to_next_level(m.level)
+                ),
+                Style::default().fg(Color::Cyan),
+            ),
         ];
         if m.unspent_points > 0 {
             spans.push(Span::styled(

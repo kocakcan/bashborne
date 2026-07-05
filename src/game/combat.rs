@@ -5,7 +5,7 @@ use crate::game::character::{AbilityKind, Character};
 use crate::game::item::{
     bone_blade, ether, goblin_shiv, knightsbane, mimics_fang, orcish_greataxe, potion,
     sovereigns_reckoning, wardens_fang, wraithbane_edge, Item, ItemFactory, ItemKind, Weapon,
-    WeaponFactory,
+    WeaponFactory, WeaponPassive,
 };
 use crate::game::map::Position;
 use crate::game::party::Party;
@@ -359,10 +359,23 @@ impl CombatState {
         let attacker_name = party.members[pi].name.clone();
         match action {
             CombatAction::Attack => {
+                let attacker_passive = party.members[pi]
+                    .equipped_weapon
+                    .as_ref()
+                    .and_then(|w| w.passive);
                 let atk = party.members[pi].total_attack() + party.stat_delta(StatEffectTarget::Attack);
                 let luck = party.members[pi].total_luck();
                 if let Some(enemy) = self.enemies.get_mut(target_idx) {
-                    let (dmg, crit) = roll_damage(atk, enemy.stats.defense, luck, rng);
+                    let mut defense = enemy.stats.defense;
+                    if let Some(WeaponPassive::ArmorPierce(pct)) = attacker_passive {
+                        defense = ((defense as f32) * (1.0 - pct)).round() as i32;
+                    }
+                    let (mut dmg, crit) = roll_damage(atk, defense, luck, rng);
+                    if let Some(WeaponPassive::BossSlayer(pct)) = attacker_passive {
+                        if enemy.boss_kind.is_some() {
+                            dmg += ((dmg as f32) * pct).round() as i32;
+                        }
+                    }
                     enemy.take_damage(dmg);
                     let ename = enemy.name.clone();
                     let max_hp = enemy.stats.max_hp;
@@ -371,6 +384,15 @@ impl CombatState {
                         "{attacker_name} attacks {ename} for {dmg} damage.{}",
                         if crit { " A critical hit!" } else { "" }
                     ));
+                    if let Some(WeaponPassive::Lifesteal(pct)) = attacker_passive {
+                        let healed = ((dmg as f32) * pct).round() as i32;
+                        if healed > 0 {
+                            party.members[pi].heal(healed);
+                            self.push_log(format!(
+                                "{attacker_name} drains {healed} HP from the blow."
+                            ));
+                        }
+                    }
                     if !alive {
                         self.push_log(format!("{ename} is defeated!"));
                         self.check_overkill(target_idx, dmg, max_hp, &ename);
@@ -484,6 +506,7 @@ impl CombatState {
         let def = party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
         let luck = self.enemies[ei].total_luck();
         let (dmg, crit) = roll_damage(atk, def, luck, rng);
+        let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
         party.members[target_idx].take_damage(dmg);
         let tname = party.members[target_idx].name.clone();
         self.push_log(format!(
@@ -539,6 +562,7 @@ impl CombatState {
                         + party.stat_delta(StatEffectTarget::Defense);
                     let luck = self.enemies[ei].total_luck();
                     let (dmg, crit) = roll_damage(boosted_atk, def, luck, rng);
+                    let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
                     party.members[target_idx].take_damage(dmg);
                     let tname = party.members[target_idx].name.clone();
                     self.push_log(format!(
@@ -577,6 +601,7 @@ impl CombatState {
                     for member in party.alive_members_mut() {
                         let def = member.total_defense() + def_delta;
                         let (dmg, crit) = roll_damage(atk, def, luck, rng);
+                        let dmg = apply_damage_reduction(dmg, member);
                         member.take_damage(dmg);
                         let tname = member.name.clone();
                         let alive = member.is_alive();
@@ -621,6 +646,7 @@ impl CombatState {
                         + party.stat_delta(StatEffectTarget::Defense);
                     let luck = self.enemies[ei].total_luck();
                     let (dmg, crit) = roll_damage(boosted_atk, def, luck, rng);
+                    let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
                     party.members[target_idx].take_damage(dmg);
                     let tname = party.members[target_idx].name.clone();
                     self.push_log(format!(
@@ -712,6 +738,18 @@ fn roll_damage(power: i32, defense: i32, luck: i32, rng: &mut impl Rng) -> (i32,
         dmg = ((dmg as f32) * CRIT_MULTIPLIER).round() as i32;
     }
     (dmg, is_crit)
+}
+
+/// Shaves incoming damage down for `WeaponPassive::DamageReduction`,
+/// regardless of who's attacking — a defensive weapon passive, applied right
+/// before the damage lands so the logged number always matches what's taken.
+fn apply_damage_reduction(dmg: i32, target: &Character) -> i32 {
+    match target.equipped_weapon.as_ref().and_then(|w| w.passive) {
+        Some(WeaponPassive::DamageReduction(pct)) => {
+            (((dmg as f32) * (1.0 - pct)).round() as i32).max(1)
+        }
+        _ => dmg,
+    }
 }
 
 pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
@@ -1074,6 +1112,172 @@ mod tests {
         assert!(
             run_damage(true) > run_damage(false),
             "a stronger equipped weapon should increase damage dealt"
+        );
+    }
+
+    #[test]
+    fn lifesteal_passive_heals_the_attacker() {
+        use crate::game::item::knightsbane;
+
+        let mut party = test_party();
+        party.members[0].equip_weapon(knightsbane());
+        party.members[0].take_damage(20); // leave room to observe healing
+        let hp_before = party.members[0].stats.hp;
+
+        let mut enemies = vec![slime("Slime")];
+        enemies[0].stats.hp = 999;
+        enemies[0].stats.max_hp = 999;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(11);
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+
+        assert!(
+            party.members[0].stats.hp > hp_before,
+            "Knightsbane's lifesteal should heal the wielder on a hit"
+        );
+    }
+
+    #[test]
+    fn boss_slayer_passive_only_boosts_damage_against_bosses() {
+        use crate::game::character::barrow_knight;
+        use crate::game::item::{dragonslayers_oath, GearSource, Rarity, Weapon};
+
+        // A plain weapon with the exact same attack_bonus as Dragonslayer's
+        // Oath, so any damage gap comes only from the BossSlayer passive.
+        let plain_equivalent = || Weapon {
+            name: "Plain Greatsword".into(),
+            rarity: Rarity::Legendary,
+            attack_bonus: dragonslayers_oath().attack_bonus,
+            defense_bonus: dragonslayers_oath().defense_bonus,
+            description: String::new(),
+            source: GearSource::World,
+            upgrade_level: 0,
+            passive: None,
+        };
+
+        let run_damage = |legendary: bool, boss: bool| {
+            let mut party = test_party();
+            party.members[0].equip_weapon(if legendary {
+                dragonslayers_oath()
+            } else {
+                plain_equivalent()
+            });
+            let mut enemy = if boss {
+                barrow_knight("Test Boss")
+            } else {
+                slime("Slime")
+            };
+            enemy.stats.hp = 9999;
+            enemy.stats.max_hp = 9999;
+            let mut combat = CombatState::new(&party, vec![enemy]);
+            let mut rng = StdRng::seed_from_u64(11);
+            combat.phase = CombatPhase::SelectTarget {
+                actor: ActorRef::Player(0),
+                action: CombatAction::Attack,
+                target_idx: 0,
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            9999 - combat.enemies[0].stats.hp
+        };
+
+        assert!(
+            run_damage(true, true) > run_damage(false, true),
+            "BossSlayer should deal bonus damage to a boss"
+        );
+        assert_eq!(
+            run_damage(true, false),
+            run_damage(false, false),
+            "BossSlayer should grant no bonus against a non-boss enemy"
+        );
+    }
+
+    #[test]
+    fn armor_pierce_passive_increases_damage_against_defense() {
+        use crate::game::item::{sovereigns_reckoning, GearSource, Rarity, Weapon};
+
+        let plain_equivalent = || Weapon {
+            name: "Plain Blade".into(),
+            rarity: Rarity::Legendary,
+            attack_bonus: sovereigns_reckoning().attack_bonus,
+            defense_bonus: sovereigns_reckoning().defense_bonus,
+            description: String::new(),
+            source: GearSource::World,
+            upgrade_level: 0,
+            passive: None,
+        };
+
+        let run_damage = |pierce: bool| {
+            let mut party = test_party();
+            party.members[0].equip_weapon(if pierce {
+                sovereigns_reckoning()
+            } else {
+                plain_equivalent()
+            });
+            let mut enemy = slime("Slime");
+            enemy.stats.hp = 9999;
+            enemy.stats.max_hp = 9999;
+            enemy.stats.defense = 30;
+            let mut combat = CombatState::new(&party, vec![enemy]);
+            let mut rng = StdRng::seed_from_u64(11);
+            combat.phase = CombatPhase::SelectTarget {
+                actor: ActorRef::Player(0),
+                action: CombatAction::Attack,
+                target_idx: 0,
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            9999 - combat.enemies[0].stats.hp
+        };
+
+        assert!(
+            run_damage(true) > run_damage(false),
+            "ArmorPierce should deal more damage against a defended target"
+        );
+    }
+
+    #[test]
+    fn damage_reduction_passive_shields_the_wielder() {
+        use crate::game::character::orc;
+        use crate::game::item::{wardens_fang, GearSource, Rarity, Weapon};
+
+        let plain_equivalent = || Weapon {
+            name: "Plain Fang".into(),
+            rarity: Rarity::Legendary,
+            attack_bonus: wardens_fang().attack_bonus,
+            defense_bonus: wardens_fang().defense_bonus,
+            description: String::new(),
+            source: GearSource::World,
+            upgrade_level: 0,
+            passive: None,
+        };
+
+        let run_damage_taken = |shielded: bool| {
+            let mut party = test_party();
+            party.members[0].equip_weapon(if shielded {
+                wardens_fang()
+            } else {
+                plain_equivalent()
+            });
+            party.members[0].stats.hp = 9999;
+            party.members[0].stats.max_hp = 9999;
+            let hp_before = party.members[0].stats.hp;
+            let enemies = vec![orc("Orc")];
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(11);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction { actor: ActorRef::Enemy(0) };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            hp_before - party.members[0].stats.hp
+        };
+
+        assert!(
+            run_damage_taken(true) < run_damage_taken(false),
+            "Warden's Fang's damage reduction should lower damage taken"
         );
     }
 

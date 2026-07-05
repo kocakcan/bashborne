@@ -107,6 +107,44 @@ impl fmt::Display for GearSource {
     }
 }
 
+/// A unique passive effect carried by a specific Legendary weapon — these
+/// are hand-assigned one-to-one in the factory functions below, not a
+/// generic rarity-tier bonus, so each Legendary feels distinct rather than
+/// just "bigger numbers." Read by `game::combat`'s damage resolution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WeaponPassive {
+    /// Basic Attacks heal the wielder for this fraction of the damage dealt.
+    Lifesteal(f32),
+    /// Basic Attacks deal this much bonus damage (as a fraction of the roll)
+    /// against boss enemies.
+    BossSlayer(f32),
+    /// This fraction of incoming damage is shaved off whenever the wielder
+    /// is attacked, regardless of who's attacking.
+    DamageReduction(f32),
+    /// Basic Attacks ignore this fraction of the target's defense.
+    ArmorPierce(f32),
+}
+
+impl WeaponPassive {
+    /// Short flavor line shown next to the weapon in UI lists.
+    pub fn description(&self) -> String {
+        match self {
+            WeaponPassive::Lifesteal(pct) => {
+                format!("Passive: attacks heal the wielder for {:.0}% of damage dealt", pct * 100.0)
+            }
+            WeaponPassive::BossSlayer(pct) => {
+                format!("Passive: attacks deal {:.0}% bonus damage to bosses", pct * 100.0)
+            }
+            WeaponPassive::DamageReduction(pct) => {
+                format!("Passive: wielder takes {:.0}% less damage", pct * 100.0)
+            }
+            WeaponPassive::ArmorPierce(pct) => {
+                format!("Passive: attacks ignore {:.0}% of the target's defense", pct * 100.0)
+            }
+        }
+    }
+}
+
 /// A wieldable weapon. Every playable character always has exactly one
 /// equipped (`Character::equipped_weapon`); better ones are found while
 /// exploring the field or won by defeating certain enemies. Rarity is a
@@ -122,6 +160,9 @@ pub struct Weapon {
     /// How many times the blacksmith (`game::blacksmith`) has upgraded this
     /// specific weapon, `0..=MAX_UPGRADE_LEVEL`. Every weapon starts at 0.
     pub upgrade_level: u8,
+    /// A unique combat passive, currently only ever set on the game's four
+    /// Legendary signature weapons (see their factory functions below).
+    pub passive: Option<WeaponPassive>,
 }
 
 /// The highest upgrade tier the blacksmith can apply to a weapon.
@@ -164,6 +205,7 @@ pub fn worn_shortsword() -> Weapon {
         description: "A nicked, well-used blade. Better than fists.".into(),
         source: GearSource::Starting,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -176,6 +218,7 @@ pub fn apprentice_wand() -> Weapon {
         description: "A simple wand every mage starts with.".into(),
         source: GearSource::Starting,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -188,6 +231,7 @@ pub fn acolytes_mace() -> Weapon {
         description: "Blunt and humble, blessed only lightly.".into(),
         source: GearSource::Starting,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -200,6 +244,7 @@ pub fn iron_sword() -> Weapon {
         description: "A sturdy, mass-produced blade left behind by a traveler.".into(),
         source: GearSource::World,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -212,6 +257,7 @@ pub fn goblin_shiv() -> Weapon {
         description: "Crude but wickedly sharp.".into(),
         source: GearSource::EnemyDrop("Goblin"),
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -224,6 +270,7 @@ pub fn travelers_spear() -> Weapon {
         description: "Light, well-balanced, and easy to keep an enemy at range.".into(),
         source: GearSource::World,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -236,6 +283,7 @@ pub fn bone_blade() -> Weapon {
         description: "Carved from a fallen skeleton's own femur.".into(),
         source: GearSource::EnemyDrop("Skeleton"),
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -248,6 +296,7 @@ pub fn orcish_greataxe() -> Weapon {
         description: "Heavy enough to fell a tree in one swing.".into(),
         source: GearSource::EnemyDrop("Orc"),
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -260,6 +309,7 @@ pub fn wraithbane_edge() -> Weapon {
         description: "Etched with wards that flare hot near the restless dead.".into(),
         source: GearSource::EnemyDrop("Wraith"),
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -272,6 +322,7 @@ pub fn sunken_relic_blade() -> Weapon {
         description: "Pulled from somewhere it should never have been found.".into(),
         source: GearSource::World,
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -284,6 +335,7 @@ pub fn mimics_fang() -> Weapon {
         description: "Still faintly warm. It was a tooth a moment ago.".into(),
         source: GearSource::EnemyDrop("Mimic"),
         upgrade_level: 0,
+        passive: None,
     }
 }
 
@@ -296,6 +348,7 @@ pub fn dragonslayers_oath() -> Weapon {
         description: "A greatsword said to have ended an age. Absurdly rare to find.".into(),
         source: GearSource::World,
         upgrade_level: 0,
+        passive: Some(WeaponPassive::BossSlayer(0.5)),
     }
 }
 
@@ -312,6 +365,7 @@ pub fn knightsbane() -> Weapon {
         description: "Forged in the barrow's cold fire; still hums with the Knight's fury.".into(),
         source: GearSource::EnemyDrop("The Barrow Knight"),
         upgrade_level: 0,
+        passive: Some(WeaponPassive::Lifesteal(0.15)),
     }
 }
 
@@ -328,6 +382,7 @@ pub fn wardens_fang() -> Weapon {
             .into(),
         source: GearSource::EnemyDrop("Wyrmscale Warden"),
         upgrade_level: 0,
+        passive: Some(WeaponPassive::DamageReduction(0.15)),
     }
 }
 
@@ -342,6 +397,7 @@ pub fn sovereigns_reckoning() -> Weapon {
         description: "What's left of a throne, reforged into something that only takes.".into(),
         source: GearSource::EnemyDrop("The Ashen Sovereign"),
         upgrade_level: 0,
+        passive: Some(WeaponPassive::ArmorPierce(0.5)),
     }
 }
 

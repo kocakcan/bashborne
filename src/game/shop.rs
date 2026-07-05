@@ -1,14 +1,31 @@
-use crate::game::inventory_ui::InventoryTab;
 use crate::game::item::{
     chainmail_hauberk, copper_band, ether, iron_sword, potion, ring_of_vigor, rangers_cloak,
     sunken_relic_blade, travelers_spear, ArmorFactory, ItemFactory, RingFactory, WeaponFactory,
 };
 use crate::game::map::Position;
 
-/// The shop reuses the same "Items vs Weapons" split as the out-of-combat
-/// inventory screen — it's the same kind of list either way, just sourced
-/// from the shop's stock (Buy) or the party's own bag (Sell).
-pub type ShopTab = InventoryTab;
+/// The shop's own tab split — conceptually the same "Items vs Weapons vs
+/// Armor vs Rings" categories as the out-of-combat inventory screen, but
+/// kept as a separate enum (rather than reusing `InventoryTab`) since the
+/// shop has no Materials tab: Titanite Shards aren't bought or sold here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShopTab {
+    Items,
+    Weapons,
+    Armor,
+    Rings,
+}
+
+impl ShopTab {
+    pub fn next(self) -> Self {
+        match self {
+            ShopTab::Items => ShopTab::Weapons,
+            ShopTab::Weapons => ShopTab::Armor,
+            ShopTab::Armor => ShopTab::Rings,
+            ShopTab::Rings => ShopTab::Items,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopMode {
@@ -41,7 +58,7 @@ impl ShopUiState {
     pub fn new(return_pos: Position) -> Self {
         Self {
             mode: ShopMode::Buy,
-            tab: InventoryTab::Items,
+            tab: ShopTab::Items,
             cursor: 0,
             message: None,
             return_pos,

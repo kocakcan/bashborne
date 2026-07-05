@@ -63,7 +63,10 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 7 },
             boss: wyrmscale_warden,
             boss_display_name: "Wyrmscale Warden",
-            npcs: vec![(Position { x: 10, y: 5 }, NpcId::WoundedScout)],
+            npcs: vec![
+                (Position { x: 10, y: 5 }, NpcId::WoundedScout),
+                (Position { x: 3, y: 7 }, NpcId::Blacksmith),
+            ],
             next: Some(ChapterId::Three),
         },
         ChapterId::Three => ChapterDef {
@@ -73,7 +76,10 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 2 },
             boss: ashen_sovereign,
             boss_display_name: "The Ashen Sovereign",
-            npcs: vec![(Position { x: 5, y: 5 }, NpcId::AshenPilgrim)],
+            npcs: vec![
+                (Position { x: 5, y: 5 }, NpcId::AshenPilgrim),
+                (Position { x: 3, y: 2 }, NpcId::Blacksmith),
+            ],
             next: None,
         },
     }
@@ -129,6 +135,18 @@ mod tests {
     fn every_chapter_has_at_least_one_npc() {
         for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
             assert!(!chapter_def(id).npcs.is_empty(), "{:?} should have an NPC", id);
+        }
+    }
+
+    #[test]
+    fn andre_is_reachable_in_every_chapter() {
+        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
+            let def = chapter_def(id);
+            assert!(
+                def.npcs.iter().any(|(_, npc)| *npc == NpcId::Blacksmith),
+                "{:?} should place the blacksmith somewhere on its map",
+                id
+            );
         }
     }
 

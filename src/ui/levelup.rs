@@ -3,7 +3,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::game::character::ALLOC_STATS;
+use crate::game::character::{xp_to_next_level, ALLOC_STATS};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 
@@ -28,8 +28,12 @@ fn draw_header(frame: &mut Frame, area: Rect, ui: &LevelUpUiState, party: &Party
         .get(ui.member_cursor)
         .map(|m| {
             format!(
-                "{} — Level {}   Unspent points: {}",
-                m.name, m.level, m.unspent_points
+                "{} — Level {}   XP {}/{}   Unspent points: {}",
+                m.name,
+                m.level,
+                m.xp,
+                xp_to_next_level(m.level),
+                m.unspent_points
             )
         })
         .unwrap_or_default();
