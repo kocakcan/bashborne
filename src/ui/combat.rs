@@ -255,12 +255,13 @@ fn draw_menu_or_result(
                         Style::default()
                     };
                     let header = Line::from(Span::styled(label, header_style));
+                    let power = ability.effective_power(&party.members[pi]);
                     let description = match ability.kind {
                         AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
-                            format!("     Deals ~{} damage to one enemy", ability.power)
+                            format!("     Deals ~{power} damage to one enemy")
                         }
                         AbilityKind::Heal => {
-                            format!("     Heals {} HP to one ally", ability.power)
+                            format!("     Heals {power} HP to one ally")
                         }
                     };
                     let detail_style = if selected {

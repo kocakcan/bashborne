@@ -1,5 +1,6 @@
 use rand::Rng;
 
+use crate::game::blacksmith::BlacksmithUiState;
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::Character;
 use crate::game::combat::CombatState;
@@ -8,6 +9,7 @@ use crate::game::item::{
     dragonslayers_oath, ether, iron_sword, potion, sunken_relic_blade, travelers_spear, Item,
     Weapon,
 };
+use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Map, Position};
 use crate::game::npc::NpcId;
 use crate::game::quest_ui::QuestLogUiState;
@@ -57,6 +59,8 @@ pub enum GameState {
     Inventory(InventoryUiState),
     Shop(ShopUiState),
     QuestLog(QuestLogUiState),
+    LevelUp(LevelUpUiState),
+    Blacksmith(BlacksmithUiState),
     GameOver { victory: bool },
 }
 
@@ -86,6 +90,9 @@ pub enum FieldEvent {
         gold: u32,
         item: Option<Item>,
         weapon: Option<Weapon>,
+        /// Bonus Titanite Shards buried alongside the treasure — see
+        /// `Inventory::upgrade_materials`.
+        materials: u32,
     },
 }
 
@@ -120,7 +127,11 @@ pub fn roll_field_event(rng: &mut impl Rng) -> FieldEvent {
                 } else {
                     None
                 };
-                FieldEvent::Treasure { gold, item, weapon }
+                // Independent chance of bonus Titanite Shards buried
+                // alongside the treasure, so exploring (not just fighting)
+                // feeds the blacksmith too.
+                let materials = if rng.gen_ratio(1, 5) { rng.gen_range(1..=3) } else { 0 };
+                FieldEvent::Treasure { gold, item, weapon, materials }
             }
         }
     }

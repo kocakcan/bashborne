@@ -128,7 +128,7 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
                     let header = Line::from(vec![
                         Span::raw(marker),
                         Span::styled(
-                            format!("{:<20}", w.name),
+                            format!("{:<20}", w.display_name()),
                             Style::default().fg(color).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(format!("[{}] ", w.rarity), Style::default().fg(color)),
@@ -287,7 +287,7 @@ fn draw_member_picker(
 ) {
     let target_name = match tab {
         InventoryTab::Items => inventory.items.get(idx).map(|(i, _)| i.name.clone()),
-        InventoryTab::Weapons => inventory.weapons.get(idx).map(|w| w.name.clone()),
+        InventoryTab::Weapons => inventory.weapons.get(idx).map(|w| w.display_name()),
         InventoryTab::Armor => inventory.armors.get(idx).map(|a| a.name.clone()),
         InventoryTab::Rings => inventory.rings.get(idx).map(|r| r.name.clone()),
     }
@@ -304,8 +304,8 @@ fn draw_member_picker(
                     let current = m
                         .equipped_weapon
                         .as_ref()
-                        .map(|w| w.name.as_str())
-                        .unwrap_or("unarmed");
+                        .map(|w| w.display_name())
+                        .unwrap_or_else(|| "unarmed".to_string());
                     format!("{:<8} (currently: {current})", m.name)
                 }
                 InventoryTab::Armor => {
@@ -450,7 +450,7 @@ fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party, mode: &Inventor
                 EquipSlot::Weapon => m
                     .equipped_weapon
                     .as_ref()
-                    .map(|w| (w.name.clone(), crate::ui::rarity_color(w.rarity)))
+                    .map(|w| (w.display_name(), crate::ui::rarity_color(w.rarity)))
                     .unwrap_or_else(|| ("(empty)".to_string(), Color::DarkGray)),
                 EquipSlot::Armor => m
                     .equipped_armor

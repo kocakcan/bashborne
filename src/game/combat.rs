@@ -19,78 +19,114 @@ pub struct Loot {
     /// Extra gold earned from overkill kills this fight (already folded into
     /// `gold`); kept separate so the UI can call it out.
     pub overkill_bonus: u32,
+    /// XP awarded to every party member (see `xp_value`).
+    pub xp: u32,
+    /// "Titanite Shards" earned this fight — see `Inventory::upgrade_materials`.
+    pub upgrade_materials: u32,
 }
 
-/// Per-species gold range, an optional (item, drop-chance) pair, and an
-/// optional (weapon, drop-chance) pair. Keyed on the enemy's display name,
-/// which currently doubles as its species tag. Only certain, tougher species
-/// carry a weapon worth looting off their corpse.
+/// How much XP defeating this enemy is worth, awarded to every party member.
+/// Roughly proportional to how tough the enemy was to fight (HP pool plus
+/// offense and defense); bosses are worth a flat multiple on top since they
+/// represent a whole chapter's worth of a challenge in one kill.
+fn xp_value(enemy: &Character) -> u32 {
+    let base = (enemy.stats.max_hp / 4 + enemy.stats.attack + enemy.stats.defense).max(1) as u32;
+    if enemy.boss_kind.is_some() {
+        base * 3
+    } else {
+        base
+    }
+}
+
+/// Per-species gold range, an optional (item, drop-chance) pair, an optional
+/// (weapon, drop-chance) pair, and an optional (shard-range, drop-chance)
+/// pair for the blacksmith's upgrade material. Keyed on the enemy's display
+/// name, which currently doubles as its species tag. Only certain, tougher
+/// species carry a weapon (or shards) worth looting off their corpse.
+#[allow(clippy::type_complexity)]
 fn loot_profile(
     species_name: &str,
 ) -> (
     std::ops::RangeInclusive<u32>,
     Option<(ItemFactory, f32)>,
     Option<(WeaponFactory, f32)>,
+    Option<(std::ops::RangeInclusive<u32>, f32)>,
 ) {
     match species_name {
-        "Slime" => (3..=8, Some((potion as ItemFactory, 0.25)), None),
+        "Slime" => (3..=8, Some((potion as ItemFactory, 0.25)), None, None),
         "Goblin" => (
             8..=16,
             Some((ether as ItemFactory, 0.2)),
             Some((goblin_shiv as WeaponFactory, 0.12)),
+            Some((1..=2, 0.2)),
         ),
-        "Bat" => (2..=5, Some((potion as ItemFactory, 0.15)), None),
-        "Wolf" => (5..=10, Some((potion as ItemFactory, 0.2)), None),
+        "Bat" => (2..=5, Some((potion as ItemFactory, 0.15)), None, None),
+        "Wolf" => (
+            5..=10,
+            Some((potion as ItemFactory, 0.2)),
+            None,
+            Some((1..=2, 0.15)),
+        ),
         "Skeleton" => (
             6..=12,
             Some((ether as ItemFactory, 0.25)),
             Some((bone_blade as WeaponFactory, 0.15)),
+            Some((1..=3, 0.25)),
         ),
         "Orc" => (
             10..=20,
             Some((potion as ItemFactory, 0.3)),
             Some((orcish_greataxe as WeaponFactory, 0.18)),
+            Some((2..=4, 0.3)),
         ),
         "Wraith" => (
             12..=22,
             Some((ether as ItemFactory, 0.35)),
             Some((wraithbane_edge as WeaponFactory, 0.15)),
+            Some((2..=4, 0.3)),
         ),
         // Mimics are meant to feel like a consolation prize for the ambush.
         "Mimic" => (
             25..=45,
             Some((potion as ItemFactory, 0.6)),
             Some((mimics_fang as WeaponFactory, 0.4)),
+            Some((3..=6, 0.6)),
         ),
-        _ => (5..=10, None, None),
+        _ => (5..=10, None, None, None),
     }
 }
 
-/// Per-boss gold range, an optional (item, drop-chance) pair, and its
-/// guaranteed signature weapon. Unlike `loot_profile`, the weapon here is
-/// never a dice roll — beating the fight itself is the gate.
+/// Per-boss gold range, an optional (item, drop-chance) pair, its
+/// guaranteed signature weapon, and its guaranteed shard range. Unlike
+/// `loot_profile`, the weapon and shards here are never a dice roll —
+/// beating the fight itself is the gate.
+#[allow(clippy::type_complexity)]
 fn boss_loot_profile(
     kind: BossKind,
 ) -> (
     std::ops::RangeInclusive<u32>,
     Option<(ItemFactory, f32)>,
     WeaponFactory,
+    std::ops::RangeInclusive<u32>,
 ) {
     match kind {
         BossKind::BarrowKnight => (
             80..=150,
             Some((potion as ItemFactory, 0.5)),
             knightsbane as WeaponFactory,
+            5..=8,
         ),
         BossKind::WyrmscaleWarden => (
             150..=250,
             Some((ether as ItemFactory, 0.5)),
             wardens_fang as WeaponFactory,
+            8..=12,
         ),
         BossKind::AshenSovereign => (
             250..=400,
             Some((potion as ItemFactory, 0.5)),
             sovereigns_reckoning as WeaponFactory,
+            12..=18,
         ),
     }
 }
@@ -100,11 +136,19 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
     let mut items = Vec::new();
     let mut weapons = Vec::new();
     let mut overkill_bonus = 0u32;
+    let mut xp = 0u32;
+    let mut upgrade_materials = 0u32;
     for (i, e) in enemies.iter().enumerate() {
-        let (gold_range, item_chance, weapon_chance) = match e.boss_kind {
+        let (gold_range, item_chance, weapon_chance, material_chance) = match e.boss_kind {
             Some(kind) => {
-                let (gold_range, item_chance, weapon_factory) = boss_loot_profile(kind);
-                (gold_range, item_chance, Some((weapon_factory, 1.0)))
+                let (gold_range, item_chance, weapon_factory, shard_range) =
+                    boss_loot_profile(kind);
+                (
+                    gold_range,
+                    item_chance,
+                    Some((weapon_factory, 1.0)),
+                    Some((shard_range, 1.0)),
+                )
             }
             None => loot_profile(&e.name),
         };
@@ -126,8 +170,21 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
                 weapons.push(make_weapon());
             }
         }
+        if let Some((shard_range, chance)) = material_chance {
+            if rng.gen::<f32>() < chance {
+                upgrade_materials += rng.gen_range(shard_range);
+            }
+        }
+        xp += xp_value(e);
     }
-    Loot { gold, items, weapons, overkill_bonus }
+    Loot {
+        gold,
+        items,
+        weapons,
+        overkill_bonus,
+        xp,
+        upgrade_materials,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,13 +360,17 @@ impl CombatState {
         match action {
             CombatAction::Attack => {
                 let atk = party.members[pi].total_attack() + party.stat_delta(StatEffectTarget::Attack);
+                let luck = party.members[pi].total_luck();
                 if let Some(enemy) = self.enemies.get_mut(target_idx) {
-                    let dmg = roll_damage(atk, enemy.stats.defense, rng);
+                    let (dmg, crit) = roll_damage(atk, enemy.stats.defense, luck, rng);
                     enemy.take_damage(dmg);
                     let ename = enemy.name.clone();
                     let max_hp = enemy.stats.max_hp;
                     let alive = enemy.is_alive();
-                    self.push_log(format!("{attacker_name} attacks {ename} for {dmg} damage."));
+                    self.push_log(format!(
+                        "{attacker_name} attacks {ename} for {dmg} damage.{}",
+                        if crit { " A critical hit!" } else { "" }
+                    ));
                     if !alive {
                         self.push_log(format!("{ename} is defeated!"));
                         self.check_overkill(target_idx, dmg, max_hp, &ename);
@@ -331,16 +392,19 @@ impl CombatState {
                             .get(target_idx)
                             .map(|e| e.total_defense())
                             .unwrap_or(0);
-                        let power = ability.power + party.stat_delta(StatEffectTarget::Attack);
-                        let dmg = roll_damage(power, defense / 2, rng);
+                        let power = ability.effective_power(&party.members[pi])
+                            + party.stat_delta(StatEffectTarget::Attack);
+                        let luck = party.members[pi].total_luck();
+                        let (dmg, crit) = roll_damage(power, defense / 2, luck, rng);
                         if let Some(enemy) = self.enemies.get_mut(target_idx) {
                             enemy.take_damage(dmg);
                             let ename = enemy.name.clone();
                             let max_hp = enemy.stats.max_hp;
                             let alive = enemy.is_alive();
                             self.push_log(format!(
-                                "{attacker_name} casts {} on {ename} for {dmg} damage.",
-                                ability.name
+                                "{attacker_name} casts {} on {ename} for {dmg} damage.{}",
+                                ability.name,
+                                if crit { " A critical hit!" } else { "" }
                             ));
                             if !alive {
                                 self.push_log(format!("{ename} is defeated!"));
@@ -349,12 +413,13 @@ impl CombatState {
                         }
                     }
                     AbilityKind::Heal => {
+                        let heal_amount = ability.effective_power(&party.members[pi]);
                         if let Some(target) = party.members.get_mut(target_idx) {
-                            target.heal(ability.power);
+                            target.heal(heal_amount);
                             let tname = target.name.clone();
                             self.push_log(format!(
-                                "{attacker_name} casts {} on {tname}, healing {} HP.",
-                                ability.name, ability.power
+                                "{attacker_name} casts {} on {tname}, healing {heal_amount} HP.",
+                                ability.name
                             ));
                         }
                     }
@@ -417,10 +482,14 @@ impl CombatState {
         }
 
         let def = party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
-        let dmg = roll_damage(atk, def, rng);
+        let luck = self.enemies[ei].total_luck();
+        let (dmg, crit) = roll_damage(atk, def, luck, rng);
         party.members[target_idx].take_damage(dmg);
         let tname = party.members[target_idx].name.clone();
-        self.push_log(format!("{ename} attacks {tname} for {dmg} damage."));
+        self.push_log(format!(
+            "{ename} attacks {tname} for {dmg} damage.{}",
+            if crit { " A critical hit!" } else { "" }
+        ));
         if !party.members[target_idx].is_alive() {
             self.push_log(format!("{tname} falls!"));
         }
@@ -468,11 +537,13 @@ impl CombatState {
                     let boosted_atk = (atk as f32 * 1.8) as i32;
                     let def = party.members[target_idx].total_defense()
                         + party.stat_delta(StatEffectTarget::Defense);
-                    let dmg = roll_damage(boosted_atk, def, rng);
+                    let luck = self.enemies[ei].total_luck();
+                    let (dmg, crit) = roll_damage(boosted_atk, def, luck, rng);
                     party.members[target_idx].take_damage(dmg);
                     let tname = party.members[target_idx].name.clone();
                     self.push_log(format!(
-                        "{ename} winds up a Rending Cleave on {tname} for {dmg} damage!"
+                        "{ename} winds up a Rending Cleave on {tname} for {dmg} damage!{}",
+                        if crit { " A critical hit!" } else { "" }
                     ));
                     if !party.members[target_idx].is_alive() {
                         self.push_log(format!("{tname} falls!"));
@@ -502,13 +573,17 @@ impl CombatState {
                 if rng.gen_bool(0.3) {
                     self.push_log(format!("{ename} sweeps its tail across the whole party!"));
                     let def_delta = party.stat_delta(StatEffectTarget::Defense);
+                    let luck = self.enemies[ei].total_luck();
                     for member in party.alive_members_mut() {
                         let def = member.total_defense() + def_delta;
-                        let dmg = roll_damage(atk, def, rng);
+                        let (dmg, crit) = roll_damage(atk, def, luck, rng);
                         member.take_damage(dmg);
                         let tname = member.name.clone();
                         let alive = member.is_alive();
-                        self.push_log(format!("{tname} takes {dmg} damage."));
+                        self.push_log(format!(
+                            "{tname} takes {dmg} damage.{}",
+                            if crit { " A critical hit!" } else { "" }
+                        ));
                         if !alive {
                             self.push_log(format!("{tname} falls!"));
                         }
@@ -544,11 +619,13 @@ impl CombatState {
                     let boosted_atk = (atk as f32 * 2.0) as i32;
                     let def = party.members[target_idx].total_defense()
                         + party.stat_delta(StatEffectTarget::Defense);
-                    let dmg = roll_damage(boosted_atk, def, rng);
+                    let luck = self.enemies[ei].total_luck();
+                    let (dmg, crit) = roll_damage(boosted_atk, def, luck, rng);
                     party.members[target_idx].take_damage(dmg);
                     let tname = party.members[target_idx].name.clone();
                     self.push_log(format!(
-                        "{ename} unleashes a Cinder Nova on {tname} for {dmg} damage!"
+                        "{ename} unleashes a Cinder Nova on {tname} for {dmg} damage!{}",
+                        if crit { " A critical hit!" } else { "" }
                     ));
                     if !party.members[target_idx].is_alive() {
                         self.push_log(format!("{tname} falls!"));
@@ -611,21 +688,43 @@ impl CombatState {
     }
 }
 
-fn roll_damage(power: i32, defense: i32, rng: &mut impl Rng) -> i32 {
+/// Critical-hit multiplier applied to damage when `roll_damage`'s crit roll
+/// succeeds.
+const CRIT_MULTIPLIER: f32 = 1.75;
+
+/// Chance (0.0-1.0) of a critical hit, given the attacker's Luck stat.
+/// 1.5% per point of luck, capped at 50%.
+fn crit_chance(luck: i32) -> f32 {
+    (luck as f32 * 1.5).min(50.0) / 100.0
+}
+
+/// Rolls damage from `power` vs `defense`, applying a chance of a critical
+/// hit based on the attacker's `luck`. Returns the final damage and whether
+/// it was a crit, so callers can log it. Shared by players, enemies, and
+/// bosses alike — enemies and bosses can crit too, since `Character` always
+/// carries a `luck` value regardless of who it belongs to.
+fn roll_damage(power: i32, defense: i32, luck: i32, rng: &mut impl Rng) -> (i32, bool) {
     let base = (power - defense / 2).max(1);
     let variance = rng.gen_range(-2..=2);
-    (base + variance).max(1)
+    let mut dmg = (base + variance).max(1);
+    let is_crit = rng.gen::<f32>() < crit_chance(luck);
+    if is_crit {
+        dmg = ((dmg as f32) * CRIT_MULTIPLIER).round() as i32;
+    }
+    (dmg, is_crit)
 }
 
 pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
     match kind {
-        ItemKind::Potion { heal } => {
-            target.heal(heal);
-            format!("{} recovers {} HP.", target.name, heal)
+        ItemKind::Potion { heal_percent } => {
+            let amount = (target.stats.max_hp as f32 * heal_percent).round() as i32;
+            target.heal(amount);
+            format!("{} recovers {} HP.", target.name, amount)
         }
-        ItemKind::Ether { mp } => {
-            target.stats.mp = (target.stats.mp + mp).min(target.stats.max_mp);
-            format!("{} recovers {} MP.", target.name, mp)
+        ItemKind::Ether { mp_percent } => {
+            let amount = (target.stats.max_mp as f32 * mp_percent).round() as i32;
+            target.stats.mp = (target.stats.mp + amount).min(target.stats.max_mp);
+            format!("{} recovers {} MP.", target.name, amount)
         }
     }
 }
@@ -1342,6 +1441,149 @@ mod tests {
         assert!(
             loot.weapons.iter().any(|w| w.name == "Sovereign's Reckoning"),
             "defeating the sovereign should always drop Sovereign's Reckoning"
+        );
+    }
+
+    #[test]
+    fn crit_chance_is_zero_at_zero_luck_and_monotonic_and_capped() {
+        assert_eq!(crit_chance(0), 0.0);
+        assert!(crit_chance(5) < crit_chance(10));
+        assert!(crit_chance(1000) <= 0.5);
+    }
+
+    #[test]
+    fn high_luck_crits_at_least_once_across_many_trials_low_luck_never_does() {
+        let mut high_luck_crit = false;
+        let mut low_luck_crit = false;
+        for seed in 0..100u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (_, crit) = roll_damage(20, 5, 40, &mut rng);
+            if crit {
+                high_luck_crit = true;
+            }
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (_, crit) = roll_damage(20, 5, 0, &mut rng);
+            if crit {
+                low_luck_crit = true;
+            }
+        }
+        assert!(high_luck_crit, "a high-luck attacker should crit at least once");
+        assert!(!low_luck_crit, "a zero-luck attacker should never crit");
+    }
+
+    #[test]
+    fn xp_value_is_tripled_for_bosses() {
+        let boss = barrow_knight("The Barrow Knight");
+        let mut as_regular = boss.clone();
+        as_regular.boss_kind = None;
+        assert_eq!(xp_value(&boss), xp_value(&as_regular) * 3);
+    }
+
+    #[test]
+    fn victory_awards_xp_and_boss_kills_award_more() {
+        let mut party = test_party();
+        let mut enemies = vec![slime("Slime")];
+        enemies[0].stats.hp = 1;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(99);
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        let loot = combat.loot.expect("victory should always roll loot");
+        assert!(loot.xp > 0, "defeating an enemy should award XP");
+    }
+
+    #[test]
+    fn mimic_always_drops_upgrade_materials() {
+        for seed in 0..20u64 {
+            let mut party = test_party();
+            let mut enemies = vec![mimic("Mimic")];
+            enemies[0].stats.hp = 1;
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.phase = CombatPhase::SelectTarget {
+                actor: ActorRef::Player(0),
+                action: CombatAction::Attack,
+                target_idx: 0,
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            let loot = combat.loot.expect("victory should always roll loot");
+            assert!(
+                (3..=6).contains(&loot.upgrade_materials) || loot.upgrade_materials == 0,
+                "mimic shard drop should be in range or absent (60% chance), got {}",
+                loot.upgrade_materials
+            );
+        }
+    }
+
+    #[test]
+    fn slime_never_drops_upgrade_materials() {
+        for seed in 0..30u64 {
+            let mut party = test_party();
+            let mut enemies = vec![slime("Slime")];
+            enemies[0].stats.hp = 1;
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.phase = CombatPhase::SelectTarget {
+                actor: ActorRef::Player(0),
+                action: CombatAction::Attack,
+                target_idx: 0,
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            let loot = combat.loot.expect("victory should always roll loot");
+            assert_eq!(loot.upgrade_materials, 0, "slimes should never drop shards");
+        }
+    }
+
+    #[test]
+    fn bosses_always_drop_upgrade_materials_in_their_guaranteed_range() {
+        let mut party = test_party();
+        let mut enemies = vec![barrow_knight("The Barrow Knight")];
+        enemies[0].stats.hp = 1;
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(3);
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Attack,
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        let loot = combat.loot.expect("victory should always roll loot");
+        assert!(
+            (5..=8).contains(&loot.upgrade_materials),
+            "barrow knight should always drop 5-8 shards, got {}",
+            loot.upgrade_materials
+        );
+    }
+
+    #[test]
+    fn effective_power_folds_in_half_the_casters_attack() {
+        let hero = warrior("Bram");
+        let ability = &hero.abilities[0]; // Power Strike, base_power 10
+        let expected = ability.base_power + hero.total_attack() / 2;
+        assert_eq!(ability.effective_power(&hero), expected);
+    }
+
+    #[test]
+    fn item_healing_scales_with_max_hp() {
+        let mut low = warrior("Bram");
+        low.stats.hp = 1;
+        let msg_low = use_item_kind(ItemKind::Potion { heal_percent: 0.35 }, &mut low);
+        let low_amount = low.stats.hp - 1;
+        assert!(msg_low.contains("recovers"));
+
+        let mut high = warrior("Bram");
+        high.stats.max_hp *= 3;
+        high.stats.hp = 1;
+        use_item_kind(ItemKind::Potion { heal_percent: 0.35 }, &mut high);
+        let high_amount = high.stats.hp - 1;
+
+        assert!(
+            high_amount > low_amount,
+            "a character with more max HP should heal for more from the same percent"
         );
     }
 }

@@ -62,7 +62,7 @@ fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
     }
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Fields — arrows/WASD to move, i inventory, e shop (in town), q to quit");
+        .title("Fields — arrows/WASD to move, i inventory, e shop/NPC, u level up, q to quit");
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
 }
@@ -72,15 +72,22 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
     for m in &party.members {
         let color = crate::ui::hp_color(m.hp_ratio());
         let bar = crate::ui::hp_bar(m.stats.hp, m.stats.max_hp, 10);
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(
-                format!("{:<8}", m.name),
+                format!("{:<8}Lv{:<3}", m.name, m.level),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {bar} "), Style::default().fg(color)),
             Span::raw(format!("{:>3}/{:<3}", m.stats.hp, m.stats.max_hp)),
             Span::raw(format!("  MP {:>3}/{:<3}", m.stats.mp, m.stats.max_mp)),
-        ]));
+        ];
+        if m.unspent_points > 0 {
+            spans.push(Span::styled(
+                format!("  [+{} pts]", m.unspent_points),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        }
+        lines.push(Line::from(spans));
     }
     lines.push(Line::from(""));
     lines.push(Line::from(format!("Gold: {}", party.gold)));

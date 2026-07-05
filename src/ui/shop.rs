@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &In
         ShopMode::Buy => draw_buy_list(frame, mid[0], shop, party, inventory),
         ShopMode::Sell => draw_sell_list(frame, mid[0], shop, inventory),
     }
-    draw_party_gear(frame, mid[1], party);
+    crate::ui::draw_party_gear(frame, mid[1], party);
 
     draw_footer(frame, outer[2], shop);
 }
@@ -74,17 +74,6 @@ fn draw_header(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party)
     frame.render_widget(Paragraph::new(line).block(block), area);
 }
 
-fn cursor_style(selected: bool) -> Style {
-    if selected {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::White)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    }
-}
-
 fn draw_buy_list(
     frame: &mut Frame,
     area: Rect,
@@ -106,7 +95,7 @@ fn draw_buy_list(
                     .map(|(_, qty)| *qty)
                     .unwrap_or(0);
                 let style = if i == shop.cursor {
-                    cursor_style(true)
+                    crate::ui::cursor_style(true)
                 } else if !affordable {
                     Style::default().fg(Color::DarkGray)
                 } else {
@@ -220,7 +209,7 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             .iter()
             .enumerate()
             .map(|(i, (item, qty))| {
-                let style = cursor_style(i == shop.cursor);
+                let style = crate::ui::cursor_style(i == shop.cursor);
                 ListItem::new(Line::from(Span::styled(
                     format!("{:<16} x{qty}   sells for {} gold", item.name, item.value / 2),
                     style,
@@ -242,7 +231,7 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
                 ListItem::new(Line::from(vec![
                     Span::raw(marker),
                     Span::styled(
-                        format!("{:<20}", w.name),
+                        format!("{:<20}", w.display_name()),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(format!("[{}] ", w.rarity), Style::default().fg(color)),
@@ -324,55 +313,6 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
     } else {
         frame.render_widget(List::new(items).block(block), area);
     }
-}
-
-fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party) {
-    let mut lines = Vec::new();
-    for m in &party.members {
-        let hp_color = crate::ui::hp_color(m.hp_ratio());
-        let hp_bar = crate::ui::hp_bar(m.stats.hp, m.stats.max_hp, 10);
-        lines.push(Line::from(Span::styled(
-            m.name.clone(),
-            Style::default().add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {hp_bar} "), Style::default().fg(hp_color)),
-            Span::raw(format!("{:>3}/{:<3} HP", m.stats.hp, m.stats.max_hp)),
-        ]));
-        lines.push(Line::from(format!(
-            "  MP {:>3}/{:<3}",
-            m.stats.mp, m.stats.max_mp
-        )));
-        if let Some(w) = &m.equipped_weapon {
-            let color = crate::ui::rarity_color(w.rarity);
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(w.name.clone(), Style::default().fg(color)),
-                Span::styled(format!(" [{}]", w.rarity), Style::default().fg(color)),
-            ]));
-        } else {
-            lines.push(Line::from("  (unarmed)"));
-        }
-        if let Some(a) = &m.equipped_armor {
-            let color = crate::ui::rarity_color(a.rarity);
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(a.name.clone(), Style::default().fg(color)),
-                Span::styled(format!(" [{}]", a.rarity), Style::default().fg(color)),
-            ]));
-        }
-        for ring in m.equipped_rings.iter().flatten() {
-            let color = crate::ui::rarity_color(ring.rarity);
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(ring.name.clone(), Style::default().fg(color)),
-                Span::styled(format!(" [{}]", ring.rarity), Style::default().fg(color)),
-            ]));
-        }
-        lines.push(Line::from(""));
-    }
-    let block = Block::default().borders(Borders::ALL).title("Party");
-    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, shop: &ShopUiState) {

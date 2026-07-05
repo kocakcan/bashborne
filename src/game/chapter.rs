@@ -50,7 +50,10 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 2 },
             boss: barrow_knight,
             boss_display_name: "The Barrow Knight",
-            npcs: vec![(Position { x: 12, y: 5 }, NpcId::OldHerbalist)],
+            npcs: vec![
+                (Position { x: 12, y: 5 }, NpcId::OldHerbalist),
+                (Position { x: 2, y: 3 }, NpcId::Blacksmith),
+            ],
             next: Some(ChapterId::Two),
         },
         ChapterId::Two => ChapterDef {
@@ -127,5 +130,23 @@ mod tests {
         for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
             assert!(!chapter_def(id).npcs.is_empty(), "{:?} should have an NPC", id);
         }
+    }
+
+    #[test]
+    fn chapter_one_places_the_blacksmith_on_a_town_tile() {
+        use crate::game::map::Tile;
+        let def = chapter_def(ChapterId::One);
+        let pos = Position { x: 2, y: 3 };
+        assert!(
+            def.npcs.contains(&(pos, NpcId::Blacksmith)),
+            "Chapter One should place the blacksmith at {:?}",
+            pos
+        );
+        let map = (def.map)();
+        assert_eq!(
+            map.tile_at(pos),
+            Tile::Town,
+            "the blacksmith should stand on a Town tile, available from the start"
+        );
     }
 }

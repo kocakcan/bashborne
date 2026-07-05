@@ -12,6 +12,8 @@ pub struct Stats {
     pub attack: i32,
     pub defense: i32,
     pub speed: i32,
+    /// Boosts critical-hit chance — see `combat::crit_chance`.
+    pub luck: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,8 +50,19 @@ pub enum AbilityKind {
 pub struct Ability {
     pub name: String,
     pub mp_cost: i32,
-    pub power: i32,
+    /// The ability's flat power before the caster's own stats are folded
+    /// in — see `effective_power`, which is what combat actually uses.
+    pub base_power: i32,
     pub kind: AbilityKind,
+}
+
+impl Ability {
+    /// This ability's actual power once the caster's Attack (AP) stat is
+    /// folded in, for damage abilities and heals alike — the game has no
+    /// separate "magic power" stat, so AP is what all abilities scale from.
+    pub fn effective_power(&self, caster: &Character) -> i32 {
+        self.base_power + caster.total_attack() / 2
+    }
 }
 
 /// Which of a character's two ring slots is being addressed. Two slots
@@ -61,11 +74,55 @@ pub enum RingSlot {
     Second,
 }
 
+/// A stat a level-up point can be spent on — see `Character::allocate_point`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocStat {
+    MaxHp,
+    MaxMp,
+    Attack,
+    Defense,
+    Speed,
+    Luck,
+}
+
+pub const ALLOC_STATS: [AllocStat; 6] = [
+    AllocStat::MaxHp,
+    AllocStat::MaxMp,
+    AllocStat::Attack,
+    AllocStat::Defense,
+    AllocStat::Speed,
+    AllocStat::Luck,
+];
+
+impl fmt::Display for AllocStat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            AllocStat::MaxHp => "Max HP",
+            AllocStat::MaxMp => "Max MP",
+            AllocStat::Attack => "Attack",
+            AllocStat::Defense => "Defense",
+            AllocStat::Speed => "Speed",
+            AllocStat::Luck => "Luck",
+        };
+        write!(f, "{s}")
+    }
+}
+
+/// Stat points banked per level-up, to be spent via `Character::allocate_point`.
+pub const POINTS_PER_LEVEL: u32 = 3;
+
+/// XP required to advance from `level` to `level + 1`.
+pub fn xp_to_next_level(level: u32) -> u32 {
+    20 * level + 30
+}
+
 #[derive(Debug, Clone)]
 pub struct Character {
     pub name: String,
     pub class: Class,
     pub level: u32,
+    pub xp: u32,
+    pub unspent_points: u32,
     pub stats: Stats,
     pub abilities: Vec<Ability>,
     /// The weapon this character currently wields. Monsters leave this
@@ -107,6 +164,53 @@ impl Character {
 
     pub fn hp_ratio(&self) -> f64 {
         self.stats.hp as f64 / self.stats.max_hp as f64
+    }
+
+    /// Adds `amount` XP, applying as many level-ups as it covers (a single
+    /// large award — e.g. a boss kill — can cross several thresholds at
+    /// once). Returns the number of levels gained, 0 if none.
+    pub fn gain_xp(&mut self, amount: u32) -> u32 {
+        self.xp += amount;
+        let mut levels = 0;
+        while self.xp >= xp_to_next_level(self.level) {
+            self.xp -= xp_to_next_level(self.level);
+            self.level += 1;
+            self.unspent_points += POINTS_PER_LEVEL;
+            levels += 1;
+        }
+        levels
+    }
+
+    /// Spends one banked point on `stat`, if any are available. Returns
+    /// whether a point was spent.
+    pub fn allocate_point(&mut self, stat: AllocStat) -> bool {
+        if self.unspent_points == 0 {
+            return false;
+        }
+        self.unspent_points -= 1;
+        match stat {
+            AllocStat::MaxHp => {
+                self.stats.max_hp += 5;
+                self.stats.hp += 5;
+            }
+            AllocStat::MaxMp => {
+                self.stats.max_mp += 3;
+                self.stats.mp += 3;
+            }
+            AllocStat::Attack => self.stats.attack += 2,
+            AllocStat::Defense => self.stats.defense += 2,
+            AllocStat::Speed => self.stats.speed += 1,
+            AllocStat::Luck => self.stats.luck += 1,
+        }
+        true
+    }
+
+    /// Luck stat, boosting critical-hit chance (`combat::crit_chance`). No
+    /// gear grants a luck bonus yet, but this mirrors `total_attack`/
+    /// `total_defense`'s shape so gear can add one later without another
+    /// `combat.rs` change.
+    pub fn total_luck(&self) -> i32 {
+        self.stats.luck
     }
 
     /// Whether the ability at `idx` targets an ally (heal) rather than an enemy.
@@ -207,6 +311,8 @@ pub fn warrior(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Warrior,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 42,
             hp: 42,
@@ -215,18 +321,19 @@ pub fn warrior(name: &str) -> Character {
             attack: 12,
             defense: 8,
             speed: 6,
+            luck: 5,
         },
         abilities: vec![
             Ability {
                 name: "Power Strike".into(),
                 mp_cost: 3,
-                power: 10,
+                base_power: 10,
                 kind: AbilityKind::PhysicalDamage,
             },
             Ability {
                 name: "Crushing Blow".into(),
                 mp_cost: 6,
-                power: 18,
+                base_power: 18,
                 kind: AbilityKind::PhysicalDamage,
             },
         ],
@@ -242,6 +349,8 @@ pub fn mage(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Mage,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 26,
             hp: 26,
@@ -250,18 +359,19 @@ pub fn mage(name: &str) -> Character {
             attack: 5,
             defense: 4,
             speed: 8,
+            luck: 6,
         },
         abilities: vec![
             Ability {
                 name: "Firebolt".into(),
                 mp_cost: 6,
-                power: 16,
+                base_power: 16,
                 kind: AbilityKind::MagicDamage,
             },
             Ability {
                 name: "Lightning Bolt".into(),
                 mp_cost: 12,
-                power: 26,
+                base_power: 26,
                 kind: AbilityKind::MagicDamage,
             },
         ],
@@ -277,6 +387,8 @@ pub fn cleric(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Cleric,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 32,
             hp: 32,
@@ -285,18 +397,19 @@ pub fn cleric(name: &str) -> Character {
             attack: 6,
             defense: 6,
             speed: 7,
+            luck: 4,
         },
         abilities: vec![
             Ability {
                 name: "Mend".into(),
                 mp_cost: 8,
-                power: 18,
+                base_power: 18,
                 kind: AbilityKind::Heal,
             },
             Ability {
                 name: "Smite".into(),
                 mp_cost: 5,
-                power: 12,
+                base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
             },
         ],
@@ -312,6 +425,8 @@ pub fn slime(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 18,
             hp: 18,
@@ -320,6 +435,7 @@ pub fn slime(name: &str) -> Character {
             attack: 7,
             defense: 3,
             speed: 4,
+            luck: 2,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -334,6 +450,8 @@ pub fn goblin(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 24,
             hp: 24,
@@ -342,6 +460,7 @@ pub fn goblin(name: &str) -> Character {
             attack: 9,
             defense: 5,
             speed: 9,
+            luck: 6,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -356,6 +475,8 @@ pub fn bat(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 14,
             hp: 14,
@@ -364,6 +485,7 @@ pub fn bat(name: &str) -> Character {
             attack: 6,
             defense: 2,
             speed: 12,
+            luck: 10,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -378,6 +500,8 @@ pub fn wolf(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 22,
             hp: 22,
@@ -386,6 +510,7 @@ pub fn wolf(name: &str) -> Character {
             attack: 10,
             defense: 4,
             speed: 10,
+            luck: 5,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -400,6 +525,8 @@ pub fn skeleton(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 30,
             hp: 30,
@@ -408,6 +535,7 @@ pub fn skeleton(name: &str) -> Character {
             attack: 8,
             defense: 9,
             speed: 3,
+            luck: 3,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -422,6 +550,8 @@ pub fn orc(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 36,
             hp: 36,
@@ -430,6 +560,7 @@ pub fn orc(name: &str) -> Character {
             attack: 13,
             defense: 7,
             speed: 5,
+            luck: 4,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -446,6 +577,8 @@ pub fn wraith(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 20,
             hp: 20,
@@ -454,6 +587,7 @@ pub fn wraith(name: &str) -> Character {
             attack: 7,
             defense: 5,
             speed: 7,
+            luck: 7,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -469,6 +603,8 @@ pub fn mimic(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 30,
             hp: 30,
@@ -477,6 +613,7 @@ pub fn mimic(name: &str) -> Character {
             attack: 12,
             defense: 8,
             speed: 4,
+            luck: 8,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -497,6 +634,8 @@ pub fn barrow_knight(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 90,
             hp: 90,
@@ -505,6 +644,7 @@ pub fn barrow_knight(name: &str) -> Character {
             attack: 16,
             defense: 10,
             speed: 6,
+            luck: 8,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -522,6 +662,8 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 130,
             hp: 130,
@@ -530,6 +672,7 @@ pub fn wyrmscale_warden(name: &str) -> Character {
             attack: 20,
             defense: 13,
             speed: 8,
+            luck: 10,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -548,6 +691,8 @@ pub fn ashen_sovereign(name: &str) -> Character {
         name: name.to_string(),
         class: Class::Monster,
         level: 1,
+        xp: 0,
+        unspent_points: 0,
         stats: Stats {
             max_hp: 170,
             hp: 170,
@@ -556,6 +701,7 @@ pub fn ashen_sovereign(name: &str) -> Character {
             attack: 24,
             defense: 15,
             speed: 10,
+            luck: 14,
         },
         abilities: vec![],
         equipped_weapon: None,
@@ -734,5 +880,67 @@ mod tests {
         hero.unequip_weapon();
         assert_eq!(hero.total_attack(), hero.stats.attack);
         assert_eq!(hero.total_defense(), hero.stats.defense);
+    }
+
+    #[test]
+    fn xp_to_next_level_is_strictly_increasing() {
+        for level in 1..20 {
+            assert!(xp_to_next_level(level + 1) > xp_to_next_level(level));
+        }
+    }
+
+    #[test]
+    fn gain_xp_below_threshold_grants_no_levels() {
+        let mut hero = warrior("Bram");
+        let levels = hero.gain_xp(xp_to_next_level(1) - 1);
+        assert_eq!(levels, 0);
+        assert_eq!(hero.level, 1);
+        assert_eq!(hero.unspent_points, 0);
+    }
+
+    #[test]
+    fn a_large_xp_award_can_grant_multiple_levels_at_once() {
+        let mut hero = warrior("Bram");
+        let needed = xp_to_next_level(1) + xp_to_next_level(2) + xp_to_next_level(3) + 5;
+        let levels = hero.gain_xp(needed);
+        assert_eq!(levels, 3);
+        assert_eq!(hero.level, 4);
+        assert_eq!(hero.unspent_points, POINTS_PER_LEVEL * 3);
+        assert_eq!(hero.xp, 5);
+    }
+
+    #[test]
+    fn allocate_point_applies_the_right_increment_and_spends_a_point() {
+        let mut hero = warrior("Bram");
+        hero.unspent_points = 1;
+        let base_hp = hero.stats.max_hp;
+        assert!(hero.allocate_point(AllocStat::MaxHp));
+        assert_eq!(hero.stats.max_hp, base_hp + 5);
+        assert_eq!(hero.unspent_points, 0);
+    }
+
+    #[test]
+    fn allocate_point_with_no_points_does_nothing() {
+        let mut hero = warrior("Bram");
+        hero.unspent_points = 0;
+        let stats_before = hero.stats;
+        assert!(!hero.allocate_point(AllocStat::Luck));
+        assert_eq!(hero.stats.luck, stats_before.luck);
+    }
+
+    #[test]
+    fn total_luck_reflects_the_base_stat() {
+        let hero = warrior("Bram");
+        assert_eq!(hero.total_luck(), hero.stats.luck);
+    }
+
+    #[test]
+    fn effective_power_grows_with_a_stronger_weapon() {
+        let mut hero = warrior("Bram");
+        let ability = hero.abilities[0].clone();
+        let before = ability.effective_power(&hero);
+        hero.equip_weapon(dragonslayers_oath());
+        let after = ability.effective_power(&hero);
+        assert!(after > before);
     }
 }

@@ -2,11 +2,15 @@ use crossterm::event::KeyCode;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
+use crate::game::blacksmith::{
+    upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState,
+};
 use crate::game::chapter::{chapter_def, ChapterId};
-use crate::game::character::{cleric, mage, warrior, Character, RingSlot};
+use crate::game::character::{cleric, mage, warrior, Character, RingSlot, ALLOC_STATS};
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
 use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
 use crate::game::item::{Armor, Inventory, Ring, Weapon};
+use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Position, Tile};
 use crate::game::npc::{npc_def, NpcId};
 use crate::game::party::Party;
@@ -65,6 +69,8 @@ impl World {
             GameState::Inventory(_) => self.handle_inventory_key(key),
             GameState::Shop(_) => self.handle_shop_key(key),
             GameState::QuestLog(_) => self.handle_quest_log_key(key),
+            GameState::LevelUp(_) => self.handle_levelup_key(key),
+            GameState::Blacksmith(_) => self.handle_blacksmith_key(key),
             GameState::Event(ev) => {
                 if key == KeyCode::Enter {
                     let return_pos = ev.return_pos;
@@ -101,6 +107,14 @@ impl World {
             self.state = GameState::QuestLog(crate::game::quest_ui::QuestLogUiState::new(return_pos));
             return;
         }
+        if key == KeyCode::Char('u') {
+            let GameState::Explore(explore) = &self.state else {
+                return;
+            };
+            let return_pos = explore.player_pos;
+            self.state = GameState::LevelUp(LevelUpUiState::new(return_pos));
+            return;
+        }
         if key == KeyCode::Char('e') {
             let GameState::Explore(explore) = &self.state else {
                 return;
@@ -110,7 +124,9 @@ impl World {
             let is_town = explore.map.tile_at(return_pos) == Tile::Town;
             // The borrow of self.state (via `explore`) ends here, freeing
             // self up for the mutable interact_with_npc call below.
-            if let Some(id) = npc_id {
+            if npc_id == Some(NpcId::Blacksmith) {
+                self.state = GameState::Blacksmith(BlacksmithUiState::new(return_pos));
+            } else if let Some(id) = npc_id {
                 self.state = GameState::Event(self.interact_with_npc(id, return_pos));
             } else if is_town {
                 self.state = GameState::Shop(ShopUiState::new(return_pos));
@@ -179,7 +195,7 @@ impl World {
                             npc: None,
                         });
                     }
-                    FieldEvent::Treasure { gold, item, weapon } => {
+                    FieldEvent::Treasure { gold, item, weapon, materials } => {
                         let mut lines = vec![format!("You found a hidden cache! +{gold} gold.")];
                         self.party.gold += gold;
                         if let Some(item) = item {
@@ -192,6 +208,10 @@ impl World {
                                 weapon.rarity, weapon.name
                             ));
                             self.inventory.add_weapon(weapon);
+                        }
+                        if materials > 0 {
+                            lines.push(format!("Buried alongside it: {materials} Titanite Shard(s)!"));
+                            self.inventory.upgrade_materials += materials;
                         }
                         self.state = GameState::Event(EventState {
                             title: "Treasure!".to_string(),
@@ -1241,6 +1261,151 @@ impl World {
         }
     }
 
+    fn handle_levelup_key(&mut self, key: KeyCode) {
+        let GameState::LevelUp(ui) = &self.state else {
+            return;
+        };
+        let member_cursor = ui.member_cursor;
+        let stat_cursor = ui.stat_cursor;
+
+        match key {
+            KeyCode::Esc => {
+                let GameState::LevelUp(ui) = &self.state else {
+                    return;
+                };
+                let return_pos = ui.return_pos;
+                let mut explore = ExploreState::for_chapter(self.current_chapter);
+                explore.player_pos = return_pos;
+                self.state = GameState::Explore(explore);
+            }
+            KeyCode::Up | KeyCode::Char('w') => {
+                let len = self.party.members.len();
+                if len > 0 {
+                    let GameState::LevelUp(ui) = &mut self.state else {
+                        return;
+                    };
+                    ui.member_cursor = (member_cursor + len - 1) % len;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('s') => {
+                let len = self.party.members.len();
+                if len > 0 {
+                    let GameState::LevelUp(ui) = &mut self.state else {
+                        return;
+                    };
+                    ui.member_cursor = (member_cursor + 1) % len;
+                }
+            }
+            KeyCode::Left | KeyCode::Char('a') => {
+                let len = ALLOC_STATS.len();
+                let GameState::LevelUp(ui) = &mut self.state else {
+                    return;
+                };
+                ui.stat_cursor = (stat_cursor + len - 1) % len;
+            }
+            KeyCode::Right | KeyCode::Char('d') => {
+                let len = ALLOC_STATS.len();
+                let GameState::LevelUp(ui) = &mut self.state else {
+                    return;
+                };
+                ui.stat_cursor = (stat_cursor + 1) % len;
+            }
+            KeyCode::Enter => self.apply_levelup_allocation(member_cursor, stat_cursor),
+            _ => {}
+        }
+    }
+
+    fn apply_levelup_allocation(&mut self, member_idx: usize, stat_idx: usize) {
+        let Some(stat) = ALLOC_STATS.get(stat_idx).copied() else {
+            return;
+        };
+        let message = match self.party.members.get_mut(member_idx) {
+            Some(member) => {
+                if member.allocate_point(stat) {
+                    Some(format!(
+                        "{} spends a point on {stat}. ({} left)",
+                        member.name, member.unspent_points
+                    ))
+                } else {
+                    Some("No points left to spend.".to_string())
+                }
+            }
+            None => None,
+        };
+        if let GameState::LevelUp(ui) = &mut self.state {
+            if let Some(msg) = message {
+                ui.message = Some(msg);
+            }
+        }
+    }
+
+    fn handle_blacksmith_key(&mut self, key: KeyCode) {
+        let GameState::Blacksmith(bs) = &self.state else {
+            return;
+        };
+        let cursor = bs.cursor;
+
+        match key {
+            KeyCode::Esc => {
+                let GameState::Blacksmith(bs) = &self.state else {
+                    return;
+                };
+                let return_pos = bs.return_pos;
+                let mut explore = ExploreState::for_chapter(self.current_chapter);
+                explore.player_pos = return_pos;
+                self.state = GameState::Explore(explore);
+            }
+            KeyCode::Up | KeyCode::Char('w') => {
+                let len = weapon_refs(&self.inventory, &self.party).len();
+                if len > 0 {
+                    let GameState::Blacksmith(bs) = &mut self.state else {
+                        return;
+                    };
+                    bs.cursor = (cursor + len - 1) % len;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('s') => {
+                let len = weapon_refs(&self.inventory, &self.party).len();
+                if len > 0 {
+                    let GameState::Blacksmith(bs) = &mut self.state else {
+                        return;
+                    };
+                    bs.cursor = (cursor + 1) % len;
+                }
+            }
+            KeyCode::Enter => self.apply_blacksmith_upgrade(cursor),
+            _ => {}
+        }
+    }
+
+    fn apply_blacksmith_upgrade(&mut self, idx: usize) {
+        let refs = weapon_refs(&self.inventory, &self.party);
+        let Some(&r) = refs.get(idx) else { return };
+        let (rarity, tier) = match weapon_for_mut(r, &mut self.inventory, &mut self.party) {
+            Some(weapon) => (weapon.rarity, weapon.upgrade_level),
+            None => return,
+        };
+        let message = match upgrade_cost(rarity, tier) {
+            None => "Already at max upgrade level.".to_string(),
+            Some((gold, shards)) => {
+                if self.party.gold < gold || self.inventory.upgrade_materials < shards {
+                    "Not enough gold or Titanite Shards for that upgrade.".to_string()
+                } else {
+                    self.party.gold -= gold;
+                    self.inventory.upgrade_materials -= shards;
+                    let (atk_inc, def_inc) = upgrade_increments(rarity);
+                    let weapon = weapon_for_mut(r, &mut self.inventory, &mut self.party)
+                        .expect("weapon_refs stays in sync");
+                    weapon.apply_upgrade(atk_inc, def_inc);
+                    format!("{} upgraded to +{}!", weapon.display_name(), weapon.upgrade_level)
+                }
+            }
+        };
+        if let GameState::Blacksmith(bs) = &mut self.state {
+            bs.message = Some(message);
+        }
+    }
+
     /// Called once per app loop tick; advances enemy turns automatically since they
     /// don't wait on keyboard input.
     pub fn tick(&mut self) {
@@ -1307,6 +1472,27 @@ impl World {
                         weapon.rarity, weapon.name
                     ));
                     self.inventory.add_weapon(weapon);
+                }
+                if loot.upgrade_materials > 0 {
+                    self.inventory.upgrade_materials += loot.upgrade_materials;
+                    messages.push(format!(
+                        "The enemy dropped {} Titanite Shard(s).",
+                        loot.upgrade_materials
+                    ));
+                }
+                if loot.xp > 0 {
+                    for member in self.party.members.iter_mut() {
+                        let levels = member.gain_xp(loot.xp);
+                        if levels > 0 {
+                            messages.push(format!(
+                                "{} reaches level {}! ({} stat point{} to spend — press 'u')",
+                                member.name,
+                                member.level,
+                                member.unspent_points,
+                                if member.unspent_points == 1 { "" } else { "s" }
+                            ));
+                        }
+                    }
                 }
             }
             if messages.is_empty() {
@@ -1521,8 +1707,8 @@ mod tests {
         world.handle_key(KeyCode::Enter); // confirm target
 
         assert_eq!(
-            world.party.members[0].stats.mp, 10,
-            "picking Ether from the submenu should restore MP, not HP"
+            world.party.members[0].stats.mp, 4,
+            "picking Ether from the submenu should restore MP, not HP (35% of 10 max MP, rounded)"
         );
         let potions = world
             .inventory

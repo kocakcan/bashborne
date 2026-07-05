@@ -12,6 +12,12 @@ pub enum NpcId {
     OldHerbalist,
     WoundedScout,
     AshenPilgrim,
+    /// The blacksmith, routed to its own `GameState::Blacksmith` screen
+    /// (see `app.rs::handle_explore_key`) rather than the generic dialogue
+    /// path every other NPC uses — so its `intro`/`reminder`/`quest` fields
+    /// below are unused placeholders satisfying `NpcDef`'s shape, not dead
+    /// code to "clean up."
+    Blacksmith,
 }
 
 /// Static data describing an NPC. Dialogue is plain linear text — no
@@ -79,6 +85,18 @@ pub fn npc_def(id: NpcId) -> NpcDef {
             after: vec!["\"Go carefully. Ash remembers who disturbs it.\""],
             quest: Some(QuestId::PilgrimsBlessing),
         },
+        NpcId::Blacksmith => NpcDef {
+            name: "Andre of Astora",
+            intro: vec![
+                "A soot-streaked smith looks up from his anvil, hammer still swinging.",
+                "\"Bring me steel worth beating — and gold, and shards to spare —",
+                " and I'll make it sing.\"",
+            ],
+            reminder: vec!["\"Steel's always waiting on you, friend. Bring me shards, and coin.\""],
+            turn_in: vec![],
+            after: vec![],
+            quest: None,
+        },
     }
 }
 
@@ -89,6 +107,7 @@ pub fn glyph_for(id: NpcId) -> char {
         NpcId::OldHerbalist => 'h',
         NpcId::WoundedScout => 's',
         NpcId::AshenPilgrim => 'p',
+        NpcId::Blacksmith => 'b',
     }
 }
 
@@ -97,6 +116,7 @@ pub fn color_for(id: NpcId) -> Color {
         NpcId::OldHerbalist => Color::LightYellow,
         NpcId::WoundedScout => Color::LightCyan,
         NpcId::AshenPilgrim => Color::Gray,
+        NpcId::Blacksmith => Color::LightRed,
     }
 }
 
@@ -106,7 +126,12 @@ mod tests {
 
     #[test]
     fn every_npc_has_non_empty_dialogue_for_every_state() {
-        for id in [NpcId::OldHerbalist, NpcId::WoundedScout, NpcId::AshenPilgrim] {
+        for id in [
+            NpcId::OldHerbalist,
+            NpcId::WoundedScout,
+            NpcId::AshenPilgrim,
+            NpcId::Blacksmith,
+        ] {
             let def = npc_def(id);
             assert!(!def.name.is_empty());
             assert!(!def.intro.is_empty());

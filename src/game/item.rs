@@ -2,8 +2,12 @@ use std::fmt;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ItemKind {
-    Potion { heal: i32 },
-    Ether { mp: i32 },
+    /// Heals a fraction of the target's max HP, so potency scales with the
+    /// target's stats (a leveled-up character with more max HP heals for
+    /// more) rather than staying a flat number forever.
+    Potion { heal_percent: f32 },
+    /// Restores a fraction of the target's max MP — same reasoning as `Potion`.
+    Ether { mp_percent: f32 },
 }
 
 #[derive(Debug, Clone)]
@@ -17,7 +21,7 @@ pub struct Item {
 pub fn potion() -> Item {
     Item {
         name: "Potion".into(),
-        kind: ItemKind::Potion { heal: 20 },
+        kind: ItemKind::Potion { heal_percent: 0.35 },
         value: 15,
     }
 }
@@ -25,7 +29,7 @@ pub fn potion() -> Item {
 pub fn ether() -> Item {
     Item {
         name: "Ether".into(),
-        kind: ItemKind::Ether { mp: 15 },
+        kind: ItemKind::Ether { mp_percent: 0.35 },
         value: 20,
     }
 }
@@ -115,6 +119,36 @@ pub struct Weapon {
     pub defense_bonus: i32,
     pub description: String,
     pub source: GearSource,
+    /// How many times the blacksmith (`game::blacksmith`) has upgraded this
+    /// specific weapon, `0..=MAX_UPGRADE_LEVEL`. Every weapon starts at 0.
+    pub upgrade_level: u8,
+}
+
+/// The highest upgrade tier the blacksmith can apply to a weapon.
+pub const MAX_UPGRADE_LEVEL: u8 = 5;
+
+impl Weapon {
+    /// Applies one upgrade tier: attack always grows; defense only grows if
+    /// this weapon already grants some (a weapon with 0 base defense_bonus,
+    /// like the Worn Shortsword, never gains defense from upgrading).
+    pub fn apply_upgrade(&mut self, atk_inc: i32, def_inc: i32) {
+        self.upgrade_level += 1;
+        self.attack_bonus += atk_inc;
+        if self.defense_bonus > 0 {
+            self.defense_bonus += def_inc;
+        }
+    }
+
+    /// The name as shown in UI: `"Iron Sword"` at tier 0, `"Iron Sword +3"`
+    /// once upgraded. `.name` itself is left untouched so name-equality
+    /// checks elsewhere (loot, tests) keep working regardless of upgrades.
+    pub fn display_name(&self) -> String {
+        if self.upgrade_level > 0 {
+            format!("{} +{}", self.name, self.upgrade_level)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 // --- Weapon factory functions, grouped by rarity tier. ---
@@ -129,6 +163,7 @@ pub fn worn_shortsword() -> Weapon {
         defense_bonus: 0,
         description: "A nicked, well-used blade. Better than fists.".into(),
         source: GearSource::Starting,
+        upgrade_level: 0,
     }
 }
 
@@ -140,6 +175,7 @@ pub fn apprentice_wand() -> Weapon {
         defense_bonus: 0,
         description: "A simple wand every mage starts with.".into(),
         source: GearSource::Starting,
+        upgrade_level: 0,
     }
 }
 
@@ -151,6 +187,7 @@ pub fn acolytes_mace() -> Weapon {
         defense_bonus: 1,
         description: "Blunt and humble, blessed only lightly.".into(),
         source: GearSource::Starting,
+        upgrade_level: 0,
     }
 }
 
@@ -162,6 +199,7 @@ pub fn iron_sword() -> Weapon {
         defense_bonus: 0,
         description: "A sturdy, mass-produced blade left behind by a traveler.".into(),
         source: GearSource::World,
+        upgrade_level: 0,
     }
 }
 
@@ -173,6 +211,7 @@ pub fn goblin_shiv() -> Weapon {
         defense_bonus: 0,
         description: "Crude but wickedly sharp.".into(),
         source: GearSource::EnemyDrop("Goblin"),
+        upgrade_level: 0,
     }
 }
 
@@ -184,6 +223,7 @@ pub fn travelers_spear() -> Weapon {
         defense_bonus: 1,
         description: "Light, well-balanced, and easy to keep an enemy at range.".into(),
         source: GearSource::World,
+        upgrade_level: 0,
     }
 }
 
@@ -195,6 +235,7 @@ pub fn bone_blade() -> Weapon {
         defense_bonus: 0,
         description: "Carved from a fallen skeleton's own femur.".into(),
         source: GearSource::EnemyDrop("Skeleton"),
+        upgrade_level: 0,
     }
 }
 
@@ -206,6 +247,7 @@ pub fn orcish_greataxe() -> Weapon {
         defense_bonus: 0,
         description: "Heavy enough to fell a tree in one swing.".into(),
         source: GearSource::EnemyDrop("Orc"),
+        upgrade_level: 0,
     }
 }
 
@@ -217,6 +259,7 @@ pub fn wraithbane_edge() -> Weapon {
         defense_bonus: 2,
         description: "Etched with wards that flare hot near the restless dead.".into(),
         source: GearSource::EnemyDrop("Wraith"),
+        upgrade_level: 0,
     }
 }
 
@@ -228,6 +271,7 @@ pub fn sunken_relic_blade() -> Weapon {
         defense_bonus: 0,
         description: "Pulled from somewhere it should never have been found.".into(),
         source: GearSource::World,
+        upgrade_level: 0,
     }
 }
 
@@ -239,6 +283,7 @@ pub fn mimics_fang() -> Weapon {
         defense_bonus: 1,
         description: "Still faintly warm. It was a tooth a moment ago.".into(),
         source: GearSource::EnemyDrop("Mimic"),
+        upgrade_level: 0,
     }
 }
 
@@ -250,6 +295,7 @@ pub fn dragonslayers_oath() -> Weapon {
         defense_bonus: 3,
         description: "A greatsword said to have ended an age. Absurdly rare to find.".into(),
         source: GearSource::World,
+        upgrade_level: 0,
     }
 }
 
@@ -265,6 +311,7 @@ pub fn knightsbane() -> Weapon {
         defense_bonus: 4,
         description: "Forged in the barrow's cold fire; still hums with the Knight's fury.".into(),
         source: GearSource::EnemyDrop("The Barrow Knight"),
+        upgrade_level: 0,
     }
 }
 
@@ -280,6 +327,7 @@ pub fn wardens_fang() -> Weapon {
         description: "Torn from the Warden's own jaw; the scales along its edge still shed."
             .into(),
         source: GearSource::EnemyDrop("Wyrmscale Warden"),
+        upgrade_level: 0,
     }
 }
 
@@ -293,6 +341,7 @@ pub fn sovereigns_reckoning() -> Weapon {
         defense_bonus: 5,
         description: "What's left of a throne, reforged into something that only takes.".into(),
         source: GearSource::EnemyDrop("The Ashen Sovereign"),
+        upgrade_level: 0,
     }
 }
 
@@ -526,6 +575,11 @@ pub struct Inventory {
     pub armors: Vec<Armor>,
     /// Rings currently carried but not equipped by anyone.
     pub rings: Vec<Ring>,
+    /// "Titanite Shards" — the blacksmith's upgrade material, spent
+    /// alongside gold in `game::blacksmith::upgrade_cost`. A bare counter
+    /// rather than an `ItemKind`, mirroring `Party::gold`: a fungible
+    /// resource that's never equipped/sold/used like a consumable item.
+    pub upgrade_materials: u32,
 }
 
 impl Inventory {
@@ -535,6 +589,7 @@ impl Inventory {
             weapons: Vec::new(),
             armors: Vec::new(),
             rings: Vec::new(),
+            upgrade_materials: 0,
         }
     }
 
@@ -666,5 +721,39 @@ mod tests {
         let combined = |r: &Ring| r.attack_bonus + r.defense_bonus;
         assert!(combined(&copper_band()) < combined(&mimics_coil()));
         assert!(combined(&mimics_coil()) < combined(&band_of_the_barrow()));
+    }
+
+    #[test]
+    fn apply_upgrade_grows_attack_and_defense_when_the_weapon_has_some() {
+        let mut weapon = wraithbane_edge(); // starts with attack_bonus 9, defense_bonus 2
+        let (atk_before, def_before) = (weapon.attack_bonus, weapon.defense_bonus);
+        weapon.apply_upgrade(3, 2);
+        assert_eq!(weapon.upgrade_level, 1);
+        assert_eq!(weapon.attack_bonus, atk_before + 3);
+        assert_eq!(weapon.defense_bonus, def_before + 2);
+    }
+
+    #[test]
+    fn apply_upgrade_never_grants_defense_to_a_weapon_that_started_with_none() {
+        let mut weapon = worn_shortsword(); // defense_bonus 0
+        weapon.apply_upgrade(1, 1);
+        assert_eq!(weapon.defense_bonus, 0);
+    }
+
+    #[test]
+    fn upgrade_level_reaches_the_cap_after_max_applications() {
+        let mut weapon = worn_shortsword();
+        for _ in 0..MAX_UPGRADE_LEVEL {
+            weapon.apply_upgrade(1, 0);
+        }
+        assert_eq!(weapon.upgrade_level, MAX_UPGRADE_LEVEL);
+    }
+
+    #[test]
+    fn display_name_only_shows_a_suffix_once_upgraded() {
+        let mut weapon = worn_shortsword();
+        assert_eq!(weapon.display_name(), "Worn Shortsword");
+        weapon.apply_upgrade(1, 0);
+        assert_eq!(weapon.display_name(), "Worn Shortsword +1");
     }
 }

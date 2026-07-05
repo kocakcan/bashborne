@@ -1,8 +1,10 @@
+pub mod blacksmith;
 pub mod chapter;
 pub mod character;
 pub mod combat;
 pub mod inventory_ui;
 pub mod item;
+pub mod levelup;
 pub mod map;
 pub mod npc;
 pub mod party;
