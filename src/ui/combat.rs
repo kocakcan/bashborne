@@ -200,7 +200,11 @@ fn draw_party(frame: &mut Frame, area: Rect, party: &Party, combat: &CombatState
             Style::default().fg(Color::DarkGray),
         ))));
         for e in &party.effects {
-            let color = if e.delta >= 0 { Color::Cyan } else { Color::Magenta };
+            let color = if e.delta >= 0 {
+                Color::Cyan
+            } else {
+                Color::Magenta
+            };
             items.push(ListItem::new(Line::from(Span::styled(
                 format!(
                     "{} ({:+} {}, {} left)",
@@ -428,7 +432,10 @@ fn draw_menu_or_result(
 fn draw_log(frame: &mut Frame, area: Rect, log: &[String]) {
     let visible_rows = area.height.saturating_sub(2) as usize;
     let start = log.len().saturating_sub(visible_rows.max(1));
-    let lines: Vec<Line> = log[start..].iter().map(|s| Line::from(s.as_str())).collect();
+    let lines: Vec<Line> = log[start..]
+        .iter()
+        .map(|s| Line::from(s.as_str()))
+        .collect();
     let block = Block::default().borders(Borders::ALL).title("Battle Log");
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }

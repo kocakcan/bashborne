@@ -181,16 +181,25 @@ impl WeaponPassive {
     pub fn description(&self) -> String {
         match self {
             WeaponPassive::Lifesteal(pct) => {
-                format!("Passive: attacks heal the wielder for {:.0}% of damage dealt", pct * 100.0)
+                format!(
+                    "Passive: attacks heal the wielder for {:.0}% of damage dealt",
+                    pct * 100.0
+                )
             }
             WeaponPassive::BossSlayer(pct) => {
-                format!("Passive: attacks deal {:.0}% bonus damage to bosses", pct * 100.0)
+                format!(
+                    "Passive: attacks deal {:.0}% bonus damage to bosses",
+                    pct * 100.0
+                )
             }
             WeaponPassive::DamageReduction(pct) => {
                 format!("Passive: wielder takes {:.0}% less damage", pct * 100.0)
             }
             WeaponPassive::ArmorPierce(pct) => {
-                format!("Passive: attacks ignore {:.0}% of the target's defense", pct * 100.0)
+                format!(
+                    "Passive: attacks ignore {:.0}% of the target's defense",
+                    pct * 100.0
+                )
             }
         }
     }
@@ -533,8 +542,7 @@ pub fn wardens_fang() -> Weapon {
         rarity: Rarity::Legendary,
         attack_bonus: 24,
         defense_bonus: 4,
-        description: "Torn from the Warden's own jaw; the scales along its edge still shed."
-            .into(),
+        description: "Torn from the Warden's own jaw; the scales along its edge still shed.".into(),
         source: GearSource::EnemyDrop("Wyrmscale Warden".into()),
         upgrade_level: 0,
         passive: Some(WeaponPassive::DamageReduction(0.15)),

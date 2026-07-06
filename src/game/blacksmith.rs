@@ -27,7 +27,11 @@ pub fn weapon_refs(inventory: &Inventory, party: &Party) -> Vec<WeaponRef> {
     refs
 }
 
-pub fn weapon_for<'a>(r: WeaponRef, inventory: &'a Inventory, party: &'a Party) -> Option<&'a Weapon> {
+pub fn weapon_for<'a>(
+    r: WeaponRef,
+    inventory: &'a Inventory,
+    party: &'a Party,
+) -> Option<&'a Weapon> {
     match r {
         WeaponRef::Bag(i) => inventory.weapons.get(i),
         WeaponRef::Equipped(i) => party.members.get(i)?.equipped_weapon.as_ref(),
@@ -100,7 +104,10 @@ fn upgrade_defense_increment(rarity: Rarity) -> i32 {
 /// The (attack, defense) increment `apply_upgrade` should use for a weapon
 /// of this rarity.
 pub fn upgrade_increments(rarity: Rarity) -> (i32, i32) {
-    (upgrade_attack_increment(rarity), upgrade_defense_increment(rarity))
+    (
+        upgrade_attack_increment(rarity),
+        upgrade_defense_increment(rarity),
+    )
 }
 
 /// Cost (gold, shards) to raise a weapon of `rarity` from `current_tier` to
@@ -182,7 +189,11 @@ mod tests {
         assert_eq!(equipped_weapon.name, "Worn Shortsword");
         equipped_weapon.apply_upgrade(1, 0);
         assert_eq!(
-            party.members[0].equipped_weapon.as_ref().unwrap().upgrade_level,
+            party.members[0]
+                .equipped_weapon
+                .as_ref()
+                .unwrap()
+                .upgrade_level,
             1
         );
     }

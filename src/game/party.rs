@@ -47,8 +47,9 @@ impl Party {
     pub fn add_effect(&mut self, effect: StatusEffect) {
         if let Some(existing) = self.effects.iter_mut().find(|e| e.name == effect.name) {
             existing.delta += effect.delta;
-            existing.encounters_remaining =
-                existing.encounters_remaining.max(effect.encounters_remaining);
+            existing.encounters_remaining = existing
+                .encounters_remaining
+                .max(effect.encounters_remaining);
         } else {
             self.effects.push(effect);
         }

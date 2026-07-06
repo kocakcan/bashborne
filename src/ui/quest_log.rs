@@ -56,7 +56,9 @@ fn draw_active(frame: &mut Frame, area: Rect, ids: &[QuestId], cursor: usize) {
             ListItem::new(ratatui::text::Text::from(vec![header, detail]))
         })
         .collect();
-    let block = Block::default().borders(Borders::ALL).title("Active Quests");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Active Quests");
     if items.is_empty() {
         frame.render_widget(Paragraph::new("No active quests.").block(block), area);
     } else {

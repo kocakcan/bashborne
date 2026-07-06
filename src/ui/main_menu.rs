@@ -7,10 +7,10 @@ use ratatui::Frame;
 use crate::game::state::MainMenuState;
 
 /// Block-letter pieces for the title, in "BASHBORNE" order. Every piece is
-/// exactly `LETTER_WIDTH` chars so the assembled rows all come out the same
-/// width — the paragraph centers each line independently, so a ragged row
-/// would visibly drift sideways (same invariant as the combat sprites).
-const LETTER_WIDTH: usize = 7;
+/// exactly 7 chars wide (test-enforced) so the assembled rows all come out
+/// the same width — the paragraph centers each line independently, so a
+/// ragged row would visibly drift sideways (same invariant as the combat
+/// sprites).
 const TITLE_LETTERS: [[&str; 5]; 9] = [
     // B
     ["██████ ", "██   ██", "██████ ", "██   ██", "██████ "],
@@ -106,6 +106,8 @@ pub fn draw(frame: &mut Frame, menu: &MainMenuState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const LETTER_WIDTH: usize = 7;
 
     #[test]
     fn every_title_letter_piece_is_the_declared_width() {

@@ -68,7 +68,9 @@ pub fn npc_def(id: NpcId) -> NpcDef {
                 "\"Word of the Knight's fall reached us fast. Well earned.\"",
                 "\"Take this — least I can do.\"",
             ],
-            after: vec!["\"Mind yourself in the marsh. The Warden doesn't share the road's manners.\""],
+            after: vec![
+                "\"Mind yourself in the marsh. The Warden doesn't share the road's manners.\"",
+            ],
             quest: Some(QuestId::ScoutsCommendation),
         },
         NpcId::AshenPilgrim => NpcDef {
@@ -78,7 +80,9 @@ pub fn npc_def(id: NpcId) -> NpcDef {
                 "\"So the marsh finally yielded. The Warden's scales don't rot quietly.\"",
                 "\"You've the look of those who mean to finish the climb.\"",
             ],
-            reminder: vec!["\"The Sovereign's throne is close now. Closer than any of us have come.\""],
+            reminder: vec![
+                "\"The Sovereign's throne is close now. Closer than any of us have come.\"",
+            ],
             turn_in: vec![
                 "\"Then it's true — the Warden is silenced.\"",
                 "\"Carry this. You'll need every edge you can get, further up.\"",

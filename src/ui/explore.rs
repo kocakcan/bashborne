@@ -43,7 +43,10 @@ fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
             if let Some(id) = explore.map.npc_at(pos) {
                 let ch = crate::game::npc::glyph_for(id).to_string();
                 let color = crate::game::npc::color_for(id);
-                spans.push(Span::styled(ch, Style::default().fg(color).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    ch,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ));
                 continue;
             }
             let (ch, style) = match explore.map.tile_at(pos) {
@@ -92,7 +95,9 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
         if m.unspent_points > 0 {
             spans.push(Span::styled(
                 format!("  [+{} pts]", m.unspent_points),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
         lines.push(Line::from(spans));
@@ -106,7 +111,11 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
             Style::default().add_modifier(Modifier::BOLD),
         )));
         for e in &party.effects {
-            let color = if e.delta >= 0 { Color::Cyan } else { Color::Magenta };
+            let color = if e.delta >= 0 {
+                Color::Cyan
+            } else {
+                Color::Magenta
+            };
             lines.push(Line::from(Span::styled(
                 format!(
                     "{} ({:+} {}, {} left)",
@@ -123,7 +132,10 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
 fn draw_log(frame: &mut Frame, area: Rect, log: &[String]) {
     let visible_rows = area.height.saturating_sub(2) as usize;
     let start = log.len().saturating_sub(visible_rows.max(1));
-    let lines: Vec<Line> = log[start..].iter().map(|s| Line::from(s.as_str())).collect();
+    let lines: Vec<Line> = log[start..]
+        .iter()
+        .map(|s| Line::from(s.as_str()))
+        .collect();
     let block = Block::default().borders(Borders::ALL).title("Log");
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }

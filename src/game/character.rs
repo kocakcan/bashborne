@@ -155,7 +155,11 @@ impl AllocProfile {
 
 /// Shorthand for the tables below.
 const fn rule(gain: i32, soft_cap: i32, hard_cap: i32) -> AllocRule {
-    AllocRule { gain, soft_cap, hard_cap }
+    AllocRule {
+        gain,
+        soft_cap,
+        hard_cap,
+    }
 }
 
 /// Each class's allocation table. Hard caps are tuned to always clear the
@@ -1327,10 +1331,7 @@ mod tests {
         assert!(hero
             .equip_ring(RingSlot::Second, band_of_the_barrow())
             .is_none());
-        assert_eq!(
-            hero.equipped_rings[0].as_ref().unwrap().name,
-            "Copper Band"
-        );
+        assert_eq!(hero.equipped_rings[0].as_ref().unwrap().name, "Copper Band");
         assert_eq!(
             hero.equipped_rings[1].as_ref().unwrap().name,
             "Band of the Barrow"

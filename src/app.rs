@@ -8,7 +8,9 @@ use crate::game::blacksmith::{
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
-use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
+use crate::game::inventory_ui::{
+    EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
+};
 use crate::game::item::{Armor, Inventory, ItemKind, Ring, Weapon};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Position, Tile};
@@ -19,8 +21,7 @@ use crate::game::shop::{
     ShopUiState,
 };
 use crate::game::state::{
-    roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry,
-    MainMenuState,
+    roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry, MainMenuState,
 };
 
 pub struct World {
@@ -225,7 +226,8 @@ impl World {
                 return;
             };
             let return_pos = explore.player_pos;
-            self.state = GameState::QuestLog(crate::game::quest_ui::QuestLogUiState::new(return_pos));
+            self.state =
+                GameState::QuestLog(crate::game::quest_ui::QuestLogUiState::new(return_pos));
             return;
         }
         if key == KeyCode::Char('u') {
@@ -290,7 +292,10 @@ impl World {
                             "A warm light washes over your party...".to_string(),
                             format!(
                                 "{} takes hold! (+{} {} for the next {} encounters)",
-                                effect.name, effect.delta, effect.target, effect.encounters_remaining
+                                effect.name,
+                                effect.delta,
+                                effect.target,
+                                effect.encounters_remaining
                             ),
                         ];
                         self.party.add_effect(effect);
@@ -306,7 +311,10 @@ impl World {
                             "A cold shiver runs down your spines...".to_string(),
                             format!(
                                 "{} takes hold! ({} {} for the next {} encounters)",
-                                effect.name, effect.delta, effect.target, effect.encounters_remaining
+                                effect.name,
+                                effect.delta,
+                                effect.target,
+                                effect.encounters_remaining
                             ),
                         ];
                         self.party.add_effect(effect);
@@ -317,7 +325,14 @@ impl World {
                             npc: None,
                         });
                     }
-                    FieldEvent::Treasure { gold, item, weapon, armor, ring, materials } => {
+                    FieldEvent::Treasure {
+                        gold,
+                        item,
+                        weapon,
+                        armor,
+                        ring,
+                        materials,
+                    } => {
                         let mut lines = vec![format!("You found a hidden cache! +{gold} gold.")];
                         self.party.gold += gold;
                         if let Some(item) = item {
@@ -346,7 +361,9 @@ impl World {
                             self.inventory.add_ring(ring);
                         }
                         if materials > 0 {
-                            lines.push(format!("Buried alongside it: {materials} Titanite Shard(s)!"));
+                            lines.push(format!(
+                                "Buried alongside it: {materials} Titanite Shard(s)!"
+                            ));
                             self.inventory.upgrade_materials += materials;
                         }
                         self.state = GameState::Event(EventState {
@@ -621,9 +638,8 @@ impl World {
                                 let Some(fallen) =
                                     self.party.members.iter().position(|m| !m.is_alive())
                                 else {
-                                    combat.push_log(
-                                        "No one has fallen — the ember would be wasted.",
-                                    );
+                                    combat
+                                        .push_log("No one has fallen — the ember would be wasted.");
                                     return;
                                 };
                                 fallen
@@ -1098,8 +1114,7 @@ impl World {
                         Some(if self.party.cure_curses() > 0 {
                             "The curses clinging to the party crumble away.".to_string()
                         } else {
-                            "No curses cling to the party — the stone is spent anyway."
-                                .to_string()
+                            "No curses cling to the party — the stone is spent anyway.".to_string()
                         })
                     }
                     // Refuse (without consuming) rather than waste a revive
@@ -1600,7 +1615,11 @@ impl World {
                     let weapon = weapon_for_mut(r, &mut self.inventory, &mut self.party)
                         .expect("weapon_refs stays in sync");
                     weapon.apply_upgrade(atk_inc, def_inc);
-                    format!("{} upgraded to +{}!", weapon.display_name(), weapon.upgrade_level)
+                    format!(
+                        "{} upgraded to +{}!",
+                        weapon.display_name(),
+                        weapon.upgrade_level
+                    )
                 }
             }
         };
@@ -1771,7 +1790,11 @@ fn take_slot(member: &mut Character, slot: EquipSlot) -> Option<GearPiece> {
 
 /// Installs `piece` into `member`'s `slot` (clearing it if `piece` is
 /// `None`), returning whatever was previously there.
-fn put_slot(member: &mut Character, slot: EquipSlot, piece: Option<GearPiece>) -> Option<GearPiece> {
+fn put_slot(
+    member: &mut Character,
+    slot: EquipSlot,
+    piece: Option<GearPiece>,
+) -> Option<GearPiece> {
     match piece {
         Some(GearPiece::Weapon(w)) => member.equip_weapon(w).map(GearPiece::Weapon),
         Some(GearPiece::Armor(a)) => member.equip_armor(a).map(GearPiece::Armor),
@@ -1788,10 +1811,7 @@ fn put_slot(member: &mut Character, slot: EquipSlot, piece: Option<GearPiece>) -
 /// The index of `slot` within `EQUIP_SLOTS`, used to restore the party-gear
 /// cursor to the slot an action was just taken on.
 fn equip_slot_index(slot: EquipSlot) -> usize {
-    EQUIP_SLOTS
-        .iter()
-        .position(|&s| s == slot)
-        .unwrap_or(0)
+    EQUIP_SLOTS.iter().position(|&s| s == slot).unwrap_or(0)
 }
 
 /// Steps `current` by `dir` within `0..len`, wrapping, while skipping over
@@ -1843,10 +1863,7 @@ fn cycle_target(
     if candidates.is_empty() {
         return current;
     }
-    let pos = candidates
-        .iter()
-        .position(|&i| i == current)
-        .unwrap_or(0) as i32;
+    let pos = candidates.iter().position(|&i| i == current).unwrap_or(0) as i32;
     let len = candidates.len() as i32;
     let new_pos = ((pos + dir) % len + len) % len;
     candidates[new_pos as usize]
@@ -2080,7 +2097,10 @@ mod tests {
         world.handle_key(KeyCode::Tab); // Weapons tab, cursor on Iron Sword
         world.handle_key(KeyCode::Enter);
 
-        assert_eq!(world.party.gold, 5, "gold should be untouched on a failed buy");
+        assert_eq!(
+            world.party.gold, 5,
+            "gold should be untouched on a failed buy"
+        );
         assert!(world.inventory.weapons.is_empty());
     }
 
@@ -2313,8 +2333,8 @@ mod tests {
         world.handle_key(KeyCode::Char('e')); // open the shop (standing in town)
         world.handle_key(KeyCode::Left); // Buy -> Sell
         world.handle_key(KeyCode::Tab); // Items -> Weapons tab
-                                         // Cursor starts on whichever spare weapon sorts first; find the Iron Sword
-                                         // by pressing Down until it's selected, bounded by the bag's length.
+                                        // Cursor starts on whichever spare weapon sorts first; find the Iron Sword
+                                        // by pressing Down until it's selected, bounded by the bag's length.
         let idx = world
             .inventory
             .weapons
@@ -2328,7 +2348,11 @@ mod tests {
 
         assert_eq!(world.party.gold, gold_before + expected_price);
         assert!(
-            !world.inventory.weapons.iter().any(|w| w.name == "Iron Sword"),
+            !world
+                .inventory
+                .weapons
+                .iter()
+                .any(|w| w.name == "Iron Sword"),
             "the sold weapon should leave the bag"
         );
     }
@@ -2438,11 +2462,12 @@ mod tests {
         let GameState::Event(ev) = &world.state else {
             panic!("expected dialogue to open again");
         };
-        let expected: Vec<String> = crate::game::npc::npc_def(crate::game::npc::NpcId::OldHerbalist)
-            .reminder
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let expected: Vec<String> =
+            crate::game::npc::npc_def(crate::game::npc::NpcId::OldHerbalist)
+                .reminder
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
         assert_eq!(ev.lines, expected);
     }
 
@@ -2466,7 +2491,10 @@ mod tests {
             .quest_log
             .completed
             .contains(&crate::game::quest::QuestId::HerbalistsRequest));
-        assert!(world.party.gold > gold_before, "the gold reward should be granted");
+        assert!(
+            world.party.gold > gold_before,
+            "the gold reward should be granted"
+        );
         assert!(
             world
                 .inventory

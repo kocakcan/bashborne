@@ -1,6 +1,8 @@
 use crate::game::item::{
-    chainmail_hauberk, copper_band, ether, iron_sword, potion, ring_of_vigor, rangers_cloak,
-    sunken_relic_blade, travelers_spear, ArmorFactory, ItemFactory, RingFactory, WeaponFactory,
+    chainmail_hauberk, copper_band, ember_of_return, ether, greater_ether, greater_potion,
+    iron_loop, iron_sword, potion, purging_stone, rangers_cloak, ring_of_vigor, sunken_relic_blade,
+    sunlit_straightsword, travelers_chestguard, travelers_spear, warded_loop, ArmorFactory,
+    ItemFactory, RingFactory, WeaponFactory,
 };
 use crate::game::map::Position;
 
@@ -68,7 +70,14 @@ impl ShopUiState {
 
 /// Fixed item stock the shop always carries, paired with its gold price.
 pub fn shop_item_stock() -> Vec<(ItemFactory, u32)> {
-    vec![(potion as ItemFactory, 15), (ether as ItemFactory, 20)]
+    vec![
+        (potion as ItemFactory, 15),
+        (ether as ItemFactory, 20),
+        (greater_potion as ItemFactory, 40),
+        (greater_ether as ItemFactory, 45),
+        (purging_stone as ItemFactory, 40),
+        (ember_of_return as ItemFactory, 60),
+    ]
 }
 
 /// Fixed weapon stock, paired with its gold price. Deliberately capped at
@@ -78,6 +87,7 @@ pub fn shop_weapon_stock() -> Vec<(WeaponFactory, u32)> {
     vec![
         (iron_sword as WeaponFactory, 20),
         (travelers_spear as WeaponFactory, 50),
+        (sunlit_straightsword as WeaponFactory, 50),
         (sunken_relic_blade as WeaponFactory, 120),
     ]
 }
@@ -85,6 +95,7 @@ pub fn shop_weapon_stock() -> Vec<(WeaponFactory, u32)> {
 /// Fixed armor stock, paired with its gold price. Same Rare cap as weapons.
 pub fn shop_armor_stock() -> Vec<(ArmorFactory, u32)> {
     vec![
+        (travelers_chestguard as ArmorFactory, 20),
         (rangers_cloak as ArmorFactory, 50),
         (chainmail_hauberk as ArmorFactory, 50),
     ]
@@ -94,7 +105,9 @@ pub fn shop_armor_stock() -> Vec<(ArmorFactory, u32)> {
 pub fn shop_ring_stock() -> Vec<(RingFactory, u32)> {
     vec![
         (copper_band as RingFactory, 20),
+        (iron_loop as RingFactory, 20),
         (ring_of_vigor as RingFactory, 50),
+        (warded_loop as RingFactory, 120),
     ]
 }
 

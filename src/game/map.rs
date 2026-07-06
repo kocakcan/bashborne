@@ -117,10 +117,7 @@ impl Map {
 
     /// The NPC standing at `pos`, if any.
     pub fn npc_at(&self, pos: Position) -> Option<crate::game::npc::NpcId> {
-        self.npcs
-            .iter()
-            .find(|(p, _)| *p == pos)
-            .map(|(_, id)| *id)
+        self.npcs.iter().find(|(p, _)| *p == pos).map(|(_, id)| *id)
     }
 }
 
@@ -147,9 +144,16 @@ mod tests {
 
     #[test]
     fn every_chapter_map_contains_exactly_one_walkable_boss_lair() {
-        for map in [Map::starting_area(), Map::chapter_two(), Map::chapter_three()] {
+        for map in [
+            Map::starting_area(),
+            Map::chapter_two(),
+            Map::chapter_three(),
+        ] {
             let count = map.tiles.iter().filter(|&&t| t == Tile::BossLair).count();
-            assert_eq!(count, 1, "each chapter map should have exactly one boss lair");
+            assert_eq!(
+                count, 1,
+                "each chapter map should have exactly one boss lair"
+            );
             let pos = (0..map.height)
                 .flat_map(|y| (0..map.width).map(move |x| Position { x, y }))
                 .find(|&p| map.tile_at(p) == Tile::BossLair)

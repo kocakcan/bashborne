@@ -35,7 +35,10 @@ impl ExploreState {
         Self {
             map,
             player_pos: def.spawn,
-            log: vec![format!("You arrive at {}. Watch the tall grass...", def.name)],
+            log: vec![format!(
+                "You arrive at {}. Watch the tall grass...",
+                def.name
+            )],
             steps_in_grass: 0,
         }
     }
@@ -178,8 +181,8 @@ pub enum FieldEvent {
 pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
     match rng.gen_range(0..20) {
         0..=10 => FieldEvent::Combat(roll_encounter(rng, enemy_level)), // 11/20
-        11..=13 => FieldEvent::Blessing(roll_blessing(rng)), // 3/20
-        14..=16 => FieldEvent::Curse(roll_curse(rng)),       // 3/20
+        11..=13 => FieldEvent::Blessing(roll_blessing(rng)),            // 3/20
+        14..=16 => FieldEvent::Curse(roll_curse(rng)),                  // 3/20
         _ => {
             // 3/20: usually real treasure, but occasionally it bites back.
             if rng.gen_ratio(1, 6) {
@@ -240,8 +243,19 @@ pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
                 // Independent chance of bonus Titanite Shards buried
                 // alongside the treasure, so exploring (not just fighting)
                 // feeds the blacksmith too.
-                let materials = if rng.gen_ratio(1, 5) { rng.gen_range(1..=3) } else { 0 };
-                FieldEvent::Treasure { gold, item, weapon, armor, ring, materials }
+                let materials = if rng.gen_ratio(1, 5) {
+                    rng.gen_range(1..=3)
+                } else {
+                    0
+                };
+                FieldEvent::Treasure {
+                    gold,
+                    item,
+                    weapon,
+                    armor,
+                    ring,
+                    materials,
+                }
             }
         }
     }

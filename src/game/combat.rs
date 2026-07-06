@@ -6,8 +6,8 @@ use crate::game::item::{
     acolytes_vestment, bandits_falchion, barrow_touched_plate, bone_blade, brigand_leathers,
     chainmail_hauberk, dragonscale_aegis, elite_knights_armor, ether, fell_censer,
     forsaken_longsword, ghouls_knucklebone, goblin_shiv, hollow_soldiers_blade, knights_plate,
-    knightsbane, mimics_coil, mimics_fang, orcish_greataxe, potion, ring_of_vigor,
-    ring_of_warding, sentinels_bulwark, sentinels_greathammer, sentinels_seal, sovereign_elixir,
+    knightsbane, mimics_coil, mimics_fang, orcish_greataxe, potion, ring_of_vigor, ring_of_warding,
+    sentinels_bulwark, sentinels_greathammer, sentinels_seal, sovereign_elixir,
     sovereigns_reckoning, sovereigns_signet, warded_chainmail, wardens_fang, wolfsbane_signet,
     wraithbane_edge, Armor, ArmorFactory, Item, ItemFactory, ItemKind, Ring, RingFactory, Weapon,
     WeaponFactory, WeaponPassive,
@@ -313,12 +313,20 @@ pub enum CombatAction {
 
 pub enum CombatPhase {
     // A player-controlled actor is choosing what to do.
-    SelectAction { actor: ActorRef },
+    SelectAction {
+        actor: ActorRef,
+    },
     // A player-controlled actor chose "Ability" and is picking which one.
-    SelectAbility { actor: ActorRef, cursor: usize },
+    SelectAbility {
+        actor: ActorRef,
+        cursor: usize,
+    },
     // A player-controlled actor chose "Item" and is picking which one
     // (e.g. Potion vs. Ether) before it's applied.
-    SelectItem { actor: ActorRef, cursor: usize },
+    SelectItem {
+        actor: ActorRef,
+        cursor: usize,
+    },
     // A player-controlled actor picked an action that needs a target.
     SelectTarget {
         actor: ActorRef,
@@ -473,7 +481,8 @@ impl CombatState {
                     .equipped_weapon
                     .as_ref()
                     .and_then(|w| w.passive);
-                let atk = party.members[pi].total_attack() + party.stat_delta(StatEffectTarget::Attack);
+                let atk =
+                    party.members[pi].total_attack() + party.stat_delta(StatEffectTarget::Attack);
                 let luck = party.members[pi].total_luck();
                 if let Some(enemy) = self.enemies.get_mut(target_idx) {
                     let mut defense = enemy.stats.defense;
@@ -567,7 +576,9 @@ impl CombatState {
                     self.push_log(format!("{attacker_name} flees from battle!"));
                     self.phase = CombatPhase::Fled;
                 } else {
-                    self.push_log(format!("{attacker_name} tries to flee, but can't get away!"));
+                    self.push_log(format!(
+                        "{attacker_name} tries to flee, but can't get away!"
+                    ));
                 }
             }
         }
@@ -592,7 +603,12 @@ impl CombatState {
         let target_idx = alive_targets[rng.gen_range(0..alive_targets.len())];
         let (ename, atk, is_wraith, boss_kind) = {
             let e = &self.enemies[ei];
-            (e.name.clone(), e.stats.attack, e.name == "Wraith", e.boss_kind)
+            (
+                e.name.clone(),
+                e.stats.attack,
+                e.name == "Wraith",
+                e.boss_kind,
+            )
         };
 
         // Wraiths spend some turns cursing the party instead of attacking directly.
@@ -640,7 +656,8 @@ impl CombatState {
         // Grave Ghouls sometimes gorge on the wound they tear open.
         let ravenous_bite = ename == "Grave Ghoul" && rng.gen_bool(0.3);
 
-        let def = party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
+        let def =
+            party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
         let luck = self.enemies[ei].total_luck();
         let (dmg, crit) = roll_damage(atk, def, luck, rng);
         let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
@@ -733,7 +750,9 @@ impl CombatState {
                     if hp_ratio <= 0.4 {
                         self.enrage_stage = 1;
                         self.enemies[ei].stats.defense += 8;
-                        self.push_log(format!("{ename} sheds a layer of scale, hardening its hide!"));
+                        self.push_log(format!(
+                            "{ename} sheds a layer of scale, hardening its hide!"
+                        ));
                         self.push_log(format!("{ename}'s defense rises!"));
                         return true;
                     }
@@ -952,8 +971,8 @@ mod tests {
         ashen_sovereign, barrow_knight, mimic, orc, skeleton, slime, warrior, wraith,
         wyrmscale_warden,
     };
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     fn test_party() -> Party {
         Party::new(vec![warrior("Bram")])
@@ -977,7 +996,12 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // Player's turn: attack the slime.
-        assert!(matches!(combat.phase, CombatPhase::SelectAction { actor: ActorRef::Player(0) }));
+        assert!(matches!(
+            combat.phase,
+            CombatPhase::SelectAction {
+                actor: ActorRef::Player(0)
+            }
+        ));
         combat.phase = CombatPhase::SelectTarget {
             actor: ActorRef::Player(0),
             action: CombatAction::Attack,
@@ -985,7 +1009,10 @@ mod tests {
         };
         let hp_before = combat.enemies[0].stats.hp;
         combat.resolve_current_turn(&mut party, &mut rng);
-        assert!(combat.enemies[0].stats.hp < hp_before, "attack should deal damage");
+        assert!(
+            combat.enemies[0].stats.hp < hp_before,
+            "attack should deal damage"
+        );
     }
 
     #[test]
@@ -1016,7 +1043,9 @@ mod tests {
         // Force the enemy to act first regardless of speed roll, to deterministically test defeat.
         combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
         combat.turn_cursor = 0;
-        combat.phase = CombatPhase::SelectAction { actor: ActorRef::Enemy(0) };
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
         combat.resolve_current_turn(&mut party, &mut rng);
         assert!(matches!(combat.phase, CombatPhase::Defeat));
     }
@@ -1142,9 +1171,15 @@ mod tests {
         });
         assert_eq!(party.effects.len(), 1);
         party.tick_effects();
-        assert_eq!(party.effects[0].encounters_remaining, 1, "one encounter used up");
+        assert_eq!(
+            party.effects[0].encounters_remaining, 1,
+            "one encounter used up"
+        );
         party.tick_effects();
-        assert!(party.effects.is_empty(), "effect should expire after 2 encounters");
+        assert!(
+            party.effects.is_empty(),
+            "effect should expire after 2 encounters"
+        );
     }
 
     #[test]
@@ -1171,6 +1206,100 @@ mod tests {
         assert!(
             cursed_at_least_once,
             "wraith should curse the party at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn fell_acolyte_can_drain_mp_and_heal_itself() {
+        use crate::game::character::fell_acolyte;
+
+        // Probabilistic move (25% per turn) — sweep seeds like the Wraith test.
+        let mut prayed_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party(); // warrior with MP to steal
+            let mut enemies = vec![fell_acolyte("Fell Acolyte")];
+            enemies[0].stats.hp = 1; // any heal is visible
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            let mp_before = party.members[0].stats.mp;
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if party.members[0].stats.mp < mp_before {
+                assert!(
+                    combat.enemies[0].stats.hp > 1,
+                    "a Withering Prayer must heal the acolyte too"
+                );
+                prayed_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            prayed_at_least_once,
+            "the acolyte should pray at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn a_drained_party_forces_the_acolyte_into_a_normal_attack() {
+        use crate::game::character::fell_acolyte;
+
+        // With no MP anywhere, the prayer must fall through to an attack —
+        // every enemy turn has to hurt someone or cast something.
+        for seed in 0..20u64 {
+            let mut party = test_party();
+            party.members[0].stats.mp = 0;
+            let hp_before = party.members[0].stats.hp;
+            let mut combat = CombatState::new(&party, vec![fell_acolyte("Fell Acolyte")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            assert!(
+                party.members[0].stats.hp < hp_before,
+                "seed {seed}: with no MP to drain, the acolyte should attack"
+            );
+        }
+    }
+
+    #[test]
+    fn grave_ghoul_can_heal_by_biting() {
+        use crate::game::character::grave_ghoul;
+
+        // Probabilistic move (30% per turn) — sweep seeds and confirm the
+        // ghoul both hurts its target and regains HP on the same turn.
+        let mut gorged_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            let mut enemies = vec![grave_ghoul("Grave Ghoul")];
+            enemies[0].stats.hp = 1;
+            let mut combat = CombatState::new(&party, enemies);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            let hp_before = party.members[0].stats.hp;
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if combat.enemies[0].stats.hp > 1 {
+                assert!(
+                    party.members[0].stats.hp < hp_before,
+                    "a Ravenous Bite still has to hurt its target"
+                );
+                gorged_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            gorged_at_least_once,
+            "the ghoul should gorge itself at least once across many trials"
         );
     }
 
@@ -1226,7 +1355,10 @@ mod tests {
     fn ability_is_heal_checks_the_specific_slot() {
         let cleric = crate::game::character::cleric("Idris");
         assert!(cleric.ability_is_heal(0), "Mend (slot 0) should be a heal");
-        assert!(!cleric.ability_is_heal(1), "Smite (slot 1) should not be a heal");
+        assert!(
+            !cleric.ability_is_heal(1),
+            "Smite (slot 1) should not be a heal"
+        );
 
         let bram = warrior("Bram");
         assert!(!bram.ability_is_heal(0));
@@ -1449,7 +1581,9 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(11);
             combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
             combat.turn_cursor = 0;
-            combat.phase = CombatPhase::SelectAction { actor: ActorRef::Enemy(0) };
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
             combat.resolve_current_turn(&mut party, &mut rng);
             hp_before - party.members[0].stats.hp
         };
@@ -1550,7 +1684,10 @@ mod tests {
             actor: ActorRef::Enemy(0),
         };
         combat.resolve_current_turn(&mut party, &mut rng);
-        assert!(combat.enrage_stage == 0, "boss should not enrage while healthy");
+        assert!(
+            combat.enrage_stage == 0,
+            "boss should not enrage while healthy"
+        );
     }
 
     #[test]
@@ -1569,7 +1706,11 @@ mod tests {
                 actor: ActorRef::Enemy(0),
             };
             combat.resolve_current_turn(&mut party, &mut rng);
-            if combat.log.iter().any(|line| line.contains("Rending Cleave")) {
+            if combat
+                .log
+                .iter()
+                .any(|line| line.contains("Rending Cleave"))
+            {
                 used_cleave = true;
                 break;
             }
@@ -1607,11 +1748,21 @@ mod tests {
         // guarantee an armor piece, the Sovereign a ring. Never a dice roll.
         let mut rng = StdRng::seed_from_u64(11);
         let knight = roll_loot(&[barrow_knight("The Barrow Knight")], &[false], &mut rng);
-        assert!(knight.armors.iter().any(|a| a.name == "Barrow-Touched Plate"));
+        assert!(knight
+            .armors
+            .iter()
+            .any(|a| a.name == "Barrow-Touched Plate"));
         let warden = roll_loot(&[wyrmscale_warden("Wyrmscale Warden")], &[false], &mut rng);
         assert!(warden.armors.iter().any(|a| a.name == "Dragonscale Aegis"));
-        let sovereign = roll_loot(&[ashen_sovereign("The Ashen Sovereign")], &[false], &mut rng);
-        assert!(sovereign.rings.iter().any(|r| r.name == "Sovereign's Signet"));
+        let sovereign = roll_loot(
+            &[ashen_sovereign("The Ashen Sovereign")],
+            &[false],
+            &mut rng,
+        );
+        assert!(sovereign
+            .rings
+            .iter()
+            .any(|r| r.name == "Sovereign's Signet"));
     }
 
     #[test]
@@ -1631,7 +1782,10 @@ mod tests {
             saw_armor |= loot.armors.iter().any(|a| a.name == "Chainmail Hauberk");
         }
         assert!(saw_ring, "the Mimic's Coil never dropped in 200 fights");
-        assert!(saw_armor, "the Chainmail Hauberk never dropped in 200 fights");
+        assert!(
+            saw_armor,
+            "the Chainmail Hauberk never dropped in 200 fights"
+        );
     }
 
     #[test]
@@ -1719,7 +1873,10 @@ mod tests {
             actor: ActorRef::Enemy(0),
         };
         combat.resolve_current_turn(&mut party, &mut rng);
-        assert_eq!(combat.enrage_stage, 0, "warden should not enrage while healthy");
+        assert_eq!(
+            combat.enrage_stage, 0,
+            "warden should not enrage while healthy"
+        );
     }
 
     #[test]
@@ -1739,16 +1896,27 @@ mod tests {
             };
             let hp_before: Vec<i32> = party.members.iter().map(|m| m.stats.hp).collect();
             combat.resolve_current_turn(&mut party, &mut rng);
-            if combat.log.iter().any(|line| line.contains("sweeps its tail")) {
+            if combat
+                .log
+                .iter()
+                .any(|line| line.contains("sweeps its tail"))
+            {
                 assert!(
-                    party.members.iter().enumerate().all(|(i, m)| m.stats.hp < hp_before[i]),
+                    party
+                        .members
+                        .iter()
+                        .enumerate()
+                        .all(|(i, m)| m.stats.hp < hp_before[i]),
                     "tail sweep should damage every party member, not just one"
                 );
                 swept = true;
                 break;
             }
         }
-        assert!(swept, "warden should use Tail Sweep at least once across many trials");
+        assert!(
+            swept,
+            "warden should use Tail Sweep at least once across many trials"
+        );
     }
 
     #[test]
@@ -1855,7 +2023,9 @@ mod tests {
         assert!(matches!(combat.phase, CombatPhase::Victory));
         let loot = combat.loot.expect("victory should always roll loot");
         assert!(
-            loot.weapons.iter().any(|w| w.name == "Sovereign's Reckoning"),
+            loot.weapons
+                .iter()
+                .any(|w| w.name == "Sovereign's Reckoning"),
             "defeating the sovereign should always drop Sovereign's Reckoning"
         );
     }
@@ -1883,7 +2053,10 @@ mod tests {
                 low_luck_crit = true;
             }
         }
-        assert!(high_luck_crit, "a high-luck attacker should crit at least once");
+        assert!(
+            high_luck_crit,
+            "a high-luck attacker should crit at least once"
+        );
         assert!(!low_luck_crit, "a zero-luck attacker should never crit");
     }
 

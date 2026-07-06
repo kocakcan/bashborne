@@ -51,7 +51,9 @@ fn draw_header(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party)
     };
     let tab_span = |label: &str, active: bool| {
         let style = if active {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
@@ -211,7 +213,11 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             .map(|(i, (item, qty))| {
                 let style = crate::ui::cursor_style(i == shop.cursor);
                 ListItem::new(Line::from(Span::styled(
-                    format!("{:<16} x{qty}   sells for {} gold", item.name, item.value / 2),
+                    format!(
+                        "{:<16} x{qty}   sells for {} gold",
+                        item.name,
+                        item.value / 2
+                    ),
                     style,
                 )))
             })
@@ -302,12 +308,8 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             ShopTab::Weapons => {
                 "No spare weapons to sell. Unequip one in the inventory screen first."
             }
-            ShopTab::Armor => {
-                "No spare armor to sell. Unequip some in the inventory screen first."
-            }
-            ShopTab::Rings => {
-                "No spare rings to sell. Unequip some in the inventory screen first."
-            }
+            ShopTab::Armor => "No spare armor to sell. Unequip some in the inventory screen first.",
+            ShopTab::Rings => "No spare rings to sell. Unequip some in the inventory screen first.",
         };
         frame.render_widget(Paragraph::new(msg).block(block), area);
     } else {
@@ -316,10 +318,9 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, shop: &ShopUiState) {
-    let text = shop
-        .message
-        .clone()
-        .unwrap_or_else(|| "Epic and Legendary gear can't be bought — you'll have to earn it.".to_string());
+    let text = shop.message.clone().unwrap_or_else(|| {
+        "Epic and Legendary gear can't be bought — you'll have to earn it.".to_string()
+    });
     let block = Block::default().borders(Borders::ALL).title("Status");
     frame.render_widget(Paragraph::new(text).block(block), area);
 }

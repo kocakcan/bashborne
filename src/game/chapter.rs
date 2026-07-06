@@ -151,7 +151,11 @@ mod tests {
     #[test]
     fn every_chapter_has_at_least_one_npc() {
         for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
-            assert!(!chapter_def(id).npcs.is_empty(), "{:?} should have an NPC", id);
+            assert!(
+                !chapter_def(id).npcs.is_empty(),
+                "{:?} should have an NPC",
+                id
+            );
         }
     }
 

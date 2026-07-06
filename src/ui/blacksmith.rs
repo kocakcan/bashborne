@@ -76,7 +76,9 @@ fn draw_weapon_list(
                         // effectively invisible on the highlighted row. Red reads
                         // clearly against both the normal and highlighted background.
                         let style = if affordable {
-                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(Color::Red)
                         };
@@ -114,10 +116,7 @@ fn draw_weapon_list(
         .borders(Borders::ALL)
         .title("Weapons (bag + equipped)");
     if items.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No weapons to upgrade.").block(block),
-            area,
-        );
+        frame.render_widget(Paragraph::new("No weapons to upgrade.").block(block), area);
     } else {
         frame.render_widget(List::new(items).block(block), area);
     }

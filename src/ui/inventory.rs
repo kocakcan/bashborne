@@ -39,7 +39,15 @@ pub fn draw(frame: &mut Frame, inv_ui: &InventoryUiState, party: &Party, invento
             idx,
             member_idx,
             slot_cursor,
-        } => draw_ring_slot_picker(frame, mid[0], party, inventory, *idx, *member_idx, *slot_cursor),
+        } => draw_ring_slot_picker(
+            frame,
+            mid[0],
+            party,
+            inventory,
+            *idx,
+            *member_idx,
+            *slot_cursor,
+        ),
         InventoryMode::PartyGear { .. } => draw_party_gear_hint(frame, mid[0]),
         InventoryMode::PartyGearAction { action_cursor, .. } => {
             draw_party_gear_action_menu(frame, mid[0], *action_cursor)
@@ -406,7 +414,12 @@ fn draw_party_gear_action_menu(frame: &mut Frame, area: Rect, action_cursor: usi
     let items: Vec<ListItem> = labels
         .iter()
         .enumerate()
-        .map(|(i, label)| ListItem::new(Line::from(Span::styled(*label, cursor_style(i == action_cursor)))))
+        .map(|(i, label)| {
+            ListItem::new(Line::from(Span::styled(
+                *label,
+                cursor_style(i == action_cursor),
+            )))
+        })
         .collect();
     let block = Block::default()
         .borders(Borders::ALL)
@@ -426,7 +439,12 @@ fn draw_party_gear_target_picker(
         .iter()
         .enumerate()
         .filter(|(i, _)| *i != from_member)
-        .map(|(i, m)| ListItem::new(Line::from(Span::styled(m.name.clone(), cursor_style(i == to_cursor)))))
+        .map(|(i, m)| {
+            ListItem::new(Line::from(Span::styled(
+                m.name.clone(),
+                cursor_style(i == to_cursor),
+            )))
+        })
         .collect();
     let block = Block::default()
         .borders(Borders::ALL)
@@ -452,7 +470,9 @@ fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party, mode: &Inventor
         InventoryMode::PartyGearAction {
             member_idx, slot, ..
         } => Some((member_idx, slot)),
-        InventoryMode::PartyGearTarget { to_cursor, slot, .. } => Some((to_cursor, slot)),
+        InventoryMode::PartyGearTarget {
+            to_cursor, slot, ..
+        } => Some((to_cursor, slot)),
         _ => None,
     };
 
@@ -506,7 +526,10 @@ fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party, mode: &Inventor
             let marker = if selected { "> " } else { "  " };
             lines.push(Line::from(vec![
                 Span::raw(marker),
-                Span::styled(format!("{:<8}", slot_label(slot)), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{:<8}", slot_label(slot)),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(name, name_style),
             ]));
         }
