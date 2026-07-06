@@ -362,6 +362,8 @@ pub struct CombatState {
     /// `None` here just means "use the default spawn," which only matters
     /// for tests that construct `CombatState` directly.
     pub return_pos: Option<Position>,
+    /// Lines of scrollback from the bottom of `log` currently displayed.
+    pub log_scroll: usize,
 }
 
 impl CombatState {
@@ -412,6 +414,7 @@ impl CombatState {
             overkills,
             enrage_stage: 0,
             return_pos: None,
+            log_scroll: 0,
         }
     }
 
@@ -425,6 +428,7 @@ impl CombatState {
         if self.log.len() > 200 {
             self.log.remove(0);
         }
+        self.log_scroll = 0;
     }
 
     pub fn alive_enemy_indices(&self) -> Vec<usize> {

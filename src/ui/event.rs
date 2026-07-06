@@ -1,7 +1,7 @@
 use ratatui::layout::Alignment;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::game::state::EventState;
@@ -35,6 +35,7 @@ pub fn draw(frame: &mut Frame, ev: &EventState) {
     let block = Block::default().borders(Borders::ALL).title("Encounter");
     let p = Paragraph::new(lines)
         .block(block)
-        .alignment(Alignment::Center);
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: false });
     frame.render_widget(p, area);
 }

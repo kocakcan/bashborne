@@ -18,11 +18,20 @@ use crate::game::quest_ui::QuestLogUiState;
 use crate::game::shop::ShopUiState;
 use crate::game::status::{roll_blessing, roll_curse, StatusEffect};
 
+/// Same cap as `CombatState::push_log` — keeps a long session's log from
+/// growing unbounded while still holding plenty of scrollback.
+const MAX_LOG_LINES: usize = 200;
+
 pub struct ExploreState {
     pub map: Map,
     pub player_pos: Position,
     pub log: Vec<String>,
     pub steps_in_grass: u32,
+    /// True while `q` is waiting for the player to confirm quitting without
+    /// an autosave.
+    pub confirm_quit: bool,
+    /// Lines of scrollback from the bottom of `log` currently displayed.
+    pub log_scroll: usize,
 }
 
 impl ExploreState {
@@ -40,7 +49,19 @@ impl ExploreState {
                 def.name
             )],
             steps_in_grass: 0,
+            confirm_quit: false,
+            log_scroll: 0,
         }
+    }
+
+    /// Appends a line to the log, capping it at `MAX_LOG_LINES` and
+    /// resetting scrollback so the newest line is always visible.
+    pub fn push_log(&mut self, line: impl Into<String>) {
+        self.log.push(line.into());
+        if self.log.len() > MAX_LOG_LINES {
+            self.log.remove(0);
+        }
+        self.log_scroll = 0;
     }
 }
 

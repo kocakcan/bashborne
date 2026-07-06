@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::game::map::{Position, Tile};
@@ -22,7 +22,36 @@ pub fn draw(frame: &mut Frame, explore: &ExploreState, party: &Party) {
         .split(outer[1]);
 
     draw_party_panel(frame, right[0], party);
-    draw_log(frame, right[1], &explore.log);
+    draw_log(frame, right[1], &explore.log, explore.log_scroll);
+
+    if explore.confirm_quit {
+        draw_confirm_quit(frame);
+    }
+}
+
+fn draw_confirm_quit(frame: &mut Frame) {
+    use ratatui::widgets::Clear;
+
+    let area = crate::ui::centered_rect(50, 20, frame.size());
+    let lines = vec![
+        Line::from(Span::styled(
+            "Quit without saving?",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("Progress since your last 'S' save will be lost."),
+        Line::from(""),
+        Line::from("Enter/y — quit      Esc/n — stay"),
+    ];
+    let block = Block::default().borders(Borders::ALL).title("Confirm");
+    let p = Paragraph::new(lines)
+        .block(block)
+        .alignment(ratatui::layout::Alignment::Center)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(Clear, area);
+    frame.render_widget(p, area);
 }
 
 fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
@@ -63,9 +92,9 @@ fn draw_map(frame: &mut Frame, area: Rect, explore: &ExploreState) {
         }
         lines.push(Line::from(spans));
     }
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Fields — arrows/WASD move, i inventory, e shop/NPC, u level up, S save, q quit");
+    let block = Block::default().borders(Borders::ALL).title(
+        "Fields — arrows/WASD move, i inventory, l quests, u level up, e shop/NPC, S save, q quit, ? help",
+    );
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
 }
@@ -129,13 +158,23 @@ fn draw_party_panel(frame: &mut Frame, area: Rect, party: &Party) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_log(frame: &mut Frame, area: Rect, log: &[String]) {
+fn draw_log(frame: &mut Frame, area: Rect, log: &[String], scroll: usize) {
     let visible_rows = area.height.saturating_sub(2) as usize;
-    let start = log.len().saturating_sub(visible_rows.max(1));
-    let lines: Vec<Line> = log[start..]
+    let scroll = scroll.min(log.len().saturating_sub(visible_rows.max(1)));
+    let end = log.len().saturating_sub(scroll);
+    let start = end.saturating_sub(visible_rows.max(1));
+    let lines: Vec<Line> = log[start..end]
         .iter()
         .map(|s| Line::from(s.as_str()))
         .collect();
-    let block = Block::default().borders(Borders::ALL).title("Log");
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    let title = if scroll > 0 {
+        format!("Log (PageDown for latest, {scroll} back)")
+    } else {
+        "Log".to_string()
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
+    let p = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(p, area);
 }

@@ -43,6 +43,9 @@ pub struct World {
     /// Bumped once per app-loop tick (~100ms); drives the combat screen's
     /// sprite animation via `anim_frame`.
     pub anim_tick: u64,
+    /// Whether the `?` keybind reference popup is currently shown, overlaid
+    /// on top of whatever screen is active.
+    pub show_help: bool,
 }
 
 impl World {
@@ -64,6 +67,7 @@ impl World {
             npc_flags: std::collections::HashSet::new(),
             quest_log: crate::game::quest::QuestLog::new(),
             anim_tick: 0,
+            show_help: false,
         }
     }
 
@@ -95,7 +99,7 @@ impl World {
     pub fn from_save(data: crate::game::save::SaveData) -> Self {
         let mut explore = ExploreState::for_chapter(data.current_chapter);
         explore.player_pos = data.player_pos;
-        explore.log.push("Loaded saved game.".to_string());
+        explore.push_log("Loaded saved game.");
         Self {
             party: data.party,
             inventory: data.inventory,
@@ -107,6 +111,7 @@ impl World {
             npc_flags: data.npc_flags,
             quest_log: data.quest_log,
             anim_tick: 0,
+            show_help: false,
         }
     }
 
@@ -119,8 +124,16 @@ impl World {
     }
 
     pub fn handle_key(&mut self, key: KeyCode) {
-        if key == KeyCode::Char('q') && matches!(self.state, GameState::Explore(_)) {
-            self.should_quit = true;
+        if self.show_help {
+            if matches!(key, KeyCode::Char('?') | KeyCode::Esc) {
+                self.show_help = false;
+            }
+            return;
+        }
+        if key == KeyCode::Char('?')
+            && !matches!(self.state, GameState::MainMenu(_) | GameState::GameOver { .. })
+        {
+            self.show_help = true;
             return;
         }
         match &mut self.state {
@@ -198,6 +211,47 @@ impl World {
     }
 
     fn handle_explore_key(&mut self, key: KeyCode) {
+        // The quit confirmation is modal: nothing else reacts until the
+        // player commits or backs out, mirroring `confirm_overwrite` on the
+        // main menu.
+        let confirm_quit = match &self.state {
+            GameState::Explore(explore) => explore.confirm_quit,
+            _ => return,
+        };
+        if confirm_quit {
+            match key {
+                KeyCode::Enter | KeyCode::Char('y') => self.should_quit = true,
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    let GameState::Explore(explore) = &mut self.state else {
+                        return;
+                    };
+                    explore.confirm_quit = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+        if key == KeyCode::Char('q') {
+            let GameState::Explore(explore) = &mut self.state else {
+                return;
+            };
+            explore.confirm_quit = true;
+            return;
+        }
+        if key == KeyCode::PageUp {
+            let GameState::Explore(explore) = &mut self.state else {
+                return;
+            };
+            explore.log_scroll = (explore.log_scroll + 10).min(explore.log.len());
+            return;
+        }
+        if key == KeyCode::PageDown {
+            let GameState::Explore(explore) = &mut self.state else {
+                return;
+            };
+            explore.log_scroll = explore.log_scroll.saturating_sub(10);
+            return;
+        }
         if key == KeyCode::Char('S') {
             let GameState::Explore(explore) = &self.state else {
                 return;
@@ -210,7 +264,7 @@ impl World {
             let GameState::Explore(explore) = &mut self.state else {
                 return;
             };
-            explore.log.push(message);
+            explore.push_log(message);
             return;
         }
         if key == KeyCode::Char('i') {
@@ -531,6 +585,15 @@ impl World {
             return;
         };
 
+        if key == KeyCode::PageUp {
+            combat.log_scroll = (combat.log_scroll + 10).min(combat.log.len());
+            return;
+        }
+        if key == KeyCode::PageDown {
+            combat.log_scroll = combat.log_scroll.saturating_sub(10);
+            return;
+        }
+
         match combat.phase {
             CombatPhase::SelectAction { actor } => {
                 // Only players choose via keyboard; enemy turns resolve automatically (see tick()).
@@ -545,13 +608,18 @@ impl World {
                     }
                     KeyCode::Enter => match combat.menu_cursor {
                         0 => {
-                            let target_idx =
-                                combat.alive_enemy_indices().first().copied().unwrap_or(0);
+                            let alive = combat.alive_enemy_indices();
+                            let target_idx = alive.first().copied().unwrap_or(0);
                             combat.phase = CombatPhase::SelectTarget {
                                 actor,
                                 action: CombatAction::Attack,
                                 target_idx,
                             };
+                            // Only one enemy to hit — skip the redundant
+                            // confirm and resolve the attack immediately.
+                            if alive.len() == 1 {
+                                self.resolve_pending_target();
+                            }
                         }
                         1 => {
                             if !self.party.members[pi].abilities.is_empty() {
@@ -600,17 +668,20 @@ impl World {
                             .get(cursor)
                             .map(|a| a.targets_all_enemies)
                             .unwrap_or(false);
+                        let alive = combat.alive_enemy_indices();
                         let target_idx = if is_heal {
                             pi
                         } else {
-                            combat.alive_enemy_indices().first().copied().unwrap_or(0)
+                            alive.first().copied().unwrap_or(0)
                         };
                         combat.phase = CombatPhase::SelectTarget {
                             actor,
                             action: CombatAction::Ability(cursor),
                             target_idx,
                         };
-                        if targets_all {
+                        // Party-wide abilities and lone-enemy fights don't
+                        // need a second confirm on top of picking the ability.
+                        if targets_all || (!is_heal && alive.len() == 1) {
                             self.resolve_pending_target();
                         }
                     }
@@ -2570,5 +2641,153 @@ mod tests {
             .rings
             .iter()
             .any(|r| r.name == "Band of the Barrow"));
+    }
+
+    #[test]
+    fn q_in_explore_asks_before_quitting() {
+        let mut world = World::new();
+        world.handle_key(KeyCode::Char('q'));
+        assert!(!world.should_quit, "should ask first, not quit outright");
+        let GameState::Explore(explore) = &world.state else {
+            panic!("expected to still be exploring");
+        };
+        assert!(explore.confirm_quit);
+
+        world.handle_key(KeyCode::Esc); // back out
+        let GameState::Explore(explore) = &world.state else {
+            panic!("expected to still be exploring");
+        };
+        assert!(!explore.confirm_quit);
+        assert!(!world.should_quit);
+
+        world.handle_key(KeyCode::Char('q'));
+        world.handle_key(KeyCode::Enter); // confirm
+        assert!(world.should_quit);
+    }
+
+    #[test]
+    fn explore_log_is_capped_and_scroll_resets_on_new_lines() {
+        let mut world = World::new();
+        let GameState::Explore(explore) = &mut world.state else {
+            unreachable!()
+        };
+        for i in 0..250 {
+            explore.push_log(format!("line {i}"));
+        }
+        assert_eq!(explore.log.len(), 200, "log should be capped at 200 lines");
+        assert_eq!(explore.log.first().unwrap(), "line 50");
+
+        explore.log_scroll = 5;
+        explore.push_log("newest");
+        assert_eq!(explore.log_scroll, 0, "a new line should snap back to the bottom");
+    }
+
+    #[test]
+    fn page_up_and_down_scroll_the_explore_log_and_clamp() {
+        let mut world = World::new();
+        let GameState::Explore(explore) = &mut world.state else {
+            unreachable!()
+        };
+        for i in 0..5 {
+            explore.push_log(format!("line {i}"));
+        }
+        let log_len = explore.log.len();
+
+        world.handle_key(KeyCode::PageUp);
+        let GameState::Explore(explore) = &world.state else {
+            unreachable!()
+        };
+        assert_eq!(explore.log_scroll, 10.min(log_len));
+
+        // Scrolling further up clamps at the total number of lines, it never
+        // goes negative or past the start of history.
+        world.handle_key(KeyCode::PageUp);
+        world.handle_key(KeyCode::PageUp);
+        let GameState::Explore(explore) = &world.state else {
+            unreachable!()
+        };
+        assert_eq!(explore.log_scroll, log_len);
+
+        world.handle_key(KeyCode::PageDown);
+        let GameState::Explore(explore) = &world.state else {
+            unreachable!()
+        };
+        assert_eq!(explore.log_scroll, log_len.saturating_sub(10));
+    }
+
+    #[test]
+    fn attacking_a_lone_enemy_resolves_without_a_second_target_confirm() {
+        use crate::game::character::slime;
+
+        let mut world = World::new();
+        let combat = CombatState::new(&world.party, vec![slime("Slime")]);
+        world.state = GameState::Combat(combat);
+        let GameState::Combat(combat) = &mut world.state else {
+            unreachable!()
+        };
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Player(0),
+        };
+        combat.menu_cursor = 0; // Attack
+
+        world.handle_key(KeyCode::Enter);
+
+        let GameState::Combat(combat) = &world.state else {
+            panic!("expected to still be in combat");
+        };
+        assert!(
+            !matches!(combat.phase, CombatPhase::SelectTarget { .. }),
+            "a lone enemy should resolve immediately instead of waiting on a second Enter"
+        );
+    }
+
+    #[test]
+    fn page_up_and_down_scroll_the_combat_log_and_clamp() {
+        use crate::game::character::slime;
+
+        let mut world = World::new();
+        let mut combat = CombatState::new(&world.party, vec![slime("Slime")]);
+        for i in 0..5 {
+            combat.push_log(format!("line {i}"));
+        }
+        let log_len = combat.log.len();
+        world.state = GameState::Combat(combat);
+
+        world.handle_key(KeyCode::PageUp);
+        let GameState::Combat(combat) = &world.state else {
+            unreachable!()
+        };
+        assert_eq!(combat.log_scroll, log_len);
+
+        world.handle_key(KeyCode::PageDown);
+        let GameState::Combat(combat) = &world.state else {
+            unreachable!()
+        };
+        assert_eq!(combat.log_scroll, log_len.saturating_sub(10));
+    }
+
+    #[test]
+    fn help_overlay_toggles_and_blocks_other_input_while_open() {
+        let mut world = World::new();
+        assert!(!world.show_help);
+
+        world.handle_key(KeyCode::Char('?'));
+        assert!(world.show_help);
+
+        // While the overlay is open, other keys (like movement) shouldn't
+        // reach the underlying screen.
+        let pos_before = match &world.state {
+            GameState::Explore(explore) => explore.player_pos,
+            _ => panic!("expected to be exploring"),
+        };
+        world.handle_key(KeyCode::Down);
+        let pos_after = match &world.state {
+            GameState::Explore(explore) => explore.player_pos,
+            _ => panic!("expected to be exploring"),
+        };
+        assert_eq!(pos_before, pos_after, "input should be swallowed by the help overlay");
+
+        world.handle_key(KeyCode::Char('?'));
+        assert!(!world.show_help);
     }
 }

@@ -1,7 +1,7 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::app::World;
@@ -19,7 +19,21 @@ mod main_menu;
 mod quest_log;
 mod shop;
 
+/// Smallest terminal size every screen in this codebase assumes it has —
+/// below this, panels don't just look cramped, they clip mid-line/mid-span
+/// (no `Paragraph` reflows fixed-width ASCII sprites or map rows). Rather
+/// than let that render as garbled text, `draw` bails out to a friendly
+/// notice instead.
+const MIN_COLS: u16 = 80;
+const MIN_ROWS: u16 = 24;
+
 pub fn draw(frame: &mut Frame, world: &World) {
+    let size = frame.size();
+    if size.width < MIN_COLS || size.height < MIN_ROWS {
+        draw_too_small(frame, size.width, size.height);
+        return;
+    }
+
     match &world.state {
         GameState::MainMenu(menu) => main_menu::draw(frame, menu),
         GameState::Explore(explore) => explore::draw(frame, explore, &world.party),
@@ -38,6 +52,94 @@ pub fn draw(frame: &mut Frame, world: &World) {
         GameState::Blacksmith(bs) => blacksmith::draw(frame, bs, &world.party, &world.inventory),
         GameState::GameOver { victory } => draw_game_over(frame, *victory),
     }
+
+    if world.show_help {
+        draw_help_overlay(frame);
+    }
+}
+
+/// Standard ratatui "centered popup" recipe: carves a `percent_x` ×
+/// `percent_y` rectangle out of the middle of `area`.
+pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup_layout = ratatui::layout::Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    ratatui::layout::Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+fn draw_too_small(frame: &mut Frame, width: u16, height: u16) {
+    use ratatui::layout::Alignment;
+
+    let area = frame.size();
+    let text = vec![
+        Line::from(Span::styled(
+            "Terminal too small",
+            Style::default()
+                .fg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(format!(
+            "Resize to at least {MIN_COLS}x{MIN_ROWS} (currently {width}x{height})."
+        )),
+    ];
+    let block = Block::default().borders(Borders::ALL).title("Bashborne");
+    let p = Paragraph::new(text)
+        .block(block)
+        .alignment(Alignment::Center);
+    frame.render_widget(p, area);
+}
+
+fn draw_help_overlay(frame: &mut Frame) {
+    use ratatui::layout::Alignment;
+    use ratatui::widgets::Wrap;
+
+    let area = centered_rect(70, 80, frame.size());
+    let dim = Style::default().fg(Color::DarkGray);
+    let heading = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+
+    let lines = vec![
+        Line::from(Span::styled("Exploration", heading)),
+        Line::from("arrows/WASD  move"),
+        Line::from("i            inventory"),
+        Line::from("l            quest log"),
+        Line::from("u            level up"),
+        Line::from("e            interact (shop/NPC)"),
+        Line::from("S            save"),
+        Line::from("PageUp/Down  scroll log"),
+        Line::from("q            quit (confirm)"),
+        Line::from(""),
+        Line::from(Span::styled("Combat", heading)),
+        Line::from("up/down      choose action/target"),
+        Line::from("Enter        confirm"),
+        Line::from("Esc          back"),
+        Line::from("PageUp/Down  scroll log"),
+        Line::from(""),
+        Line::from(Span::styled("? / Esc to close", dim)),
+    ];
+
+    frame.render_widget(Clear, area);
+    let block = Block::default().borders(Borders::ALL).title("Help");
+    let p = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(p, area);
 }
 
 /// Color for a weapon's rarity tier — shared so the inventory screen and the

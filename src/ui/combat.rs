@@ -1,7 +1,7 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::game::character::AbilityKind;
@@ -37,7 +37,7 @@ pub fn draw(
     draw_party(frame, mid[0], party, combat);
     draw_menu_or_result(frame, mid[1], combat, party, inventory);
 
-    draw_log(frame, outer[2], &combat.log);
+    draw_log(frame, outer[2], &combat.log, combat.log_scroll);
 }
 
 /// Whether a pending action targets the party (heals/items) rather than the
@@ -444,13 +444,23 @@ fn draw_menu_or_result(
     }
 }
 
-fn draw_log(frame: &mut Frame, area: Rect, log: &[String]) {
+fn draw_log(frame: &mut Frame, area: Rect, log: &[String], scroll: usize) {
     let visible_rows = area.height.saturating_sub(2) as usize;
-    let start = log.len().saturating_sub(visible_rows.max(1));
-    let lines: Vec<Line> = log[start..]
+    let scroll = scroll.min(log.len().saturating_sub(visible_rows.max(1)));
+    let end = log.len().saturating_sub(scroll);
+    let start = end.saturating_sub(visible_rows.max(1));
+    let lines: Vec<Line> = log[start..end]
         .iter()
         .map(|s| Line::from(s.as_str()))
         .collect();
-    let block = Block::default().borders(Borders::ALL).title("Battle Log");
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    let title = if scroll > 0 {
+        format!("Battle Log (PageDown for latest, {scroll} back)")
+    } else {
+        "Battle Log".to_string()
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
+    let p = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(p, area);
 }
