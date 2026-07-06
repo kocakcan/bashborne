@@ -57,6 +57,8 @@ pub struct Ability {
     /// in — see `effective_power`, which is what combat actually uses.
     pub base_power: i32,
     pub kind: AbilityKind,
+    /// Whether this hits every living enemy instead of one chosen target.
+    pub targets_all_enemies: bool,
 }
 
 impl Ability {
@@ -579,12 +581,14 @@ pub fn warrior(name: &str) -> Character {
                 mp_cost: 3,
                 base_power: 10,
                 kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
             },
             Ability {
                 name: "Crushing Blow".into(),
                 mp_cost: 6,
                 base_power: 18,
                 kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
             },
         ],
         equipped_weapon: Some(worn_shortsword()),
@@ -617,12 +621,14 @@ pub fn mage(name: &str) -> Character {
                 mp_cost: 6,
                 base_power: 16,
                 kind: AbilityKind::MagicDamage,
+                targets_all_enemies: false,
             },
             Ability {
                 name: "Lightning Bolt".into(),
                 mp_cost: 12,
                 base_power: 26,
                 kind: AbilityKind::MagicDamage,
+                targets_all_enemies: false,
             },
         ],
         equipped_weapon: Some(apprentice_wand()),
@@ -655,12 +661,14 @@ pub fn cleric(name: &str) -> Character {
                 mp_cost: 8,
                 base_power: 18,
                 kind: AbilityKind::Heal,
+                targets_all_enemies: false,
             },
             Ability {
                 name: "Smite".into(),
                 mp_cost: 5,
                 base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
             },
         ],
         equipped_weapon: Some(acolytes_mace()),
@@ -693,12 +701,14 @@ pub fn rogue(name: &str) -> Character {
                 mp_cost: 4,
                 base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
             },
             Ability {
                 name: "Fan of Knives".into(),
                 mp_cost: 9,
-                base_power: 22,
+                base_power: 14,
                 kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: true,
             },
         ],
         equipped_weapon: Some(thieves_dirk()),

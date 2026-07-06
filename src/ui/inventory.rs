@@ -111,11 +111,21 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
                 .iter()
                 .enumerate()
                 .map(|(i, (item, qty))| {
-                    let style = cursor_style(i == inv_ui.cursor);
-                    ListItem::new(Line::from(Span::styled(
+                    let selected = i == inv_ui.cursor;
+                    let header = Line::from(Span::styled(
                         format!("{} x{qty}", item.name),
-                        style,
-                    )))
+                        cursor_style(selected),
+                    ));
+                    let detail_style = if selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    let detail = Line::from(Span::styled(
+                        format!("     {}", item.description),
+                        detail_style,
+                    ));
+                    ListItem::new(Text::from(vec![header, detail]))
                 })
                 .collect();
             let block = Block::default()

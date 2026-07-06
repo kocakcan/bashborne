@@ -96,17 +96,28 @@ fn draw_buy_list(
                     .find(|(item, _)| item.name == sample.name)
                     .map(|(_, qty)| *qty)
                     .unwrap_or(0);
-                let style = if i == shop.cursor {
+                let selected = i == shop.cursor;
+                let style = if selected {
                     crate::ui::cursor_style(true)
                 } else if !affordable {
                     Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default()
                 };
-                ListItem::new(Line::from(Span::styled(
+                let header = Line::from(Span::styled(
                     format!("{:<16} {price} gold   (have x{owned})", sample.name),
                     style,
-                )))
+                ));
+                let detail_style = if selected {
+                    Style::default().fg(Color::White)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let detail = Line::from(Span::styled(
+                    format!("     {}", sample.description),
+                    detail_style,
+                ));
+                ListItem::new(ratatui::text::Text::from(vec![header, detail]))
             })
             .collect(),
         ShopTab::Weapons => shop_weapon_stock()
@@ -211,15 +222,26 @@ fn draw_sell_list(frame: &mut Frame, area: Rect, shop: &ShopUiState, inventory: 
             .iter()
             .enumerate()
             .map(|(i, (item, qty))| {
-                let style = crate::ui::cursor_style(i == shop.cursor);
-                ListItem::new(Line::from(Span::styled(
+                let selected = i == shop.cursor;
+                let style = crate::ui::cursor_style(selected);
+                let header = Line::from(Span::styled(
                     format!(
                         "{:<16} x{qty}   sells for {} gold",
                         item.name,
                         item.value / 2
                     ),
                     style,
-                )))
+                ));
+                let detail_style = if selected {
+                    Style::default().fg(Color::White)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let detail = Line::from(Span::styled(
+                    format!("     {}", item.description),
+                    detail_style,
+                ));
+                ListItem::new(ratatui::text::Text::from(vec![header, detail]))
             })
             .collect(),
         ShopTab::Weapons => inventory

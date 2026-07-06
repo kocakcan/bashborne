@@ -275,7 +275,11 @@ fn draw_menu_or_result(
                     let power = ability.effective_power(&party.members[pi]);
                     let description = match ability.kind {
                         AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
-                            format!("     Deals ~{power} damage to one enemy")
+                            if ability.targets_all_enemies {
+                                format!("     Deals ~{power} damage to all enemies")
+                            } else {
+                                format!("     Deals ~{power} damage to one enemy")
+                            }
                         }
                         AbilityKind::Heal => {
                             format!("     Heals {power} HP to one ally")
@@ -304,8 +308,9 @@ fn draw_menu_or_result(
                 .iter()
                 .enumerate()
                 .map(|(i, (item, qty))| {
+                    let selected = i == cursor;
                     let label = format!("{} x{qty}", item.name);
-                    let style = if i == cursor {
+                    let header_style = if selected {
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::White)
@@ -313,7 +318,17 @@ fn draw_menu_or_result(
                     } else {
                         Style::default()
                     };
-                    ListItem::new(Line::from(Span::styled(label, style)))
+                    let header = Line::from(Span::styled(label, header_style));
+                    let detail_style = if selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    let detail = Line::from(Span::styled(
+                        format!("     {}", item.description),
+                        detail_style,
+                    ));
+                    ListItem::new(Text::from(vec![header, detail]))
                 })
                 .collect();
             let block = Block::default()

@@ -595,6 +595,11 @@ impl World {
                     }
                     KeyCode::Enter => {
                         let is_heal = self.party.members[pi].ability_is_heal(cursor);
+                        let targets_all = self.party.members[pi]
+                            .abilities
+                            .get(cursor)
+                            .map(|a| a.targets_all_enemies)
+                            .unwrap_or(false);
                         let target_idx = if is_heal {
                             pi
                         } else {
@@ -605,6 +610,9 @@ impl World {
                             action: CombatAction::Ability(cursor),
                             target_idx,
                         };
+                        if targets_all {
+                            self.resolve_pending_target();
+                        }
                     }
                     KeyCode::Esc => {
                         combat.phase = CombatPhase::SelectAction { actor };

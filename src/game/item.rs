@@ -26,6 +26,8 @@ pub struct Item {
     pub kind: ItemKind,
     /// Base gold value. The shop buys at this price and sells for half.
     pub value: u32,
+    /// Short flavor line shown wherever the item is listed.
+    pub description: String,
 }
 
 pub fn potion() -> Item {
@@ -33,6 +35,7 @@ pub fn potion() -> Item {
         name: "Potion".into(),
         kind: ItemKind::Potion { heal_percent: 0.35 },
         value: 15,
+        description: "A murky red draught that knits shallow wounds shut.".into(),
     }
 }
 
@@ -41,6 +44,7 @@ pub fn ether() -> Item {
         name: "Ether".into(),
         kind: ItemKind::Ether { mp_percent: 0.35 },
         value: 20,
+        description: "Bitter and metallic; steadies the mind enough to cast again.".into(),
     }
 }
 
@@ -49,6 +53,7 @@ pub fn greater_potion() -> Item {
         name: "Greater Potion".into(),
         kind: ItemKind::Potion { heal_percent: 0.6 },
         value: 40,
+        description: "Thicker and richer than a common potion — it mends deep.".into(),
     }
 }
 
@@ -57,6 +62,7 @@ pub fn greater_ether() -> Item {
         name: "Greater Ether".into(),
         kind: ItemKind::Ether { mp_percent: 0.6 },
         value: 45,
+        description: "A potent tonic that floods the mind with restored focus.".into(),
     }
 }
 
@@ -65,6 +71,7 @@ pub fn sovereign_elixir() -> Item {
         name: "Sovereign Elixir".into(),
         kind: ItemKind::Elixir,
         value: 90,
+        description: "A regal cure-all, brewed for a king who never earned it.".into(),
     }
 }
 
@@ -73,6 +80,7 @@ pub fn ember_of_return() -> Item {
         name: "Ember of Return".into(),
         kind: ItemKind::Revive { heal_percent: 0.5 },
         value: 60,
+        description: "A single coal that refuses to go out. It remembers being alive.".into(),
     }
 }
 
@@ -81,6 +89,7 @@ pub fn purging_stone() -> Item {
         name: "Purging Stone".into(),
         kind: ItemKind::CureCurse,
         value: 40,
+        description: "Smooth and cold; it drinks in whatever curse clings to you.".into(),
     }
 }
 

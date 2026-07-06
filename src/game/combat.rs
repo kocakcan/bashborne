@@ -528,28 +528,35 @@ impl CombatState {
                 }
                 match ability.kind {
                     AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
-                        let defense = self
-                            .enemies
-                            .get(target_idx)
-                            .map(|e| e.total_defense())
-                            .unwrap_or(0);
                         let power = ability.effective_power(&party.members[pi])
                             + party.stat_delta(StatEffectTarget::Attack);
                         let luck = party.members[pi].total_luck();
-                        let (dmg, crit) = roll_damage(power, defense / 2, luck, rng);
-                        if let Some(enemy) = self.enemies.get_mut(target_idx) {
-                            enemy.take_damage(dmg);
-                            let ename = enemy.name.clone();
-                            let max_hp = enemy.stats.max_hp;
-                            let alive = enemy.is_alive();
-                            self.push_log(format!(
-                                "{attacker_name} casts {} on {ename} for {dmg} damage.{}",
-                                ability.name,
-                                if crit { " A critical hit!" } else { "" }
-                            ));
-                            if !alive {
-                                self.push_log(format!("{ename} is defeated!"));
-                                self.check_overkill(target_idx, dmg, max_hp, &ename);
+                        let targets = if ability.targets_all_enemies {
+                            self.alive_enemy_indices()
+                        } else {
+                            vec![target_idx]
+                        };
+                        for idx in targets {
+                            let defense = self
+                                .enemies
+                                .get(idx)
+                                .map(|e| e.total_defense())
+                                .unwrap_or(0);
+                            let (dmg, crit) = roll_damage(power, defense / 2, luck, rng);
+                            if let Some(enemy) = self.enemies.get_mut(idx) {
+                                enemy.take_damage(dmg);
+                                let ename = enemy.name.clone();
+                                let max_hp = enemy.stats.max_hp;
+                                let alive = enemy.is_alive();
+                                self.push_log(format!(
+                                    "{attacker_name} casts {} on {ename} for {dmg} damage.{}",
+                                    ability.name,
+                                    if crit { " A critical hit!" } else { "" }
+                                ));
+                                if !alive {
+                                    self.push_log(format!("{ename} is defeated!"));
+                                    self.check_overkill(idx, dmg, max_hp, &ename);
+                                }
                             }
                         }
                     }
@@ -1065,6 +1072,29 @@ mod tests {
         };
         combat.resolve_current_turn(&mut party, &mut rng);
         assert!(party.members[0].stats.hp > 5, "Mend should heal the cleric");
+    }
+
+    #[test]
+    fn fan_of_knives_damages_every_alive_enemy() {
+        let mut party = Party::new(vec![crate::game::character::rogue("Wren")]);
+        let enemies = vec![slime("Slime"), slime("Slime"), slime("Slime")];
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(11);
+        let hp_before: Vec<i32> = combat.enemies.iter().map(|e| e.stats.hp).collect();
+
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Ability(1), // rogue's Fan of Knives
+            target_idx: 0,
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+
+        for (i, before) in hp_before.iter().enumerate() {
+            assert!(
+                combat.enemies[i].stats.hp < *before,
+                "enemy {i} should take damage from Fan of Knives"
+            );
+        }
     }
 
     #[test]
