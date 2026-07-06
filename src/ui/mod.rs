@@ -49,7 +49,13 @@ pub fn draw(frame: &mut Frame, world: &World) {
         GameState::Shop(shop_ui) => shop::draw(frame, shop_ui, &world.party, &world.inventory),
         GameState::QuestLog(ui) => quest_log::draw(frame, ui, &world.quest_log),
         GameState::LevelUp(ui) => levelup::draw(frame, ui, &world.party),
-        GameState::Blacksmith(bs) => blacksmith::draw(frame, bs, &world.party, &world.inventory),
+        GameState::Blacksmith(bs) => blacksmith::draw(
+            frame,
+            bs,
+            &world.party,
+            &world.inventory,
+            world.current_chapter,
+        ),
         GameState::GameOver { victory } => draw_game_over(frame, *victory),
     }
 
@@ -87,9 +93,7 @@ fn draw_too_small(frame: &mut Frame, width: u16, height: u16) {
     let text = vec![
         Line::from(Span::styled(
             "Terminal too small",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(format!(
@@ -263,10 +267,15 @@ fn draw_game_over(frame: &mut Frame, victory: bool) {
         "Your party has fallen..."
     };
     let color = if victory { Color::Green } else { Color::Red };
+    let footer = if victory {
+        "Press N to begin New Game+ · Press Enter to quit."
+    } else {
+        "Press Enter to quit."
+    };
     let text = vec![
         Line::from(msg).style(Style::default().fg(color)),
         Line::from(""),
-        Line::from("Press Enter to quit."),
+        Line::from(footer),
     ];
     let block = Block::default().borders(Borders::ALL).title("Game Over");
     let p = Paragraph::new(text)

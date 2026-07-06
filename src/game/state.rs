@@ -144,8 +144,9 @@ pub enum GameState {
 /// Simple encounter table used when the player steps into tall grass and a
 /// fight occurs. Every rolled enemy is then scaled up to `enemy_level` (the
 /// current chapter's `ChapterDef::enemy_level`), so the same species table
-/// gets genuinely harder chapter over chapter.
-pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32) -> Vec<Character> {
+/// gets genuinely harder chapter over chapter. `ng_plus` layers the New
+/// Game+ multiplier on top for players replaying a harder cycle.
+pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32, ng_plus: u32) -> Vec<Character> {
     use crate::game::character::{
         bandit, barrow_sentinel, bat, carrion_crow, fell_acolyte, forsaken_knight, goblin,
         grave_ghoul, hollow, orc, rat, skeleton, slime, wolf, wraith,
@@ -175,6 +176,7 @@ pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32) -> Vec<Character> {
     };
     for enemy in &mut enemies {
         enemy.scale_to_level(enemy_level);
+        enemy.apply_ng_plus(ng_plus);
     }
     enemies
 }
@@ -198,17 +200,19 @@ pub enum FieldEvent {
 
 /// Weighted table for grass encounters: 55% combat, 15% blessing, 15% curse,
 /// 15% treasure. Tune the ranges below to rebalance. `enemy_level` scales
-/// any combat outcome (including a Mimic ambush) to the current chapter.
-pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
+/// any combat outcome (including a Mimic ambush) to the current chapter;
+/// `ng_plus` layers the New Game+ multiplier on top.
+pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32, ng_plus: u32) -> FieldEvent {
     match rng.gen_range(0..20) {
-        0..=10 => FieldEvent::Combat(roll_encounter(rng, enemy_level)), // 11/20
-        11..=13 => FieldEvent::Blessing(roll_blessing(rng)),            // 3/20
-        14..=16 => FieldEvent::Curse(roll_curse(rng)),                  // 3/20
+        0..=10 => FieldEvent::Combat(roll_encounter(rng, enemy_level, ng_plus)), // 11/20
+        11..=13 => FieldEvent::Blessing(roll_blessing(rng)),                     // 3/20
+        14..=16 => FieldEvent::Curse(roll_curse(rng)),                           // 3/20
         _ => {
             // 3/20: usually real treasure, but occasionally it bites back.
             if rng.gen_ratio(1, 6) {
                 let mut mimic = crate::game::character::mimic("Mimic");
                 mimic.scale_to_level(enemy_level);
+                mimic.apply_ng_plus(ng_plus);
                 FieldEvent::Combat(vec![mimic])
             } else {
                 let gold = rng.gen_range(10..=25);
@@ -292,12 +296,28 @@ mod tests {
     fn later_chapters_field_stronger_versions_of_the_same_species() {
         // Same seed rolls the same composition; only the scaling differs.
         for seed in 0..20u64 {
-            let ch1 = roll_encounter(&mut StdRng::seed_from_u64(seed), 1);
-            let ch3 = roll_encounter(&mut StdRng::seed_from_u64(seed), 7);
+            let ch1 = roll_encounter(&mut StdRng::seed_from_u64(seed), 1, 0);
+            let ch3 = roll_encounter(&mut StdRng::seed_from_u64(seed), 7, 0);
             for (weak, strong) in ch1.iter().zip(ch3.iter()) {
                 assert_eq!(weak.name, strong.name);
                 assert_eq!(weak.level, 1);
                 assert_eq!(strong.level, 7);
+                assert!(strong.stats.max_hp > weak.stats.max_hp);
+                assert!(strong.stats.attack > weak.stats.attack);
+                assert!(strong.stats.defense > weak.stats.defense);
+            }
+        }
+    }
+
+    #[test]
+    fn ng_plus_makes_the_same_encounter_hit_harder() {
+        // Same seed, same composition/level; only the NG+ multiplier differs.
+        for seed in 0..20u64 {
+            let base = roll_encounter(&mut StdRng::seed_from_u64(seed), 1, 0);
+            let buffed = roll_encounter(&mut StdRng::seed_from_u64(seed), 1, 3);
+            for (weak, strong) in base.iter().zip(buffed.iter()) {
+                assert_eq!(weak.name, strong.name);
+                assert_eq!(weak.level, strong.level);
                 assert!(strong.stats.max_hp > weak.stats.max_hp);
                 assert!(strong.stats.attack > weak.stats.attack);
                 assert!(strong.stats.defense > weak.stats.defense);
@@ -311,7 +331,7 @@ mod tests {
         let mut saw_a_mimic = false;
         for seed in 0..500u64 {
             let mut rng = StdRng::seed_from_u64(seed);
-            if let FieldEvent::Combat(enemies) = roll_field_event(&mut rng, 7) {
+            if let FieldEvent::Combat(enemies) = roll_field_event(&mut rng, 7, 0) {
                 if enemies.iter().any(|e| e.name == "Mimic") {
                     assert!(enemies.iter().all(|e| e.level == 7));
                     saw_a_mimic = true;

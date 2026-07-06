@@ -2,6 +2,11 @@ use crate::game::item::{Inventory, Rarity, Weapon, MAX_UPGRADE_LEVEL};
 use crate::game::map::Position;
 use crate::game::party::Party;
 
+/// Gold cost to buy one Titanite Shard from Andre — only offered once the
+/// player has reached chapter 3, so a weapon can be maxed out before the
+/// final boss even without lucky drops.
+pub const SHARD_PRICE: u32 = 30;
+
 /// A weapon's current location: still in the shared bag, or equipped on a
 /// specific party member. Lets the blacksmith list and upgrade a weapon
 /// "wherever it lives" without duplicating logic — shared by `app.rs` (which

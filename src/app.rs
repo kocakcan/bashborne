@@ -3,7 +3,7 @@ use rand::rngs::ThreadRng;
 use rand::Rng;
 
 use crate::game::blacksmith::{
-    upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState,
+    upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState, SHARD_PRICE,
 };
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
@@ -40,6 +40,10 @@ pub struct World {
     /// pick intro vs. repeat dialogue.
     pub npc_flags: std::collections::HashSet<NpcId>,
     pub quest_log: crate::game::quest::QuestLog,
+    /// Dark-Souls-style New Game+ cycle: 0 on a first playthrough, bumped by
+    /// `start_new_game_plus` after beating the final boss, capped at 7.
+    /// Multiplies every enemy's stats via `Character::apply_ng_plus`.
+    pub ng_plus: u32,
     /// Bumped once per app-loop tick (~100ms); drives the combat screen's
     /// sprite animation via `anim_frame`.
     pub anim_tick: u64,
@@ -66,6 +70,7 @@ impl World {
             bosses_defeated: std::collections::HashSet::new(),
             npc_flags: std::collections::HashSet::new(),
             quest_log: crate::game::quest::QuestLog::new(),
+            ng_plus: 0,
             anim_tick: 0,
             show_help: false,
         }
@@ -91,6 +96,7 @@ impl World {
             npc_flags: self.npc_flags.clone(),
             quest_log: self.quest_log.clone(),
             player_pos,
+            ng_plus: self.ng_plus,
         }
     }
 
@@ -110,9 +116,30 @@ impl World {
             bosses_defeated: data.bosses_defeated,
             npc_flags: data.npc_flags,
             quest_log: data.quest_log,
+            ng_plus: data.ng_plus,
             anim_tick: 0,
             show_help: false,
         }
+    }
+
+    /// Starts the next New Game+ cycle after beating the final boss: bumps
+    /// `ng_plus` (capped at 7, matching Dark Souls' own NG+7 cap), resets
+    /// chapter/boss/NPC/quest progress so the story replays from chapter
+    /// one, and drops the player back at its spawn. Party level, gear, gold,
+    /// and inventory are deliberately preserved — that's the whole point of
+    /// New Game+.
+    pub fn start_new_game_plus(&mut self) {
+        self.ng_plus = (self.ng_plus + 1).min(7);
+        self.current_chapter = ChapterId::One;
+        self.bosses_defeated.clear();
+        self.npc_flags.clear();
+        self.quest_log = crate::game::quest::QuestLog::new();
+        let mut explore = ExploreState::for_chapter(ChapterId::One);
+        explore.push_log(format!(
+            "New Game+{} begins. The world grows harsher...",
+            self.ng_plus
+        ));
+        self.state = GameState::Explore(explore);
     }
 
     /// Which sprite animation frame the combat screen should show right now.
@@ -131,7 +158,10 @@ impl World {
             return;
         }
         if key == KeyCode::Char('?')
-            && !matches!(self.state, GameState::MainMenu(_) | GameState::GameOver { .. })
+            && !matches!(
+                self.state,
+                GameState::MainMenu(_) | GameState::GameOver { .. }
+            )
         {
             self.show_help = true;
             return;
@@ -156,9 +186,12 @@ impl World {
                     self.state = GameState::Explore(explore);
                 }
             }
-            GameState::GameOver { .. } => {
+            GameState::GameOver { victory } => {
+                let victory = *victory;
                 if key == KeyCode::Enter {
                     self.should_quit = true;
+                } else if victory && matches!(key, KeyCode::Char('n') | KeyCode::Char('N')) {
+                    self.start_new_game_plus();
                 }
             }
         }
@@ -335,7 +368,7 @@ impl World {
             // ~1 in 4 steps through grass triggers *some* field event (not always a fight).
             if self.rng.gen_ratio(1, 4) {
                 let enemy_level = chapter_def(self.current_chapter).enemy_level;
-                match roll_field_event(&mut self.rng, enemy_level) {
+                match roll_field_event(&mut self.rng, enemy_level, self.ng_plus) {
                     FieldEvent::Combat(enemies) => {
                         let mut combat = CombatState::new(&self.party, enemies);
                         combat.return_pos = Some(next);
@@ -431,7 +464,8 @@ impl World {
             }
         } else if tile == Tile::BossLair && !self.bosses_defeated.contains(&self.current_chapter) {
             let def = chapter_def(self.current_chapter);
-            let boss = (def.boss)(def.boss_display_name);
+            let mut boss = (def.boss)(def.boss_display_name);
+            boss.apply_ng_plus(self.ng_plus);
             let mut combat = CombatState::new(&self.party, vec![boss]);
             combat.return_pos = Some(next);
             self.state = GameState::Combat(combat);
@@ -1671,7 +1705,25 @@ impl World {
                 }
             }
             KeyCode::Enter => self.apply_blacksmith_upgrade(cursor),
+            KeyCode::Char('b') | KeyCode::Char('B') => self.buy_titanite_shard(),
             _ => {}
+        }
+    }
+
+    /// Andre only stocks Titanite Shards once the party has reached chapter
+    /// three — before that, upgrade materials come solely from drops/finds.
+    fn buy_titanite_shard(&mut self) {
+        let message = if self.current_chapter != ChapterId::Three {
+            "Andre has no Titanite Shards to sell yet.".to_string()
+        } else if self.party.gold < SHARD_PRICE {
+            format!("Not enough gold ({SHARD_PRICE}g needed for a Titanite Shard).")
+        } else {
+            self.party.gold -= SHARD_PRICE;
+            self.inventory.upgrade_materials += 1;
+            format!("Bought a Titanite Shard for {SHARD_PRICE}g.")
+        };
+        if let GameState::Blacksmith(bs) = &mut self.state {
+            bs.message = Some(message);
         }
     }
 
@@ -2260,6 +2312,117 @@ mod tests {
     }
 
     #[test]
+    fn pressing_n_on_a_victorious_game_over_starts_new_game_plus() {
+        let mut world = World::new();
+        world.party.gold = 500;
+        world.bosses_defeated.insert(ChapterId::One);
+        world.bosses_defeated.insert(ChapterId::Two);
+        world.bosses_defeated.insert(ChapterId::Three);
+        world.npc_flags.insert(NpcId::OldHerbalist);
+        world.current_chapter = ChapterId::Three;
+        world.state = GameState::GameOver { victory: true };
+
+        world.handle_key(KeyCode::Char('n'));
+
+        assert_eq!(world.ng_plus, 1);
+        assert_eq!(world.current_chapter, ChapterId::One);
+        assert!(world.bosses_defeated.is_empty());
+        assert!(world.npc_flags.is_empty());
+        assert_eq!(
+            world.party.gold, 500,
+            "party progress should carry over into NG+"
+        );
+        assert!(matches!(world.state, GameState::Explore(_)));
+        assert!(!world.should_quit);
+    }
+
+    #[test]
+    fn pressing_n_on_a_defeat_game_over_does_nothing() {
+        let mut world = World::new();
+        world.state = GameState::GameOver { victory: false };
+
+        world.handle_key(KeyCode::Char('n'));
+
+        assert_eq!(world.ng_plus, 0);
+        assert!(matches!(
+            world.state,
+            GameState::GameOver { victory: false }
+        ));
+    }
+
+    #[test]
+    fn ng_plus_caps_at_seven_across_repeated_victories() {
+        let mut world = World::new();
+        for _ in 0..10 {
+            world.state = GameState::GameOver { victory: true };
+            world.handle_key(KeyCode::Char('n'));
+        }
+        assert_eq!(world.ng_plus, 7);
+    }
+
+    #[test]
+    fn andre_sells_titanite_shards_only_in_chapter_three() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::One;
+        world.party.gold = 1000;
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = chapter_def(ChapterId::One)
+                .npcs
+                .iter()
+                .find(|(_, npc)| *npc == NpcId::Blacksmith)
+                .unwrap()
+                .0;
+        }
+        world.handle_key(KeyCode::Char('e'));
+        assert!(matches!(world.state, GameState::Blacksmith(_)));
+        let shards_before = world.inventory.upgrade_materials;
+
+        world.handle_key(KeyCode::Char('b'));
+
+        assert_eq!(
+            world.inventory.upgrade_materials, shards_before,
+            "Andre shouldn't sell shards before chapter three"
+        );
+        assert_eq!(world.party.gold, 1000);
+    }
+
+    #[test]
+    fn buying_a_titanite_shard_in_chapter_three_spends_gold_and_grants_a_shard() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Three;
+        world.party.gold = 1000;
+        world.state =
+            GameState::Blacksmith(crate::game::blacksmith::BlacksmithUiState::new(Position {
+                x: 0,
+                y: 0,
+            }));
+        let shards_before = world.inventory.upgrade_materials;
+
+        world.handle_key(KeyCode::Char('b'));
+
+        assert_eq!(world.party.gold, 1000 - SHARD_PRICE);
+        assert_eq!(world.inventory.upgrade_materials, shards_before + 1);
+    }
+
+    #[test]
+    fn buying_a_titanite_shard_without_enough_gold_changes_nothing() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Three;
+        world.party.gold = SHARD_PRICE - 1;
+        world.state =
+            GameState::Blacksmith(crate::game::blacksmith::BlacksmithUiState::new(Position {
+                x: 0,
+                y: 0,
+            }));
+        let shards_before = world.inventory.upgrade_materials;
+
+        world.handle_key(KeyCode::Char('b'));
+
+        assert_eq!(world.party.gold, SHARD_PRICE - 1);
+        assert_eq!(world.inventory.upgrade_materials, shards_before);
+    }
+
+    #[test]
     fn equipping_armor_from_the_bag_works_from_the_armor_tab() {
         let mut world = World::new();
         world.inventory.add_armor(padded_vest());
@@ -2679,7 +2842,10 @@ mod tests {
 
         explore.log_scroll = 5;
         explore.push_log("newest");
-        assert_eq!(explore.log_scroll, 0, "a new line should snap back to the bottom");
+        assert_eq!(
+            explore.log_scroll, 0,
+            "a new line should snap back to the bottom"
+        );
     }
 
     #[test]
@@ -2785,7 +2951,10 @@ mod tests {
             GameState::Explore(explore) => explore.player_pos,
             _ => panic!("expected to be exploring"),
         };
-        assert_eq!(pos_before, pos_after, "input should be swallowed by the help overlay");
+        assert_eq!(
+            pos_before, pos_after,
+            "input should be swallowed by the help overlay"
+        );
 
         world.handle_key(KeyCode::Char('?'));
         assert!(!world.show_help);

@@ -4,11 +4,20 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::game::blacksmith::{weapon_for, weapon_ref_label, weapon_refs, BlacksmithUiState};
+use crate::game::blacksmith::{
+    weapon_for, weapon_ref_label, weapon_refs, BlacksmithUiState, SHARD_PRICE,
+};
+use crate::game::chapter::ChapterId;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 
-pub fn draw(frame: &mut Frame, bs: &BlacksmithUiState, party: &Party, inventory: &Inventory) {
+pub fn draw(
+    frame: &mut Frame,
+    bs: &BlacksmithUiState,
+    party: &Party,
+    inventory: &Inventory,
+    current_chapter: ChapterId,
+) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -28,7 +37,7 @@ pub fn draw(frame: &mut Frame, bs: &BlacksmithUiState, party: &Party, inventory:
     draw_weapon_list(frame, mid[0], bs, party, inventory);
     crate::ui::draw_party_gear(frame, mid[1], party);
 
-    draw_footer(frame, outer[2], bs);
+    draw_footer(frame, outer[2], bs, current_chapter == ChapterId::Three);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, party: &Party, inventory: &Inventory) {
@@ -122,10 +131,16 @@ fn draw_weapon_list(
     }
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, bs: &BlacksmithUiState) {
+fn draw_footer(frame: &mut Frame, area: Rect, bs: &BlacksmithUiState, shards_available: bool) {
     let text = bs.message.clone().unwrap_or_else(|| {
-        "Upgrading raises ATK (and DEF, for weapons that grant it) using gold and Titanite Shards."
-            .to_string()
+        if shards_available {
+            format!(
+                "Upgrading raises ATK (and DEF, for weapons that grant it) using gold and Titanite Shards. Andre now stocks Titanite Shards — press B to buy one for {SHARD_PRICE}g."
+            )
+        } else {
+            "Upgrading raises ATK (and DEF, for weapons that grant it) using gold and Titanite Shards."
+                .to_string()
+        }
     });
     let block = Block::default().borders(Borders::ALL).title("Status");
     frame.render_widget(Paragraph::new(text).block(block), area);

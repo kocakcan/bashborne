@@ -318,6 +318,34 @@ fn draw_list(frame: &mut Frame, area: Rect, inv_ui: &InventoryUiState, inventory
     }
 }
 
+/// Color for a stat delta: green if the new value is better, red if worse,
+/// gray if unchanged — the same green/red convention used elsewhere (e.g.
+/// `hp_color`, the blacksmith's affordability coloring).
+fn delta_color(diff: i32) -> Color {
+    if diff > 0 {
+        Color::Green
+    } else if diff < 0 {
+        Color::Red
+    } else {
+        Color::DarkGray
+    }
+}
+
+/// Renders a single "LABEL current → new (+diff)" comparison line, colored
+/// by whether the swap is an upgrade, a downgrade, or a lateral move.
+fn stat_delta_line(label: &str, current: i32, new: i32) -> Line<'static> {
+    let diff = new - current;
+    let sign = if diff > 0 {
+        format!("+{diff}")
+    } else {
+        diff.to_string()
+    };
+    Line::from(Span::styled(
+        format!("     {label} {current} → {new} ({sign})"),
+        Style::default().fg(delta_color(diff)),
+    ))
+}
+
 fn draw_member_picker(
     frame: &mut Frame,
     area: Rect,
@@ -344,14 +372,27 @@ fn draw_member_picker(
         .enumerate()
         .map(|(i, m)| {
             let style = cursor_style(i == member_cursor);
-            let label = match tab {
+            let mut lines = Vec::new();
+            match tab {
                 InventoryTab::Weapons => {
-                    let current = m
+                    let (cur_atk, cur_def, current) = m
                         .equipped_weapon
                         .as_ref()
-                        .map(|w| w.display_name())
-                        .unwrap_or_else(|| "unarmed".to_string());
-                    format!("{:<8} (currently: {current})", m.name)
+                        .map(|w| (w.attack_bonus, w.defense_bonus, w.display_name()))
+                        .unwrap_or((0, 0, "unarmed".to_string()));
+                    let (new_atk, new_def) = inventory
+                        .weapons
+                        .get(idx)
+                        .map(|w| (w.attack_bonus, w.defense_bonus))
+                        .unwrap_or((0, 0));
+                    lines.push(Line::from(Span::styled(
+                        format!("{:<8} (currently: {current})", m.name),
+                        style,
+                    )));
+                    lines.push(stat_delta_line("ATK", cur_atk, new_atk));
+                    if cur_def != 0 || new_def != 0 {
+                        lines.push(stat_delta_line("DEF", cur_def, new_def));
+                    }
                 }
                 InventoryTab::Armor => {
                     let current = m
@@ -359,13 +400,54 @@ fn draw_member_picker(
                         .as_ref()
                         .map(|a| a.name.as_str())
                         .unwrap_or("no armor");
-                    format!("{:<8} (currently: {current})", m.name)
+                    let cur_def = m
+                        .equipped_armor
+                        .as_ref()
+                        .map(|a| a.defense_bonus)
+                        .unwrap_or(0);
+                    let new_def = inventory
+                        .armors
+                        .get(idx)
+                        .map(|a| a.defense_bonus)
+                        .unwrap_or(0);
+                    lines.push(Line::from(Span::styled(
+                        format!("{:<8} (currently: {current})", m.name),
+                        style,
+                    )));
+                    lines.push(stat_delta_line("DEF", cur_def, new_def));
                 }
-                InventoryTab::Items | InventoryTab::Rings | InventoryTab::Materials => {
-                    format!("{:<8}", m.name)
+                InventoryTab::Rings => {
+                    let (new_atk, new_def) = inventory
+                        .rings
+                        .get(idx)
+                        .map(|r| (r.attack_bonus, r.defense_bonus))
+                        .unwrap_or((0, 0));
+                    lines.push(Line::from(Span::styled(format!("{:<8}", m.name), style)));
+                    for (slot_label, ring) in [
+                        ("Ring 1", &m.equipped_rings[0]),
+                        ("Ring 2", &m.equipped_rings[1]),
+                    ] {
+                        let (cur_atk, cur_def) = ring
+                            .as_ref()
+                            .map(|r| (r.attack_bonus, r.defense_bonus))
+                            .unwrap_or((0, 0));
+                        lines.push(stat_delta_line(
+                            &format!("{slot_label} ATK"),
+                            cur_atk,
+                            new_atk,
+                        ));
+                        lines.push(stat_delta_line(
+                            &format!("{slot_label} DEF"),
+                            cur_def,
+                            new_def,
+                        ));
+                    }
                 }
-            };
-            ListItem::new(Line::from(Span::styled(label, style)))
+                InventoryTab::Items | InventoryTab::Materials => {
+                    lines.push(Line::from(Span::styled(format!("{:<8}", m.name), style)));
+                }
+            }
+            ListItem::new(Text::from(lines))
         })
         .collect();
 

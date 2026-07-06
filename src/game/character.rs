@@ -400,6 +400,22 @@ impl Character {
         self.stats.mp = self.stats.max_mp;
     }
 
+    /// Dark-Souls-style New Game+ scaling: multiplies this enemy's
+    /// max_hp/attack/defense by `ng_plus_multiplier(ng_plus)` and heals it to
+    /// full, stacking on top of whatever `scale_to_level` already applied.
+    /// Speed/luck are left untouched so turn order and crit math don't need
+    /// re-tuning. A no-op at `ng_plus == 0`.
+    pub fn apply_ng_plus(&mut self, ng_plus: u32) {
+        if ng_plus == 0 {
+            return;
+        }
+        let mult = ng_plus_multiplier(ng_plus);
+        self.stats.max_hp = ((self.stats.max_hp as f32) * mult).round() as i32;
+        self.stats.attack = ((self.stats.attack as f32) * mult).round() as i32;
+        self.stats.defense = ((self.stats.defense as f32) * mult).round() as i32;
+        self.stats.hp = self.stats.max_hp;
+    }
+
     /// The current *base* value of an allocatable stat — what the caps in
     /// `alloc_profile` compare against (deliberately not `total_attack()`
     /// etc., so gear bonuses never eat allocation headroom).
@@ -1130,6 +1146,12 @@ pub fn forsaken_knight(name: &str) -> Character {
     }
 }
 
+/// Dark-Souls-style NG+ multiplier: every mob and boss hits harder and
+/// survives longer each cycle, capping at NG+7.
+pub fn ng_plus_multiplier(ng_plus: u32) -> f32 {
+    1.0 + 0.35 * ng_plus.min(7) as f32
+}
+
 /// The game's one hand-placed boss, guarding the lair in the field's far
 /// corner. Clearly outclasses every regular enemy on raw stats alone, and
 /// has two scripted moves handled directly in `combat::resolve_enemy_action`
@@ -1172,12 +1194,12 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 130,
-            hp: 130,
+            max_hp: 160,
+            hp: 160,
             max_mp: 0,
             mp: 0,
-            attack: 20,
-            defense: 13,
+            attack: 25,
+            defense: 16,
             speed: 8,
             luck: 10,
         },
@@ -1201,12 +1223,12 @@ pub fn ashen_sovereign(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 170,
-            hp: 170,
+            max_hp: 220,
+            hp: 220,
             max_mp: 0,
             mp: 0,
-            attack: 24,
-            defense: 15,
+            attack: 30,
+            defense: 19,
             speed: 10,
             luck: 14,
         },
@@ -1617,6 +1639,53 @@ mod tests {
         enemy.scale_to_level(2); // no-op: already past level 2
         assert_eq!(enemy.level, 5);
         assert_eq!(enemy.stats.max_hp, stats_at_five.max_hp);
+    }
+
+    #[test]
+    fn ng_plus_multiplier_climbs_with_cycle_and_caps_at_seven() {
+        assert_eq!(ng_plus_multiplier(0), 1.0);
+        let six = ng_plus_multiplier(6);
+        let seven = ng_plus_multiplier(7);
+        let eight = ng_plus_multiplier(8);
+        assert!(seven > six);
+        assert_eq!(
+            seven, eight,
+            "NG+ beyond 7 should not keep scaling past the NG+7 cap"
+        );
+    }
+
+    #[test]
+    fn apply_ng_plus_is_a_no_op_at_cycle_zero() {
+        let mut enemy = orc("Orc");
+        let base = enemy.stats;
+        enemy.apply_ng_plus(0);
+        assert_eq!(enemy.stats.max_hp, base.max_hp);
+        assert_eq!(enemy.stats.attack, base.attack);
+        assert_eq!(enemy.stats.defense, base.defense);
+    }
+
+    #[test]
+    fn apply_ng_plus_toughens_and_heals_a_monster() {
+        let mut enemy = orc("Orc");
+        let base = enemy.stats;
+        enemy.stats.hp = 1; // simulate a near-death enemy before the buff
+        enemy.apply_ng_plus(3);
+        assert!(enemy.stats.max_hp > base.max_hp);
+        assert!(enemy.stats.attack > base.attack);
+        assert!(enemy.stats.defense > base.defense);
+        assert_eq!(enemy.stats.speed, base.speed, "speed is left untouched");
+        assert_eq!(enemy.stats.luck, base.luck, "luck is left untouched");
+        assert_eq!(enemy.stats.hp, enemy.stats.max_hp, "heals to full");
+    }
+
+    #[test]
+    fn apply_ng_plus_stacks_on_top_of_chapter_level_scaling() {
+        let mut enemy = orc("Orc");
+        enemy.scale_to_level(7);
+        let after_level_scaling = enemy.stats;
+        enemy.apply_ng_plus(2);
+        assert!(enemy.stats.max_hp > after_level_scaling.max_hp);
+        assert!(enemy.stats.attack > after_level_scaling.attack);
     }
 
     #[test]

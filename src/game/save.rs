@@ -28,6 +28,10 @@ pub struct SaveData {
     pub npc_flags: HashSet<NpcId>,
     pub quest_log: QuestLog,
     pub player_pos: Position,
+    /// New Game+ cycle (0 = first playthrough, capped at 7). Older saves
+    /// without this field default to 0 rather than failing to load.
+    #[serde(default)]
+    pub ng_plus: u32,
 }
 
 /// Where the save file lives: next to wherever the game is run from.
@@ -76,6 +80,7 @@ mod tests {
             npc_flags: HashSet::from([NpcId::OldHerbalist]),
             quest_log,
             player_pos: Position { x: 4, y: 7 },
+            ng_plus: 0,
         }
     }
 
@@ -112,6 +117,15 @@ mod tests {
         assert!(back.npc_flags.contains(&NpcId::OldHerbalist));
         assert!(back.quest_log.is_active(QuestId::HerbalistsRequest));
         assert_eq!(back.player_pos, Position { x: 4, y: 7 });
+    }
+
+    #[test]
+    fn a_save_json_missing_ng_plus_defaults_to_zero() {
+        // Simulates a save file written before NG+ existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value.as_object_mut().unwrap().remove("ng_plus");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert_eq!(back.ng_plus, 0);
     }
 
     #[test]

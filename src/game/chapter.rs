@@ -70,7 +70,7 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 7 },
             boss: wyrmscale_warden,
             boss_display_name: "Wyrmscale Warden",
-            enemy_level: 4,
+            enemy_level: 6,
             npcs: vec![
                 (Position { x: 10, y: 5 }, NpcId::WoundedScout),
                 (Position { x: 3, y: 7 }, NpcId::Blacksmith),
@@ -84,7 +84,7 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
             spawn: Position { x: 4, y: 2 },
             boss: ashen_sovereign,
             boss_display_name: "The Ashen Sovereign",
-            enemy_level: 7,
+            enemy_level: 11,
             npcs: vec![
                 (Position { x: 5, y: 5 }, NpcId::AshenPilgrim),
                 (Position { x: 3, y: 2 }, NpcId::Blacksmith),
