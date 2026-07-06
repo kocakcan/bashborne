@@ -31,6 +31,17 @@ impl Party {
         self.alive_members().count() == 0
     }
 
+    /// Mean level across all party members, rounded — the input to
+    /// `Character::scale_boss_to_party`, so a boss reacts to the whole
+    /// roster's progress rather than just whoever happens to be lowest/highest.
+    pub fn average_level(&self) -> u32 {
+        if self.members.is_empty() {
+            return 0;
+        }
+        let total: u32 = self.members.iter().map(|m| m.level).sum();
+        ((total as f64 / self.members.len() as f64).round()) as u32
+    }
+
     /// Net bonus (positive) or penalty (negative) currently active for a given stat,
     /// summed across all active blessings/curses.
     pub fn stat_delta(&self, target: StatEffectTarget) -> i32 {
@@ -98,5 +109,19 @@ mod tests {
         assert_eq!(party.effects[0].name, "Warrior's Blessing");
         // A second stone finds nothing left to purge.
         assert_eq!(party.cure_curses(), 0);
+    }
+
+    #[test]
+    fn average_level_rounds_to_the_nearest_whole_level() {
+        let mut party = Party::new(vec![warrior("Bram"), warrior("Elle"), warrior("Rook")]);
+        party.members[0].level = 1;
+        party.members[1].level = 2;
+        party.members[2].level = 2;
+        assert_eq!(party.average_level(), 2); // mean 1.667 rounds to 2
+
+        party.members[0].level = 1;
+        party.members[1].level = 1;
+        party.members[2].level = 2;
+        assert_eq!(party.average_level(), 1); // mean 1.333 rounds to 1
     }
 }

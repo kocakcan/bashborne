@@ -298,6 +298,20 @@ pub fn level_growth(class: Class) -> LevelGrowth {
     }
 }
 
+/// Tapers automatic per-level growth so it doesn't keep compounding forever:
+/// full strength through level 10, linearly down to 0.5x by level 25, then
+/// floored at 0.5x beyond. Hand-allocated points (`POINTS_PER_LEVEL`) aren't
+/// affected — this only scales the class's automatic `level_growth`.
+fn growth_multiplier(level: u32) -> f32 {
+    if level <= 10 {
+        1.0
+    } else if level >= 25 {
+        0.5
+    } else {
+        1.0 - 0.5 * (level - 10) as f32 / 15.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Character {
     pub name: String,
@@ -320,11 +334,46 @@ pub struct Character {
     /// scripted moves (`combat::resolve_enemy_action`) without comparing
     /// display-name strings.
     pub boss_kind: Option<BossKind>,
+    /// Whether this is a rarer, toughened variant of its species — a
+    /// display/loot concern only. Every species-keyed comparison (loot
+    /// tables, sprite color, AI dispatch) must keep comparing against the
+    /// raw `name`; use `display_name()` for anything shown to the player.
+    #[serde(default)]
+    pub is_elite: bool,
 }
 
 impl Character {
     pub fn is_alive(&self) -> bool {
         self.stats.hp > 0
+    }
+
+    /// The name to show the player — prefixes "Elite " for elite variants.
+    /// Never compare against this for species-based logic; use `name`.
+    pub fn display_name(&self) -> String {
+        if self.is_elite {
+            format!("Elite {}", self.name)
+        } else {
+            self.name.clone()
+        }
+    }
+
+    /// Promotes a regular monster to an elite variant: tougher and hits
+    /// harder, at a smaller bump to defense. Call *after* `scale_to_level`/
+    /// `apply_ng_plus` so it stacks on top of the final stats, and heals to
+    /// full so the promotion never leaves the enemy artificially weakened.
+    pub fn apply_elite(&mut self) {
+        self.is_elite = true;
+        self.stats.max_hp = ((self.stats.max_hp as f32) * 1.5).round() as i32;
+        self.stats.attack = ((self.stats.attack as f32) * 1.5).round() as i32;
+        self.stats.defense = ((self.stats.defense as f32) * 1.3).round() as i32;
+        self.stats.hp = self.stats.max_hp;
+    }
+
+    /// Odds that a field encounter promotes one of its enemies to elite:
+    /// 10% baseline, climbing 2 percentage points per NG+ cycle up to a
+    /// 24% ceiling at NG+7.
+    pub fn elite_chance(ng_plus: u32) -> f32 {
+        0.10 + 0.02 * ng_plus.min(7) as f32
     }
 
     pub fn take_damage(&mut self, amount: i32) {
@@ -373,16 +422,21 @@ impl Character {
     /// Applies one level's worth of this class's automatic growth (see
     /// `level_growth`). Current HP/MP grow alongside their maxima so the
     /// bump is never a phantom gain that still has to be healed up to.
+    /// Each stat delta is scaled by `growth_multiplier` so uncapped
+    /// automatic growth doesn't keep compounding forever — hand-allocated
+    /// points (`POINTS_PER_LEVEL`) are untouched by this taper.
     fn apply_level_growth(&mut self) {
         let g = level_growth(self.class);
-        self.stats.max_hp += g.max_hp;
-        self.stats.hp += g.max_hp;
-        self.stats.max_mp += g.max_mp;
-        self.stats.mp += g.max_mp;
-        self.stats.attack += g.attack;
-        self.stats.defense += g.defense;
-        self.stats.speed += g.speed;
-        self.stats.luck += g.luck;
+        let m = growth_multiplier(self.level);
+        let scale = |v: i32| ((v as f32) * m).round() as i32;
+        self.stats.max_hp += scale(g.max_hp);
+        self.stats.hp += scale(g.max_hp);
+        self.stats.max_mp += scale(g.max_mp);
+        self.stats.mp += scale(g.max_mp);
+        self.stats.attack += scale(g.attack);
+        self.stats.defense += scale(g.defense);
+        self.stats.speed += scale(g.speed);
+        self.stats.luck += scale(g.luck);
     }
 
     /// Raises this character straight to `level` (if higher than its current
@@ -410,6 +464,24 @@ impl Character {
             return;
         }
         let mult = ng_plus_multiplier(ng_plus);
+        self.stats.max_hp = ((self.stats.max_hp as f32) * mult).round() as i32;
+        self.stats.attack = ((self.stats.attack as f32) * mult).round() as i32;
+        self.stats.defense = ((self.stats.defense as f32) * mult).round() as i32;
+        self.stats.hp = self.stats.max_hp;
+    }
+
+    /// Toughens a boss when the party has significantly overleveled its
+    /// chapter — bosses are otherwise hardcoded and never run through
+    /// `scale_to_level`, so a party that ground out extra levels before
+    /// reaching the lair would trivialize the fight. A no-op at or under
+    /// `baseline_level`; otherwise +6% max_hp/attack/defense per excess
+    /// level, capped at 20 excess levels (+120%), then healed to full.
+    pub fn scale_boss_to_party(&mut self, avg_party_level: u32, baseline_level: u32) {
+        if avg_party_level <= baseline_level {
+            return;
+        }
+        let excess = (avg_party_level - baseline_level).min(20);
+        let mult = 1.0 + 0.06 * excess as f32;
         self.stats.max_hp = ((self.stats.max_hp as f32) * mult).round() as i32;
         self.stats.attack = ((self.stats.attack as f32) * mult).round() as i32;
         self.stats.defense = ((self.stats.defense as f32) * mult).round() as i32;
@@ -611,6 +683,7 @@ pub fn warrior(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -651,6 +724,7 @@ pub fn mage(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -691,6 +765,7 @@ pub fn cleric(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -731,6 +806,7 @@ pub fn rogue(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -756,6 +832,7 @@ pub fn slime(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -781,6 +858,7 @@ pub fn goblin(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -806,6 +884,7 @@ pub fn bat(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -831,6 +910,7 @@ pub fn wolf(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -856,6 +936,7 @@ pub fn skeleton(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -881,6 +962,7 @@ pub fn orc(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -908,6 +990,7 @@ pub fn wraith(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -934,6 +1017,7 @@ pub fn mimic(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -959,6 +1043,7 @@ pub fn hollow(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -984,6 +1069,7 @@ pub fn rat(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1009,6 +1095,7 @@ pub fn carrion_crow(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1034,6 +1121,7 @@ pub fn bandit(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1062,6 +1150,7 @@ pub fn fell_acolyte(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1089,6 +1178,7 @@ pub fn grave_ghoul(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1116,6 +1206,7 @@ pub fn barrow_sentinel(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1143,6 +1234,7 @@ pub fn forsaken_knight(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: None,
+        is_elite: false,
     }
 }
 
@@ -1180,6 +1272,7 @@ pub fn barrow_knight(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::BarrowKnight),
+        is_elite: false,
     }
 }
 
@@ -1208,6 +1301,7 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::WyrmscaleWarden),
+        is_elite: false,
     }
 }
 
@@ -1237,6 +1331,7 @@ pub fn ashen_sovereign(name: &str) -> Character {
         equipped_armor: None,
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::AshenSovereign),
+        is_elite: false,
     }
 }
 
@@ -1686,6 +1781,99 @@ mod tests {
         enemy.apply_ng_plus(2);
         assert!(enemy.stats.max_hp > after_level_scaling.max_hp);
         assert!(enemy.stats.attack > after_level_scaling.attack);
+    }
+
+    #[test]
+    fn apply_elite_toughens_and_heals_and_flags_the_monster() {
+        let mut enemy = orc("Orc");
+        let base = enemy.stats;
+        enemy.stats.hp = 1;
+        enemy.apply_elite();
+        assert!(enemy.is_elite);
+        assert!(enemy.stats.max_hp > base.max_hp);
+        assert!(enemy.stats.attack > base.attack);
+        assert!(enemy.stats.defense > base.defense);
+        assert_eq!(enemy.stats.hp, enemy.stats.max_hp, "heals to full");
+    }
+
+    #[test]
+    fn display_name_prefixes_elite_but_name_stays_the_species() {
+        let mut enemy = orc("Orc");
+        assert_eq!(enemy.display_name(), "Orc");
+        enemy.apply_elite();
+        assert_eq!(enemy.display_name(), "Elite Orc");
+        assert_eq!(enemy.name, "Orc", "raw name must stay the species tag");
+    }
+
+    #[test]
+    fn elite_chance_climbs_with_ng_plus_and_caps_at_seven() {
+        let base = Character::elite_chance(0);
+        let mid = Character::elite_chance(3);
+        let capped = Character::elite_chance(7);
+        let beyond_cap = Character::elite_chance(20);
+        assert!(mid > base);
+        assert!(capped > mid);
+        assert_eq!(capped, beyond_cap, "NG+ beyond 7 shouldn't keep raising the odds");
+    }
+
+    #[test]
+    fn growth_multiplier_is_full_strength_through_level_ten() {
+        assert_eq!(growth_multiplier(1), 1.0);
+        assert_eq!(growth_multiplier(10), 1.0);
+    }
+
+    #[test]
+    fn growth_multiplier_tapers_linearly_then_floors_at_half() {
+        assert!((growth_multiplier(17) - 0.7667).abs() < 0.001); // 1.0 - 0.5*(17-10)/15
+        assert_eq!(growth_multiplier(25), 0.5);
+        assert_eq!(growth_multiplier(40), 0.5);
+    }
+
+    #[test]
+    fn scaling_to_a_high_level_grows_slower_than_a_flat_curve_would() {
+        let mut tapered = orc("Orc");
+        tapered.scale_to_level(30);
+        let mut untapered = orc("Orc");
+        let g = level_growth(untapered.class);
+        untapered.stats.max_hp += g.max_hp * 30;
+        assert!(
+            tapered.stats.max_hp < untapered.stats.max_hp,
+            "tapered growth should fall behind a naive flat-rate projection at high levels"
+        );
+    }
+
+    #[test]
+    fn scale_boss_to_party_is_a_no_op_at_or_under_baseline() {
+        let mut boss = barrow_knight("The Barrow Knight");
+        let base = boss.stats;
+        boss.scale_boss_to_party(5, 5);
+        assert_eq!(boss.stats.max_hp, base.max_hp);
+        assert_eq!(boss.stats.attack, base.attack);
+        assert_eq!(boss.stats.defense, base.defense);
+        boss.scale_boss_to_party(3, 5);
+        assert_eq!(boss.stats.max_hp, base.max_hp);
+    }
+
+    #[test]
+    fn scale_boss_to_party_toughens_an_overleveled_fight() {
+        let mut boss = barrow_knight("The Barrow Knight");
+        let base = boss.stats;
+        boss.stats.hp = 1;
+        boss.scale_boss_to_party(10, 5);
+        assert!(boss.stats.max_hp > base.max_hp);
+        assert!(boss.stats.attack > base.attack);
+        assert!(boss.stats.defense > base.defense);
+        assert_eq!(boss.stats.hp, boss.stats.max_hp, "heals to full");
+    }
+
+    #[test]
+    fn scale_boss_to_party_caps_at_twenty_excess_levels() {
+        let mut at_cap = barrow_knight("The Barrow Knight");
+        at_cap.scale_boss_to_party(25, 5); // exactly 20 excess
+        let mut beyond_cap = barrow_knight("The Barrow Knight");
+        beyond_cap.scale_boss_to_party(50, 5); // way more than 20 excess
+        assert_eq!(at_cap.stats.max_hp, beyond_cap.stats.max_hp);
+        assert_eq!(at_cap.stats.attack, beyond_cap.stats.attack);
     }
 
     #[test]

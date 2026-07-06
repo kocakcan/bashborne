@@ -8,7 +8,7 @@ use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 
-pub fn draw(frame: &mut Frame, ui: &LevelUpUiState, party: &Party) {
+pub fn draw(frame: &mut Frame, area: Rect, ui: &LevelUpUiState, party: &Party) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -16,7 +16,7 @@ pub fn draw(frame: &mut Frame, ui: &LevelUpUiState, party: &Party) {
             Constraint::Min(0),
             Constraint::Length(3),
         ])
-        .split(frame.size());
+        .split(area);
 
     draw_header(frame, outer[0], ui, party);
     draw_stat_list(frame, outer[1], ui, party);

@@ -1,4 +1,4 @@
-use ratatui::layout::Alignment;
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
@@ -6,9 +6,7 @@ use ratatui::Frame;
 
 use crate::game::state::EventState;
 
-pub fn draw(frame: &mut Frame, ev: &EventState) {
-    let area = frame.size();
-
+pub fn draw(frame: &mut Frame, area: Rect, ev: &EventState) {
     let title_color = if ev.title.contains("Curse") {
         Color::Magenta
     } else if ev.title.contains("Blessing") {

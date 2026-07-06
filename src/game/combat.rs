@@ -223,6 +223,33 @@ fn boss_loot_profile(kind: BossKind) -> BossLootProfile {
     }
 }
 
+/// Flat +15 percentage-point bump to a drop chance, capped at 90% — how
+/// elite kills pay out better loot without a second per-species table.
+fn boost_chance(chance: f32) -> f32 {
+    (chance + 0.15).min(0.9)
+}
+
+/// Applies `boost_chance` to every drop chance on an elite kill's loot
+/// profile (gold gets its own flat +40% multiplier at the call site).
+fn boost_profile(mut profile: LootProfile) -> LootProfile {
+    if let Some((f, c)) = profile.item {
+        profile.item = Some((f, boost_chance(c)));
+    }
+    if let Some((f, c)) = profile.weapon {
+        profile.weapon = Some((f, boost_chance(c)));
+    }
+    if let Some((r, c)) = profile.shards {
+        profile.shards = Some((r, boost_chance(c)));
+    }
+    if let Some((f, c)) = profile.armor {
+        profile.armor = Some((f, boost_chance(c)));
+    }
+    if let Some((f, c)) = profile.ring {
+        profile.ring = Some((f, boost_chance(c)));
+    }
+    profile
+}
+
 fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> Loot {
     let mut gold = 0u32;
     let mut items = Vec::new();
@@ -247,12 +274,22 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
             }
             None => loot_profile(&e.name),
         };
+        let profile = if e.is_elite {
+            boost_profile(profile)
+        } else {
+            profile
+        };
         // Tougher, later-chapter specimens of the same species pay out more:
         // +15% per level past the first (see `Character::scale_to_level`).
         let rolled = rng.gen_range(profile.gold);
         let base_gold = rolled + rolled * 15 * e.level.saturating_sub(1) / 100;
+        let base_gold = if e.is_elite {
+            base_gold + base_gold * 40 / 100
+        } else {
+            base_gold
+        };
         if overkills.get(i).copied().unwrap_or(false) {
-            let bonus = base_gold / 2;
+            let bonus = (base_gold * 15 / 100).max(1);
             overkill_bonus += bonus;
             gold += base_gold + bonus;
         } else {
@@ -364,6 +401,12 @@ pub struct CombatState {
     pub return_pos: Option<Position>,
     /// Lines of scrollback from the bottom of `log` currently displayed.
     pub log_scroll: usize,
+    /// The active New Game+ cycle, set by the caller (`World`) right after
+    /// construction — feeds `flee_chance` (escape gets harder each cycle)
+    /// and the Wraith curse roll (`roll_curse`'s tier-gated pool). `0` here
+    /// just means "no NG+," which is also correct for tests that construct
+    /// `CombatState` directly.
+    pub ng_plus: u32,
 }
 
 impl CombatState {
@@ -397,7 +440,7 @@ impl CombatState {
         } else {
             log.push("A wild encounter begins!".to_string());
             for e in &enemies {
-                log.push(format!("{} appears!", e.name));
+                log.push(format!("{} appears!", e.display_name()));
             }
         }
 
@@ -415,7 +458,26 @@ impl CombatState {
             enrage_stage: 0,
             return_pos: None,
             log_scroll: 0,
+            ng_plus: 0,
         }
+    }
+
+    /// Chance a flee attempt by a character with `fleeing_speed` succeeds:
+    /// favors a party faster than the enemy pack, and tightens by 2
+    /// percentage points per NG+ cycle (capped at NG+7) so escape gets
+    /// harder as the game escalates. Clamped so it's never a sure thing or
+    /// impossible.
+    fn flee_chance(&self, fleeing_speed: i32) -> f32 {
+        let alive_enemies: Vec<&Character> = self.enemies.iter().filter(|e| e.is_alive()).collect();
+        let avg_enemy_speed = if alive_enemies.is_empty() {
+            0.0
+        } else {
+            alive_enemies.iter().map(|e| e.stats.speed).sum::<i32>() as f32
+                / alive_enemies.len() as f32
+        };
+        let base = 0.5 + 0.02 * (fleeing_speed as f32 - avg_enemy_speed)
+            - 0.02 * self.ng_plus.min(7) as f32;
+        base.clamp(0.15, 0.85)
     }
 
     pub fn current_actor(&self) -> ActorRef {
@@ -500,7 +562,7 @@ impl CombatState {
                         }
                     }
                     enemy.take_damage(dmg);
-                    let ename = enemy.name.clone();
+                    let ename = enemy.display_name();
                     let max_hp = enemy.stats.max_hp;
                     let alive = enemy.is_alive();
                     self.push_log(format!(
@@ -549,7 +611,7 @@ impl CombatState {
                             let (dmg, crit) = roll_damage(power, defense / 2, luck, rng);
                             if let Some(enemy) = self.enemies.get_mut(idx) {
                                 enemy.take_damage(dmg);
-                                let ename = enemy.name.clone();
+                                let ename = enemy.display_name();
                                 let max_hp = enemy.stats.max_hp;
                                 let alive = enemy.is_alive();
                                 self.push_log(format!(
@@ -582,8 +644,11 @@ impl CombatState {
                 // CombatState), so this action variant never reaches here in practice.
             }
             CombatAction::Flee => {
+                let fleeing_speed =
+                    party.members[pi].stats.speed + party.stat_delta(StatEffectTarget::Speed);
+                let chance = self.flee_chance(fleeing_speed);
                 let roll: f32 = rng.gen();
-                if roll < 0.6 {
+                if roll < chance {
                     self.push_log(format!("{attacker_name} flees from battle!"));
                     self.phase = CombatPhase::Fled;
                 } else {
@@ -606,12 +671,42 @@ impl CombatState {
         }
     }
 
+    /// Picks who an enemy attacks. Most species just pick randomly among the
+    /// living party; Goblins and Wolves are smart enough to press an
+    /// advantage 60% of the time — Goblins chase whoever's closest to
+    /// death (lowest HP%), Wolves single out the frailest-built target
+    /// (lowest max HP) — otherwise they fall through to a random pick too.
+    fn pick_target(
+        ename: &str,
+        alive_targets: &[usize],
+        party: &Party,
+        rng: &mut impl Rng,
+    ) -> usize {
+        if ename == "Goblin" && rng.gen_bool(0.6) {
+            return *alive_targets
+                .iter()
+                .min_by(|&&a, &&b| {
+                    party.members[a]
+                        .hp_ratio()
+                        .partial_cmp(&party.members[b].hp_ratio())
+                        .unwrap()
+                })
+                .unwrap();
+        }
+        if ename == "Wolf" && rng.gen_bool(0.6) {
+            return *alive_targets
+                .iter()
+                .min_by_key(|&&i| party.members[i].stats.max_hp)
+                .unwrap();
+        }
+        alive_targets[rng.gen_range(0..alive_targets.len())]
+    }
+
     fn resolve_enemy_action(&mut self, ei: usize, party: &mut Party, rng: &mut impl Rng) {
         let alive_targets = Self::alive_player_indices(party);
         if alive_targets.is_empty() {
             return;
         }
-        let target_idx = alive_targets[rng.gen_range(0..alive_targets.len())];
         let (ename, atk, is_wraith, boss_kind) = {
             let e = &self.enemies[ei];
             (
@@ -621,11 +716,13 @@ impl CombatState {
                 e.boss_kind,
             )
         };
+        let target_idx = Self::pick_target(&ename, &alive_targets, party, rng);
+        let dname = self.enemies[ei].display_name();
 
         // Wraiths spend some turns cursing the party instead of attacking directly.
         if is_wraith && rng.gen_bool(0.3) {
-            let curse = roll_curse(rng);
-            self.push_log(format!("{ename} whispers a curse over your party..."));
+            let curse = roll_curse(rng, self.ng_plus);
+            self.push_log(format!("{dname} whispers a curse over your party..."));
             self.push_log(format!(
                 "{} takes hold! ({} {} for {} encounters)",
                 curse.name, curse.delta, curse.target, curse.encounters_remaining
@@ -650,12 +747,91 @@ impl CombatState {
                 self.enemies[ei].heal(heal);
                 let tname = party.members[ti].name.clone();
                 self.push_log(format!(
-                    "{ename} chants a Withering Prayer — {tname} loses {drain} MP \
-                     and {ename} knits itself back together ({heal} HP)."
+                    "{dname} chants a Withering Prayer — {tname} loses {drain} MP \
+                     and {dname} knits itself back together ({heal} HP)."
                 ));
                 return;
             }
             // No one has MP left to steal — fall through to a normal attack.
+        }
+
+        // Skeletons sometimes hunker down instead of attacking, toughening
+        // themselves for the rest of the fight.
+        if ename == "Skeleton" && rng.gen_bool(0.2) {
+            self.enemies[ei].stats.defense += 3;
+            self.push_log(format!(
+                "{dname} raises its guard, bones knitting tighter. (+3 Defense)"
+            ));
+            return;
+        }
+
+        // Orcs occasionally swing recklessly for a much harder hit, but the
+        // wild swing costs them some of their own hide in the process.
+        if ename == "Orc" && rng.gen_bool(0.25) {
+            let def = party.members[target_idx].total_defense()
+                + party.stat_delta(StatEffectTarget::Defense);
+            let luck = self.enemies[ei].total_luck();
+            let power = ((atk as f32) * 1.6).round() as i32;
+            let (dmg, crit) = roll_damage(power, def, luck, rng);
+            let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
+            party.members[target_idx].take_damage(dmg);
+            let tname = party.members[target_idx].name.clone();
+            let recoil = ((dmg as f32) * 0.15).round() as i32;
+            self.enemies[ei].take_damage(recoil);
+            self.push_log(format!(
+                "{dname} swings recklessly, hitting {tname} for {dmg} damage \
+                 and hurting itself for {recoil}.{}",
+                if crit { " A critical hit!" } else { "" }
+            ));
+            if !party.members[target_idx].is_alive() {
+                self.push_log(format!("{tname} falls!"));
+            }
+            return;
+        }
+
+        // Bandits would rather rob the party blind than fight fair.
+        if ename == "Bandit" && party.gold > 0 && rng.gen_bool(0.2) {
+            let stolen = (party.gold / 20).clamp(1, 15).min(party.gold);
+            party.gold -= stolen;
+            self.push_log(format!("{dname} snatches {stolen} gold and darts back!"));
+            return;
+        }
+
+        // Barrow Sentinels let out a warcry that weakens the whole party's
+        // defense for the rest of the encounter.
+        if ename == "Barrow Sentinel" && rng.gen_bool(0.2) {
+            let curse = crate::game::status::StatusEffect {
+                name: "Sentinel's Warcry".to_string(),
+                target: StatEffectTarget::Defense,
+                delta: -3,
+                encounters_remaining: 1,
+            };
+            self.push_log(format!(
+                "{dname} lets out a bone-rattling warcry! (-3 Defense this encounter)"
+            ));
+            party.add_effect(curse);
+            return;
+        }
+
+        // Forsaken Knights occasionally land a much harder judgment strike,
+        // no drawback attached.
+        if ename == "Forsaken Knight" && rng.gen_bool(0.25) {
+            let def = party.members[target_idx].total_defense()
+                + party.stat_delta(StatEffectTarget::Defense);
+            let luck = self.enemies[ei].total_luck();
+            let power = ((atk as f32) * 1.7).round() as i32;
+            let (dmg, crit) = roll_damage(power, def, luck, rng);
+            let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
+            party.members[target_idx].take_damage(dmg);
+            let tname = party.members[target_idx].name.clone();
+            self.push_log(format!(
+                "{dname} unleashes Knight's Judgment on {tname} for {dmg} damage.{}",
+                if crit { " A critical hit!" } else { "" }
+            ));
+            if !party.members[target_idx].is_alive() {
+                self.push_log(format!("{tname} falls!"));
+            }
+            return;
         }
 
         if let Some(kind) = boss_kind {
@@ -678,13 +854,13 @@ impl CombatState {
             let heal = dmg / 2;
             self.enemies[ei].heal(heal);
             self.push_log(format!(
-                "{ename} sinks its teeth into {tname} for {dmg} damage \
+                "{dname} sinks its teeth into {tname} for {dmg} damage \
                  and gorges itself ({heal} HP).{}",
                 if crit { " A critical hit!" } else { "" }
             ));
         } else {
             self.push_log(format!(
-                "{ename} attacks {tname} for {dmg} damage.{}",
+                "{dname} attacks {tname} for {dmg} damage.{}",
                 if crit { " A critical hit!" } else { "" }
             ));
         }
@@ -997,6 +1173,33 @@ mod tests {
         // warrior (speed 6) should go before the slime (speed 4)
         assert_eq!(combat.turn_order[0], ActorRef::Player(0));
         assert_eq!(combat.turn_order[1], ActorRef::Enemy(0));
+    }
+
+    #[test]
+    fn flee_chance_favors_a_faster_fleeing_party() {
+        let party = test_party();
+        let combat = CombatState::new(&party, vec![slime("Slime")]); // slime speed 4
+        let fast = combat.flee_chance(20);
+        let slow = combat.flee_chance(0);
+        assert!(fast > slow);
+    }
+
+    #[test]
+    fn flee_chance_tightens_with_ng_plus() {
+        let party = test_party();
+        let mut combat = CombatState::new(&party, vec![slime("Slime")]);
+        let base = combat.flee_chance(10);
+        combat.ng_plus = 7;
+        let tightened = combat.flee_chance(10);
+        assert!(tightened < base);
+    }
+
+    #[test]
+    fn flee_chance_is_always_clamped_to_a_sane_range() {
+        let party = test_party();
+        let combat = CombatState::new(&party, vec![slime("Slime")]);
+        assert!(combat.flee_chance(1000) <= 0.85);
+        assert!(combat.flee_chance(-1000) >= 0.15);
     }
 
     #[test]
@@ -1334,6 +1537,211 @@ mod tests {
         assert!(
             gorged_at_least_once,
             "the ghoul should gorge itself at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn goblin_targets_the_lowest_hp_percent_member_most_of_the_time() {
+        use crate::game::character::goblin;
+
+        let mut targeted_the_weak_one = false;
+        for seed in 0..50u64 {
+            let mut party = Party::new(vec![warrior("Bram"), warrior("Elle")]);
+            party.members[1].stats.hp = 1; // Elle is at death's door
+            let mut combat = CombatState::new(&party, vec![goblin("Goblin")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0), ActorRef::Player(1)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if !party.members[1].is_alive() {
+                targeted_the_weak_one = true;
+                break;
+            }
+        }
+        assert!(
+            targeted_the_weak_one,
+            "the goblin should target the lowest-HP% member at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn wolf_targets_the_lowest_max_hp_member_most_of_the_time() {
+        use crate::game::character::wolf;
+
+        let mut targeted_the_frail_one = false;
+        for seed in 0..50u64 {
+            let mut party = Party::new(vec![warrior("Bram"), warrior("Elle")]);
+            party.members[1].stats.max_hp = 1;
+            party.members[1].stats.hp = 1; // frailest build, dies to any hit
+            let mut combat = CombatState::new(&party, vec![wolf("Wolf")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0), ActorRef::Player(1)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if !party.members[1].is_alive() {
+                targeted_the_frail_one = true;
+                break;
+            }
+        }
+        assert!(
+            targeted_the_frail_one,
+            "the wolf should target the lowest-max-HP member at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn skeleton_can_bone_guard_instead_of_attacking() {
+        use crate::game::character::skeleton;
+
+        let mut guarded_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            let hp_before = party.members[0].stats.hp;
+            let mut combat = CombatState::new(&party, vec![skeleton("Skeleton")]);
+            let def_before = combat.enemies[0].stats.defense;
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if combat.enemies[0].stats.defense > def_before {
+                assert_eq!(
+                    party.members[0].stats.hp, hp_before,
+                    "Bone Guard should skip the attack entirely"
+                );
+                guarded_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            guarded_at_least_once,
+            "the skeleton should Bone Guard at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn orc_reckless_swing_hits_harder_but_costs_recoil() {
+        use crate::game::character::orc;
+
+        let mut swung_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            let mut enemies = vec![orc("Orc")];
+            enemies[0].stats.hp = 1000; // survive its own recoil so hp change is visible
+            let mut combat = CombatState::new(&party, enemies);
+            let hp_before = combat.enemies[0].stats.hp;
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if combat.enemies[0].stats.hp < hp_before {
+                swung_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            swung_at_least_once,
+            "the orc should Reckless Swing (and take recoil) at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn bandit_coin_grab_steals_gold_instead_of_attacking() {
+        use crate::game::character::bandit;
+
+        let mut stole_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            party.gold = 100;
+            let hp_before = party.members[0].stats.hp;
+            let mut combat = CombatState::new(&party, vec![bandit("Bandit")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if party.gold < 100 {
+                assert_eq!(
+                    party.members[0].stats.hp, hp_before,
+                    "Coin Grab should skip the attack entirely"
+                );
+                stole_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            stole_at_least_once,
+            "the bandit should Coin Grab at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn barrow_sentinel_warcry_applies_a_party_wide_defense_curse() {
+        use crate::game::character::barrow_sentinel;
+
+        let mut warcried_at_least_once = false;
+        for seed in 0..50u64 {
+            let mut party = test_party();
+            let mut combat = CombatState::new(&party, vec![barrow_sentinel("Barrow Sentinel")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            if !party.effects.is_empty() {
+                assert_eq!(party.stat_delta(StatEffectTarget::Defense), -3);
+                warcried_at_least_once = true;
+                break;
+            }
+        }
+        assert!(
+            warcried_at_least_once,
+            "the sentinel should Warcry at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn forsaken_knight_judgment_hits_harder_than_a_normal_attack() {
+        use crate::game::character::forsaken_knight;
+
+        // Compare max damage over trials: judgment (1.7x power) should be
+        // able to exceed what a plain attack could ever roll.
+        let mut saw_a_big_hit = false;
+        for seed in 0..80u64 {
+            let mut party = test_party();
+            let hp_before = party.members[0].stats.hp;
+            let mut combat = CombatState::new(&party, vec![forsaken_knight("Forsaken Knight")]);
+            let mut rng = StdRng::seed_from_u64(seed);
+            combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+            combat.turn_cursor = 0;
+            combat.phase = CombatPhase::SelectAction {
+                actor: ActorRef::Enemy(0),
+            };
+            combat.resolve_current_turn(&mut party, &mut rng);
+            let dmg = hp_before - party.members[0].stats.hp;
+            if dmg as f32 > combat.enemies[0].stats.attack as f32 * 1.3 {
+                saw_a_big_hit = true;
+                break;
+            }
+        }
+        assert!(
+            saw_a_big_hit,
+            "the knight should Knight's Judgment at least once across many trials"
         );
     }
 
@@ -1838,6 +2246,20 @@ mod tests {
             overkill.overkill_bonus > 0,
             "overkill_bonus should reflect the extra gold earned"
         );
+    }
+
+    #[test]
+    fn elite_kills_pay_more_gold_than_a_normal_kill() {
+        let normal = slime("Slime");
+        let mut elite = slime("Slime");
+        elite.apply_elite();
+
+        let mut rng1 = StdRng::seed_from_u64(7);
+        let normal_loot = roll_loot(&[normal], &[false], &mut rng1);
+        let mut rng2 = StdRng::seed_from_u64(7);
+        let elite_loot = roll_loot(&[elite], &[false], &mut rng2);
+
+        assert!(elite_loot.gold > normal_loot.gold);
     }
 
     #[test]

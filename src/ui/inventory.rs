@@ -11,7 +11,13 @@ use crate::game::inventory_ui::{
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 
-pub fn draw(frame: &mut Frame, inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory) {
+pub fn draw(
+    frame: &mut Frame,
+    area: Rect,
+    inv_ui: &InventoryUiState,
+    party: &Party,
+    inventory: &Inventory,
+) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -19,7 +25,7 @@ pub fn draw(frame: &mut Frame, inv_ui: &InventoryUiState, party: &Party, invento
             Constraint::Min(0),
             Constraint::Length(3),
         ])
-        .split(frame.size());
+        .split(area);
 
     draw_tabs(frame, outer[0], inv_ui.tab);
 

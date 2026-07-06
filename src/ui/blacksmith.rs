@@ -13,6 +13,7 @@ use crate::game::party::Party;
 
 pub fn draw(
     frame: &mut Frame,
+    area: Rect,
     bs: &BlacksmithUiState,
     party: &Party,
     inventory: &Inventory,
@@ -25,7 +26,7 @@ pub fn draw(
             Constraint::Min(0),
             Constraint::Length(3),
         ])
-        .split(frame.size());
+        .split(area);
 
     draw_header(frame, outer[0], party, inventory);
 

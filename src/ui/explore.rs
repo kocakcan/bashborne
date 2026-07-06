@@ -8,11 +8,11 @@ use crate::game::map::{Position, Tile};
 use crate::game::party::Party;
 use crate::game::state::ExploreState;
 
-pub fn draw(frame: &mut Frame, explore: &ExploreState, party: &Party) {
+pub fn draw(frame: &mut Frame, area: Rect, explore: &ExploreState, party: &Party) {
     let outer = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-        .split(frame.size());
+        .split(area);
 
     draw_map(frame, outer[0], explore);
 

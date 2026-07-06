@@ -1,4 +1,4 @@
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -42,11 +42,11 @@ fn banner_rows() -> [String; 5] {
     })
 }
 
-pub fn draw(frame: &mut Frame, menu: &MainMenuState) {
+pub fn draw(frame: &mut Frame, area: Rect, menu: &MainMenuState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(22), Constraint::Min(0)])
-        .split(frame.size());
+        .split(area);
 
     let dim = Style::default().fg(Color::DarkGray);
     let mut lines: Vec<Line> = banner_rows()

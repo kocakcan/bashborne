@@ -16,6 +16,17 @@ pub enum ChapterId {
     Three,
 }
 
+impl ChapterId {
+    /// Human-facing chapter number for the status bar ("Chapter 2: ...").
+    pub fn number(self) -> u8 {
+        match self {
+            ChapterId::One => 1,
+            ChapterId::Two => 2,
+            ChapterId::Three => 3,
+        }
+    }
+}
+
 /// Identifies which boss a `Character` is, so `combat::resolve_enemy_action`
 /// can dispatch scripted moves by matching this enum instead of comparing
 /// display-name strings (which is how the Barrow Knight was special-cased
@@ -45,6 +56,16 @@ pub struct ChapterDef {
     /// The chapter that follows once this one's boss is defeated. `None`
     /// only for the final chapter.
     pub next: Option<ChapterId>,
+}
+
+impl ChapterDef {
+    /// The party level a boss fight is balanced around: `enemy_level` plus a
+    /// small buffer for the level-ups a normally-progressing party earns
+    /// before reaching the lair. Feeds `Character::scale_boss_to_party` —
+    /// only a party that's overleveled *beyond* this gets a tougher boss.
+    pub fn boss_baseline_level(&self) -> u32 {
+        self.enemy_level + 3
+    }
 }
 
 pub fn chapter_def(id: ChapterId) -> ChapterDef {

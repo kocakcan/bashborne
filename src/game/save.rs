@@ -129,6 +129,18 @@ mod tests {
     }
 
     #[test]
+    fn a_save_json_missing_is_elite_defaults_to_false() {
+        // Simulates a save file written before elite variants existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value["party"]["members"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("is_elite");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert!(!back.party.members[0].is_elite);
+    }
+
+    #[test]
     fn a_stale_save_version_reads_as_no_save() {
         let mut data = sample_save();
         data.version = SAVE_VERSION + 1;

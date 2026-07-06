@@ -8,6 +8,7 @@ use crate::app::World;
 use crate::game::item::Rarity;
 use crate::game::party::Party;
 use crate::game::state::GameState;
+use ratatui::layout::Layout;
 
 mod blacksmith;
 mod combat;
@@ -34,34 +35,68 @@ pub fn draw(frame: &mut Frame, world: &World) {
         return;
     }
 
+    let chrome = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(size);
+    draw_status_bar(frame, chrome[0], world);
+    let area = chrome[1];
+
     match &world.state {
-        GameState::MainMenu(menu) => main_menu::draw(frame, menu),
-        GameState::Explore(explore) => explore::draw(frame, explore, &world.party),
+        GameState::MainMenu(menu) => main_menu::draw(frame, area, menu),
+        GameState::Explore(explore) => explore::draw(frame, area, explore, &world.party),
         GameState::Combat(combat) => combat::draw(
             frame,
+            area,
             combat,
             &world.party,
             &world.inventory,
             world.anim_frame(),
         ),
-        GameState::Event(ev) => event::draw(frame, ev),
-        GameState::Inventory(inv) => inventory::draw(frame, inv, &world.party, &world.inventory),
-        GameState::Shop(shop_ui) => shop::draw(frame, shop_ui, &world.party, &world.inventory),
-        GameState::QuestLog(ui) => quest_log::draw(frame, ui, &world.quest_log),
-        GameState::LevelUp(ui) => levelup::draw(frame, ui, &world.party),
+        GameState::Event(ev) => event::draw(frame, area, ev),
+        GameState::Inventory(inv) => {
+            inventory::draw(frame, area, inv, &world.party, &world.inventory)
+        }
+        GameState::Shop(shop_ui) => shop::draw(frame, area, shop_ui, &world.party, &world.inventory),
+        GameState::QuestLog(ui) => quest_log::draw(frame, area, ui, &world.quest_log),
+        GameState::LevelUp(ui) => levelup::draw(frame, area, ui, &world.party),
         GameState::Blacksmith(bs) => blacksmith::draw(
             frame,
+            area,
             bs,
             &world.party,
             &world.inventory,
             world.current_chapter,
         ),
-        GameState::GameOver { victory } => draw_game_over(frame, *victory),
+        GameState::GameOver { victory } => draw_game_over(frame, area, *victory),
     }
 
     if world.show_help {
         draw_help_overlay(frame);
     }
+}
+
+/// Thin, always-visible chrome row showing the current chapter and (once
+/// unlocked) the New Game+ cycle — the only place either is ever surfaced,
+/// since neither is otherwise shown outside a one-line log message.
+fn draw_status_bar(frame: &mut Frame, area: Rect, world: &World) {
+    use crate::game::chapter::chapter_def;
+
+    let def = chapter_def(world.current_chapter);
+    let mut spans = vec![Span::styled(
+        format!("Chapter {}: {}", world.current_chapter.number(), def.name),
+        Style::default().add_modifier(Modifier::BOLD),
+    )];
+    if world.ng_plus > 0 {
+        spans.push(Span::styled(
+            format!("   NG+{}", world.ng_plus),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    let p = Paragraph::new(Line::from(spans));
+    frame.render_widget(p, area);
 }
 
 /// Standard ratatui "centered popup" recipe: carves a `percent_x` ×
@@ -254,13 +289,12 @@ pub(crate) fn draw_party_gear(frame: &mut Frame, area: Rect, party: &Party) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_game_over(frame: &mut Frame, victory: bool) {
+fn draw_game_over(frame: &mut Frame, area: Rect, victory: bool) {
     use ratatui::layout::Alignment;
     use ratatui::style::Style;
     use ratatui::text::Line;
     use ratatui::widgets::{Block, Borders, Paragraph};
 
-    let area = frame.size();
     let msg = if victory {
         "Victory!"
     } else {

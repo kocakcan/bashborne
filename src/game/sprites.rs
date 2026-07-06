@@ -269,6 +269,27 @@ pub fn color_for(species_name: &str) -> Color {
     }
 }
 
+/// Brighter variant of a species' base color, used for Elite enemies so
+/// they read as visually distinct without needing a second sprite/color
+/// table per species.
+pub fn elite_tint(base: Color) -> Color {
+    match base {
+        Color::Green => Color::LightGreen,
+        Color::Yellow => Color::LightYellow,
+        Color::DarkGray => Color::Gray,
+        Color::Gray => Color::White,
+        Color::White => Color::LightYellow,
+        Color::LightGreen => Color::LightYellow,
+        Color::Magenta => Color::LightMagenta,
+        Color::Red => Color::LightRed,
+        Color::LightMagenta => Color::LightMagenta,
+        Color::Blue => Color::LightBlue,
+        Color::LightRed => Color::LightRed,
+        Color::LightYellow => Color::LightYellow,
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

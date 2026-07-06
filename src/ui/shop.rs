@@ -11,7 +11,7 @@ use crate::game::shop::{
     ShopUiState,
 };
 
-pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &Inventory) {
+pub fn draw(frame: &mut Frame, area: Rect, shop: &ShopUiState, party: &Party, inventory: &Inventory) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -19,7 +19,7 @@ pub fn draw(frame: &mut Frame, shop: &ShopUiState, party: &Party, inventory: &In
             Constraint::Min(0),
             Constraint::Length(3),
         ])
-        .split(frame.size());
+        .split(area);
 
     draw_header(frame, outer[0], shop, party);
 

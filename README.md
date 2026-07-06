@@ -10,6 +10,13 @@ cargo run
 
 Requires a real terminal (not piped stdin/stdout).
 
+**Platform notes:** the game is cross-platform by construction — no manual
+ANSI, no platform-specific code anywhere in the repo, and the save file path
+is separator-agnostic. On Windows, use Windows Terminal (or another
+UTF-8-locale terminal); legacy `conhost`/plain `cmd.exe` may mis-render the
+box-drawing HP bars and ASCII-art title (run `chcp 65001` first if you must
+use one). Either platform needs an 80x24 terminal at minimum.
+
 **Note on dependency versions:** `Cargo.toml` pins `ratatui = "=0.26.3"` and
 `crossterm = "=0.27.0"` because this was built in a sandbox stuck on rustc
 1.75. If you're on a normal, up-to-date toolchain (`rustup update`), feel
@@ -86,15 +93,16 @@ indices) sorted by speed once at combat start. `resolve_current_turn` handles
 both player-selected and AI-driven turns, then `advance_turn` walks the
 cursor forward, skipping dead actors, and checks win/lose conditions.
 
-**Monster roster:** eight regular species (`character.rs`): Slime, Goblin,
-Bat, Wolf, Skeleton, Orc, Wraith, and Mimic, each with a distinct stat
-profile (Bat is fast/fragile, Skeleton is slow/tanky, Orc hits hard, etc).
-`state.rs`'s `roll_encounter` picks from ten hand-tuned compositions (some
-solo, some pairs). The **Wraith** has a signature move — 30% of its turns it
-curses the party (via `roll_curse`) instead of attacking, in
-`resolve_enemy_action`. The **Mimic** never appears in the normal encounter
-table; it's a 1-in-6 chance hiding inside what looked like a treasure find
-(see Field events below), with loot to match the scare.
+**Monster roster:** sixteen regular species (`character.rs`), each with a
+distinct stat profile (Bat is fast/fragile, Skeleton is slow/tanky, Orc hits
+hard, etc), plus a chance per encounter of an Elite variant (tougher,
+better-paying). `state.rs`'s `roll_encounter` picks from twenty hand-tuned
+compositions. Several species have signature moves in `resolve_enemy_action`
+— the **Wraith** curses the party 30% of turns instead of attacking, and
+others (Goblin/Wolf targeting, Skeleton/Orc/Bandit/Barrow Sentinel/Forsaken
+Knight scripted moves) add more variety. The **Mimic** never appears in the
+normal encounter table; it's a 1-in-5 chance hiding inside what looked like
+a treasure find (see Field events below), with loot to match the scare.
 
 **The boss:** the **Barrow Knight** (also in `character.rs`) is the one
 hand-placed encounter, reachable via a fixed `Tile::BossLair` tile rather
@@ -183,10 +191,11 @@ transitions between exploring, fighting, shopping, and field events.
 
 Deliberately minimal, marked as seams for you to extend:
 - **`Class::Rogue`** exists but has no factory function yet.
-- **Two blessings, two curses.** The pools in `status.rs` (`roll_blessing`,
-  `roll_curse`) are small on purpose — add more `(name, target, delta)`
-  entries to widen the variety, or add new `StatEffectTarget` variants
-  (e.g. `Evasion`) if you want effects beyond attack/defense/speed.
+- **Six blessings, six curses, tier-gated by NG+.** The pools in `status.rs`
+  (`roll_blessing`, `roll_curse`) unlock two of their stronger options at
+  NG+1/NG+2 — add more `(name, target, delta, min_ng_plus)` entries to widen
+  the variety further, or add new `StatEffectTarget` variants (e.g.
+  `Evasion`) if you want effects beyond attack/defense/speed.
 - **No leveling.** `Character.level` exists but is hardcoded to `1`
   everywhere — there's no XP gain or stat growth yet, so gear is currently
   the only progression axis.

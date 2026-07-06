@@ -36,7 +36,7 @@ src/
   event.rs         — thin crossterm key-poll wrapper
   app.rs           — World (Party + Inventory + GameState + chapter progress + rng), all input handling, save/load hooks
   ui/
-    mod.rs         — dispatches to the right screen based on GameState; shared HP-bar/rarity-color helpers
+    mod.rs         — persistent chapter/NG+ status bar chrome, then dispatches to the right screen based on GameState; shared HP-bar/rarity-color helpers
     explore.rs     — map viewport + party panel (incl. levels/XP and active effects) + log
     combat.rs      — animated enemy sprites/HP bars + party panel + action/ability/item menus + log
     event.rs       — blessing/curse/treasure/NPC-dialogue narrative screen
@@ -84,13 +84,25 @@ speed once at combat start. `resolve_current_turn` handles both
 player-selected and AI-driven turns, then `advance_turn` walks the cursor
 forward, skipping dead actors, and checks win/lose conditions.
 
-Eight regular monster species live in `character.rs` (Slime, Goblin, Bat,
-Wolf, Skeleton, Orc, Wraith, Mimic), each with a distinct stat profile.
-`state.rs`'s `roll_encounter` picks from ten hand-tuned compositions. The
-**Wraith** has a signature move (30% of turns, curses the party via
-`roll_curse`) handled in `resolve_enemy_action`. The **Mimic** never appears
-in the normal encounter table — it's a 1-in-6 chance hiding inside what
-looked like a treasure find.
+Sixteen regular monster species live in `character.rs` (Slime, Goblin, Bat,
+Wolf, Skeleton, Orc, Wraith, Mimic, Hollow, Rat, Carrion Crow, Bandit, Fell
+Acolyte, Grave Ghoul, Barrow Sentinel, Forsaken Knight), each with a distinct
+stat profile. `state.rs`'s `roll_encounter` picks from twenty hand-tuned
+compositions and then has a chance (`Character::elite_chance`, 10% baseline
+rising to 24% at NG+7) to promote exactly one enemy in the roll to an Elite
+variant (`Character::apply_elite`) — tougher, better-paying, and never a
+Mimic or boss. Several species have signature moves handled in
+`resolve_enemy_action`: the **Wraith** curses the party (30% of turns, via
+`roll_curse`), **Goblins**/**Wolves** prioritize the lowest-HP%/lowest-max-HP
+target 60% of the time, **Skeletons** can Bone Guard (skip the attack for
++3 defense), **Orcs** can Reckless Swing (1.6x damage with self-recoil),
+**Bandits** can Coin Grab (steal gold instead of attacking), **Barrow
+Sentinels** can Warcry (party-wide defense curse), and **Forsaken Knights**
+can land Knight's Judgment (1.7x damage, no drawback). The **Mimic** never
+appears in the normal encounter table — it's a 1-in-5 chance hiding inside
+what looked like a treasure find. Enemy display names (`Character::
+display_name`, e.g. "Elite Orc") are cosmetic only — every species-keyed
+comparison always matches against the raw `Character.name`.
 
 Each chapter has one boss, reachable only via its fixed `Tile::BossLair`
 tile, not a random roll. Bosses are identified by `Character::boss_kind`
@@ -102,6 +114,11 @@ tile, not a random roll. Bosses are identified by `Character::boss_kind`
 Beating a boss guarantees its Legendary signature weapon, marks the chapter
 in `World.bosses_defeated` (so the lair never re-triggers), and advances
 `World.current_chapter`; beating the final boss ends the game in victory.
+Before a boss's own NG+ scaling is applied, `Character::scale_boss_to_party`
+also toughens it (+6% max_hp/attack/defense per level the party's average
+level exceeds `ChapterDef::boss_baseline_level()`, capped at 20 excess
+levels) so a party that over-leveled before reaching the lair still gets a
+real fight.
 
 ### Leveling & chapter difficulty
 
@@ -110,8 +127,12 @@ bosses) goes to every party member. Each level-up banks `POINTS_PER_LEVEL`
 allocatable points (spent on the `u` screen) *and* applies the class's
 automatic `level_growth` profile — Warriors toughen, Mages deepen their MP
 pool, Rogues gain speed/luck — so party members diverge even before any
-points are spent. Regular monsters use the same machinery in reverse:
-`ChapterDef::enemy_level` (1/4/7) is applied to every tall-grass roll via
+points are spent. That automatic growth is tapered by
+`Character::growth_multiplier`: full strength through level 10, linearly
+down to 0.5x by level 25, then floored there — hand-allocated points are
+unaffected, so grinding levels stops compounding forever without capping
+player choice. Regular monsters use the same machinery in reverse:
+`ChapterDef::enemy_level` (1/6/11) is applied to every tall-grass roll via
 `Character::scale_to_level`, so later chapters field stronger specimens of
 the same species, which in turn raises the XP and gold they pay out.
 
@@ -136,19 +157,25 @@ spare (unequipped) gear. In combat, "Item" opens a submenu
 ### Field events & status effects
 
 Stepping into tall grass rolls a weighted outcome via `roll_field_event`
-(`game/state.rs`): 55% combat, 15% blessing, 15% curse, 15% treasure (which
-itself has a small chance of being a Mimic ambush, or of burying a bonus
-weapon). All rolled enemies — Mimic included — are scaled to the current
-chapter's `enemy_level` before the fight starts. Blessings/curses (`game/status.rs`) are party-wide stat deltas
-(`StatusEffect { target, delta, encounters_remaining }`) that persist for a
-fixed number of *encounters*, not turns — `Party::tick_effects()` counts one
-down each time a combat encounter concludes (win or flee). `CombatState`
-reads `Party::stat_delta(target)` for attack/defense/speed, so these
-actually affect combat math. Stacking the same named effect merges it
-(magnitude adds, duration refreshes to the longer of the two). Field events
-and combat both remember the tile you stepped on (`return_pos`) so
-dismissing a notice or finishing a fight drops you back exactly where you
-were.
+(`game/state.rs`): 50% combat, 15% blessing, 20% curse, 15% treasure (which
+itself has a 1-in-5 chance of being a Mimic ambush, or a smaller chance of
+burying a bonus weapon). All rolled enemies — Mimic included — are scaled to
+the current chapter's `enemy_level` before the fight starts. Blessings/
+curses (`game/status.rs`) are party-wide stat deltas (`StatusEffect {
+target, delta, encounters_remaining }`) drawn from a 6-option pool each
+(`roll_blessing`/`roll_curse`), 4 of which are always available and 2 of
+which are tier-gated behind the current NG+ cycle (one unlocks at NG+1, one
+at NG+2) so New Game+ surfaces new effects rather than just bigger monster
+stats. They persist for a fixed number of *encounters*, not turns —
+`Party::tick_effects()` counts one down each time a combat encounter
+concludes (win or flee). `CombatState` reads `Party::stat_delta(target)` for
+attack/defense/speed, so these actually affect combat math. Stacking the
+same named effect merges it (magnitude adds, duration refreshes to the
+longer of the two). Field events and combat both remember the tile you
+stepped on (`return_pos`) so dismissing a notice or finishing a fight drops
+you back exactly where you were. Fleeing combat (`CombatState::flee_chance`)
+favors a party faster than the enemy pack and tightens by 2 percentage
+points per NG+ cycle (capped at NG+7), clamped to a 15%–85% range.
 
 ### Loot
 
@@ -195,7 +222,18 @@ independently, so a ragged line visibly drifts sideways.
 
 ## Known stubs / deliberately unfinished seams
 
-- Only two blessings and two curses exist in `status.rs`'s pools
-  (`roll_blessing`, `roll_curse`).
 - The playable-class roster (Warrior/Mage/Cleric/Rogue) is fixed at game
   start; there's no party selection or recruitment.
+
+## Platform notes
+
+The game is cross-platform by construction — `main.rs`/`event.rs` only use
+crossterm/ratatui abstractions (no manual ANSI, no platform `#[cfg]`s
+anywhere in the repo), and `game/save.rs`'s save path is a plain,
+separator-agnostic `PathBuf`. On Windows, use Windows Terminal (or another
+UTF-8-locale terminal) — legacy `conhost`/plain `cmd.exe` may mis-render the
+box-drawing HP bars (`ui/mod.rs::hp_bar`, using `█`/`░`), the ASCII-art
+title (`ui/main_menu.rs`), and arrow-key hint glyphs scattered across
+`ui/*.rs`; run `chcp 65001` first if you must use a legacy console. Either
+platform needs an 80x24 terminal at minimum (`ui/mod.rs::MIN_COLS`/
+`MIN_ROWS`); `cargo run`/`cargo build` are identical on both.

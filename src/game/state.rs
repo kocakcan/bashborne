@@ -171,12 +171,19 @@ pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32, ng_plus: u32) -> Vec
         16 => vec![grave_ghoul("Grave Ghoul")],
         17 => vec![grave_ghoul("Grave Ghoul"), hollow("Hollow")],
         18 => vec![barrow_sentinel("Barrow Sentinel")],
-        // The rare elite roll — the hardest single regular fight there is.
+        // The toughest single regular composition there is.
         _ => vec![forsaken_knight("Forsaken Knight")],
     };
     for enemy in &mut enemies {
         enemy.scale_to_level(enemy_level);
         enemy.apply_ng_plus(ng_plus);
+    }
+    // Promote exactly one enemy in the composition to an Elite variant,
+    // with rising odds each NG+ cycle — never a Mimic or boss, since
+    // neither ever appears in this table.
+    if rng.gen_bool(crate::game::character::Character::elite_chance(ng_plus) as f64) {
+        let idx = rng.gen_range(0..enemies.len());
+        enemies[idx].apply_elite();
     }
     enemies
 }
@@ -198,18 +205,18 @@ pub enum FieldEvent {
     },
 }
 
-/// Weighted table for grass encounters: 55% combat, 15% blessing, 15% curse,
+/// Weighted table for grass encounters: 50% combat, 15% blessing, 20% curse,
 /// 15% treasure. Tune the ranges below to rebalance. `enemy_level` scales
 /// any combat outcome (including a Mimic ambush) to the current chapter;
 /// `ng_plus` layers the New Game+ multiplier on top.
 pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32, ng_plus: u32) -> FieldEvent {
     match rng.gen_range(0..20) {
-        0..=10 => FieldEvent::Combat(roll_encounter(rng, enemy_level, ng_plus)), // 11/20
-        11..=13 => FieldEvent::Blessing(roll_blessing(rng)),                     // 3/20
-        14..=16 => FieldEvent::Curse(roll_curse(rng)),                           // 3/20
+        0..=9 => FieldEvent::Combat(roll_encounter(rng, enemy_level, ng_plus)), // 10/20
+        10..=12 => FieldEvent::Blessing(roll_blessing(rng, ng_plus)),           // 3/20
+        13..=16 => FieldEvent::Curse(roll_curse(rng, ng_plus)),                 // 4/20
         _ => {
             // 3/20: usually real treasure, but occasionally it bites back.
-            if rng.gen_ratio(1, 6) {
+            if rng.gen_ratio(1, 5) {
                 let mut mimic = crate::game::character::mimic("Mimic");
                 mimic.scale_to_level(enemy_level);
                 mimic.apply_ng_plus(ng_plus);
@@ -340,5 +347,36 @@ mod tests {
             }
         }
         assert!(saw_a_mimic, "some seed should roll a Mimic ambush");
+    }
+
+    #[test]
+    fn at_most_one_enemy_per_encounter_is_promoted_to_elite() {
+        // NG+7 maxes the elite odds (24%), so a seed sweep should turn up
+        // plenty of promotions to check the "at most one" invariant against.
+        let mut saw_an_elite = false;
+        for seed in 0..300u64 {
+            let enemies = roll_encounter(&mut StdRng::seed_from_u64(seed), 1, 7);
+            let elite_count = enemies.iter().filter(|e| e.is_elite).count();
+            assert!(elite_count <= 1, "seed {seed}: more than one elite in a single encounter");
+            if elite_count == 1 {
+                saw_an_elite = true;
+            }
+        }
+        assert!(saw_an_elite, "some seed should promote an enemy to elite");
+    }
+
+    #[test]
+    fn field_event_weights_keep_all_four_outcomes_reachable() {
+        let (mut saw_combat, mut saw_blessing, mut saw_curse, mut saw_treasure) =
+            (false, false, false, false);
+        for seed in 0..200u64 {
+            match roll_field_event(&mut StdRng::seed_from_u64(seed), 1, 0) {
+                FieldEvent::Combat(_) => saw_combat = true,
+                FieldEvent::Blessing(_) => saw_blessing = true,
+                FieldEvent::Curse(_) => saw_curse = true,
+                FieldEvent::Treasure { .. } => saw_treasure = true,
+            }
+        }
+        assert!(saw_combat && saw_blessing && saw_curse && saw_treasure);
     }
 }

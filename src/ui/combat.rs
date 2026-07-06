@@ -14,6 +14,7 @@ const ACTION_LABELS: [&str; 4] = ["Attack", "Ability", "Item", "Flee"];
 
 pub fn draw(
     frame: &mut Frame,
+    area: Rect,
     combat: &CombatState,
     party: &Party,
     inventory: &Inventory,
@@ -26,7 +27,7 @@ pub fn draw(
             Constraint::Percentage(35),
             Constraint::Percentage(25),
         ])
-        .split(frame.size());
+        .split(area);
 
     draw_enemies(frame, outer[0], combat, party, anim_frame);
 
@@ -92,6 +93,11 @@ fn draw_enemies(
 
     for (i, enemy) in combat.enemies.iter().enumerate() {
         let species_color = sprites::color_for(&enemy.name);
+        let species_color = if enemy.is_elite {
+            sprites::elite_tint(species_color)
+        } else {
+            species_color
+        };
         let is_targeted = target_idx == Some(i) && enemy.is_alive();
         let mut lines: Vec<Line> = Vec::new();
 
@@ -113,7 +119,7 @@ fn draw_enemies(
                 Style::default().add_modifier(Modifier::BOLD)
             };
             lines.push(Line::from(Span::styled(
-                format!("{marker}{}", enemy.name),
+                format!("{marker}{}", enemy.display_name()),
                 name_style,
             )));
             let bar = crate::ui::hp_bar(enemy.stats.hp, enemy.stats.max_hp, 12);
@@ -130,7 +136,7 @@ fn draw_enemies(
             }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("{} (defeated)", enemy.name),
+                format!("{} (defeated)", enemy.display_name()),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::CROSSED_OUT),

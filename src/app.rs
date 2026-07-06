@@ -372,6 +372,7 @@ impl World {
                     FieldEvent::Combat(enemies) => {
                         let mut combat = CombatState::new(&self.party, enemies);
                         combat.return_pos = Some(next);
+                        combat.ng_plus = self.ng_plus;
                         self.state = GameState::Combat(combat);
                     }
                     FieldEvent::Blessing(effect) => {
@@ -465,9 +466,11 @@ impl World {
         } else if tile == Tile::BossLair && !self.bosses_defeated.contains(&self.current_chapter) {
             let def = chapter_def(self.current_chapter);
             let mut boss = (def.boss)(def.boss_display_name);
+            boss.scale_boss_to_party(self.party.average_level(), def.boss_baseline_level());
             boss.apply_ng_plus(self.ng_plus);
             let mut combat = CombatState::new(&self.party, vec![boss]);
             combat.return_pos = Some(next);
+            combat.ng_plus = self.ng_plus;
             self.state = GameState::Combat(combat);
         }
     }

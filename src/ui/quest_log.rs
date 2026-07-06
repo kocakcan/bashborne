@@ -7,11 +7,11 @@ use ratatui::Frame;
 use crate::game::quest::{quest_def, QuestId, QuestLog};
 use crate::game::quest_ui::QuestLogUiState;
 
-pub fn draw(frame: &mut Frame, ui: &QuestLogUiState, quest_log: &QuestLog) {
+pub fn draw(frame: &mut Frame, area: Rect, ui: &QuestLogUiState, quest_log: &QuestLog) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(3)])
-        .split(frame.size());
+        .split(area);
 
     let mid = Layout::default()
         .direction(Direction::Horizontal)
