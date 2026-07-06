@@ -3,8 +3,13 @@ use rand::Rng;
 use crate::game::chapter::BossKind;
 use crate::game::character::{AbilityKind, Character};
 use crate::game::item::{
-    bone_blade, ether, goblin_shiv, knightsbane, mimics_fang, orcish_greataxe, potion,
-    sovereigns_reckoning, wardens_fang, wraithbane_edge, Item, ItemFactory, ItemKind, Weapon,
+    acolytes_vestment, bandits_falchion, barrow_touched_plate, bone_blade, brigand_leathers,
+    chainmail_hauberk, dragonscale_aegis, elite_knights_armor, ether, fell_censer,
+    forsaken_longsword, ghouls_knucklebone, goblin_shiv, hollow_soldiers_blade, knights_plate,
+    knightsbane, mimics_coil, mimics_fang, orcish_greataxe, potion, ring_of_vigor,
+    ring_of_warding, sentinels_bulwark, sentinels_greathammer, sentinels_seal, sovereign_elixir,
+    sovereigns_reckoning, sovereigns_signet, warded_chainmail, wardens_fang, wolfsbane_signet,
+    wraithbane_edge, Armor, ArmorFactory, Item, ItemFactory, ItemKind, Ring, RingFactory, Weapon,
     WeaponFactory, WeaponPassive,
 };
 use crate::game::map::Position;
@@ -16,6 +21,8 @@ pub struct Loot {
     pub gold: u32,
     pub items: Vec<Item>,
     pub weapons: Vec<Weapon>,
+    pub armors: Vec<Armor>,
+    pub rings: Vec<Ring>,
     /// Extra gold earned from overkill kills this fight (already folded into
     /// `gold`); kept separate so the UI can call it out.
     pub overkill_bonus: u32,
@@ -38,96 +45,181 @@ fn xp_value(enemy: &Character) -> u32 {
     }
 }
 
-/// Per-species gold range, an optional (item, drop-chance) pair, an optional
-/// (weapon, drop-chance) pair, and an optional (shard-range, drop-chance)
-/// pair for the blacksmith's upgrade material. Keyed on the enemy's display
-/// name, which currently doubles as its species tag. Only certain, tougher
-/// species carry a weapon (or shards) worth looting off their corpse.
-#[allow(clippy::type_complexity)]
-fn loot_profile(
-    species_name: &str,
-) -> (
-    std::ops::RangeInclusive<u32>,
-    Option<(ItemFactory, f32)>,
-    Option<(WeaponFactory, f32)>,
-    Option<(std::ops::RangeInclusive<u32>, f32)>,
-) {
-    match species_name {
-        "Slime" => (3..=8, Some((potion as ItemFactory, 0.25)), None, None),
-        "Goblin" => (
-            8..=16,
-            Some((ether as ItemFactory, 0.2)),
-            Some((goblin_shiv as WeaponFactory, 0.12)),
-            Some((1..=2, 0.2)),
-        ),
-        "Bat" => (2..=5, Some((potion as ItemFactory, 0.15)), None, None),
-        "Wolf" => (
-            5..=10,
-            Some((potion as ItemFactory, 0.2)),
-            None,
-            Some((1..=2, 0.15)),
-        ),
-        "Skeleton" => (
-            6..=12,
-            Some((ether as ItemFactory, 0.25)),
-            Some((bone_blade as WeaponFactory, 0.15)),
-            Some((1..=3, 0.25)),
-        ),
-        "Orc" => (
-            10..=20,
-            Some((potion as ItemFactory, 0.3)),
-            Some((orcish_greataxe as WeaponFactory, 0.18)),
-            Some((2..=4, 0.3)),
-        ),
-        "Wraith" => (
-            12..=22,
-            Some((ether as ItemFactory, 0.35)),
-            Some((wraithbane_edge as WeaponFactory, 0.15)),
-            Some((2..=4, 0.3)),
-        ),
-        // Mimics are meant to feel like a consolation prize for the ambush.
-        "Mimic" => (
-            25..=45,
-            Some((potion as ItemFactory, 0.6)),
-            Some((mimics_fang as WeaponFactory, 0.4)),
-            Some((3..=6, 0.6)),
-        ),
-        _ => (5..=10, None, None, None),
+/// Everything one species can leave behind after a fight. Split out as a
+/// struct now that a corpse can carry up to five kinds of spoils — a
+/// six-way tuple stopped being readable.
+struct LootProfile {
+    gold: std::ops::RangeInclusive<u32>,
+    item: Option<(ItemFactory, f32)>,
+    weapon: Option<(WeaponFactory, f32)>,
+    /// (shard range, drop chance) for the blacksmith's upgrade material.
+    shards: Option<(std::ops::RangeInclusive<u32>, f32)>,
+    armor: Option<(ArmorFactory, f32)>,
+    ring: Option<(RingFactory, f32)>,
+}
+
+impl LootProfile {
+    /// Gold only — the default for species with nothing worth looting.
+    fn plain(gold: std::ops::RangeInclusive<u32>) -> Self {
+        Self {
+            gold,
+            item: None,
+            weapon: None,
+            shards: None,
+            armor: None,
+            ring: None,
+        }
     }
 }
 
-/// Per-boss gold range, an optional (item, drop-chance) pair, its
-/// guaranteed signature weapon, and its guaranteed shard range. Unlike
-/// `loot_profile`, the weapon and shards here are never a dice roll —
-/// beating the fight itself is the gate.
-#[allow(clippy::type_complexity)]
-fn boss_loot_profile(
-    kind: BossKind,
-) -> (
-    std::ops::RangeInclusive<u32>,
-    Option<(ItemFactory, f32)>,
-    WeaponFactory,
-    std::ops::RangeInclusive<u32>,
-) {
+/// Per-species loot table, keyed on the enemy's display name, which
+/// currently doubles as its species tag. Only certain, tougher species
+/// carry a weapon, gear, or shards worth looting off their corpse.
+fn loot_profile(species_name: &str) -> LootProfile {
+    match species_name {
+        "Slime" => LootProfile {
+            item: Some((potion as ItemFactory, 0.25)),
+            ..LootProfile::plain(3..=8)
+        },
+        "Goblin" => LootProfile {
+            item: Some((ether as ItemFactory, 0.2)),
+            weapon: Some((goblin_shiv as WeaponFactory, 0.12)),
+            shards: Some((1..=2, 0.2)),
+            ring: Some((ring_of_vigor as RingFactory, 0.06)),
+            ..LootProfile::plain(8..=16)
+        },
+        "Bat" => LootProfile {
+            item: Some((potion as ItemFactory, 0.15)),
+            ..LootProfile::plain(2..=5)
+        },
+        "Wolf" => LootProfile {
+            item: Some((potion as ItemFactory, 0.2)),
+            shards: Some((1..=2, 0.15)),
+            ring: Some((wolfsbane_signet as RingFactory, 0.05)),
+            ..LootProfile::plain(5..=10)
+        },
+        "Skeleton" => LootProfile {
+            item: Some((ether as ItemFactory, 0.25)),
+            weapon: Some((bone_blade as WeaponFactory, 0.15)),
+            shards: Some((1..=3, 0.25)),
+            armor: Some((chainmail_hauberk as ArmorFactory, 0.08)),
+            ring: Some((ring_of_warding as RingFactory, 0.06)),
+            ..LootProfile::plain(6..=12)
+        },
+        "Orc" => LootProfile {
+            item: Some((potion as ItemFactory, 0.3)),
+            weapon: Some((orcish_greataxe as WeaponFactory, 0.18)),
+            shards: Some((2..=4, 0.3)),
+            armor: Some((knights_plate as ArmorFactory, 0.08)),
+            ..LootProfile::plain(10..=20)
+        },
+        "Wraith" => LootProfile {
+            item: Some((ether as ItemFactory, 0.35)),
+            weapon: Some((wraithbane_edge as WeaponFactory, 0.15)),
+            shards: Some((2..=4, 0.3)),
+            armor: Some((warded_chainmail as ArmorFactory, 0.08)),
+            ..LootProfile::plain(12..=22)
+        },
+        // Mimics are meant to feel like a consolation prize for the ambush.
+        "Mimic" => LootProfile {
+            item: Some((potion as ItemFactory, 0.6)),
+            weapon: Some((mimics_fang as WeaponFactory, 0.4)),
+            shards: Some((3..=6, 0.6)),
+            ring: Some((mimics_coil as RingFactory, 0.35)),
+            ..LootProfile::plain(25..=45)
+        },
+        "Hollow" => LootProfile {
+            item: Some((potion as ItemFactory, 0.2)),
+            weapon: Some((hollow_soldiers_blade as WeaponFactory, 0.1)),
+            shards: Some((1..=2, 0.1)),
+            ..LootProfile::plain(4..=9)
+        },
+        "Rat" => LootProfile {
+            item: Some((potion as ItemFactory, 0.1)),
+            ..LootProfile::plain(2..=6)
+        },
+        "Carrion Crow" => LootProfile {
+            item: Some((ether as ItemFactory, 0.15)),
+            ..LootProfile::plain(3..=8)
+        },
+        "Bandit" => LootProfile {
+            item: Some((potion as ItemFactory, 0.25)),
+            weapon: Some((bandits_falchion as WeaponFactory, 0.12)),
+            shards: Some((1..=2, 0.2)),
+            armor: Some((brigand_leathers as ArmorFactory, 0.08)),
+            ..LootProfile::plain(14..=26)
+        },
+        "Fell Acolyte" => LootProfile {
+            item: Some((ether as ItemFactory, 0.35)),
+            weapon: Some((fell_censer as WeaponFactory, 0.1)),
+            shards: Some((1..=3, 0.2)),
+            armor: Some((acolytes_vestment as ArmorFactory, 0.08)),
+            ..LootProfile::plain(10..=20)
+        },
+        "Grave Ghoul" => LootProfile {
+            item: Some((potion as ItemFactory, 0.25)),
+            shards: Some((1..=3, 0.2)),
+            ring: Some((ghouls_knucklebone as RingFactory, 0.07)),
+            ..LootProfile::plain(8..=16)
+        },
+        "Barrow Sentinel" => LootProfile {
+            weapon: Some((sentinels_greathammer as WeaponFactory, 0.08)),
+            shards: Some((2..=5, 0.5)),
+            armor: Some((sentinels_bulwark as ArmorFactory, 0.06)),
+            ring: Some((sentinels_seal as RingFactory, 0.05)),
+            ..LootProfile::plain(15..=28)
+        },
+        "Forsaken Knight" => LootProfile {
+            item: Some((potion as ItemFactory, 0.2)),
+            weapon: Some((forsaken_longsword as WeaponFactory, 0.15)),
+            shards: Some((2..=4, 0.35)),
+            armor: Some((elite_knights_armor as ArmorFactory, 0.1)),
+            ..LootProfile::plain(18..=32)
+        },
+        _ => LootProfile::plain(5..=10),
+    }
+}
+
+/// Per-boss spoils. Unlike `loot_profile`, the weapon, shards, and second
+/// gear piece here are never a dice roll — beating the fight itself is the
+/// gate. Only the consumable item slot still rolls.
+struct BossLootProfile {
+    gold: std::ops::RangeInclusive<u32>,
+    item: Option<(ItemFactory, f32)>,
+    weapon: WeaponFactory,
+    shards: std::ops::RangeInclusive<u32>,
+    /// A guaranteed armor piece alongside the signature weapon, if any.
+    armor: Option<ArmorFactory>,
+    /// A guaranteed ring alongside the signature weapon, if any.
+    ring: Option<RingFactory>,
+}
+
+fn boss_loot_profile(kind: BossKind) -> BossLootProfile {
     match kind {
-        BossKind::BarrowKnight => (
-            80..=150,
-            Some((potion as ItemFactory, 0.5)),
-            knightsbane as WeaponFactory,
-            5..=8,
-        ),
-        BossKind::WyrmscaleWarden => (
-            150..=250,
-            Some((ether as ItemFactory, 0.5)),
-            wardens_fang as WeaponFactory,
-            8..=12,
-        ),
-        BossKind::AshenSovereign => (
-            250..=400,
-            Some((potion as ItemFactory, 0.5)),
-            sovereigns_reckoning as WeaponFactory,
-            12..=18,
-        ),
+        BossKind::BarrowKnight => BossLootProfile {
+            gold: 80..=150,
+            item: Some((potion as ItemFactory, 0.5)),
+            weapon: knightsbane as WeaponFactory,
+            shards: 5..=8,
+            armor: Some(barrow_touched_plate as ArmorFactory),
+            ring: None,
+        },
+        BossKind::WyrmscaleWarden => BossLootProfile {
+            gold: 150..=250,
+            item: Some((sovereign_elixir as ItemFactory, 0.5)),
+            weapon: wardens_fang as WeaponFactory,
+            shards: 8..=12,
+            armor: Some(dragonscale_aegis as ArmorFactory),
+            ring: None,
+        },
+        BossKind::AshenSovereign => BossLootProfile {
+            gold: 250..=400,
+            item: Some((sovereign_elixir as ItemFactory, 0.5)),
+            weapon: sovereigns_reckoning as WeaponFactory,
+            shards: 12..=18,
+            armor: None,
+            ring: Some(sovereigns_signet as RingFactory),
+        },
     }
 }
 
@@ -135,26 +227,29 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
     let mut gold = 0u32;
     let mut items = Vec::new();
     let mut weapons = Vec::new();
+    let mut armors = Vec::new();
+    let mut rings = Vec::new();
     let mut overkill_bonus = 0u32;
     let mut xp = 0u32;
     let mut upgrade_materials = 0u32;
     for (i, e) in enemies.iter().enumerate() {
-        let (gold_range, item_chance, weapon_chance, material_chance) = match e.boss_kind {
+        let profile = match e.boss_kind {
             Some(kind) => {
-                let (gold_range, item_chance, weapon_factory, shard_range) =
-                    boss_loot_profile(kind);
-                (
-                    gold_range,
-                    item_chance,
-                    Some((weapon_factory, 1.0)),
-                    Some((shard_range, 1.0)),
-                )
+                let boss = boss_loot_profile(kind);
+                LootProfile {
+                    gold: boss.gold,
+                    item: boss.item,
+                    weapon: Some((boss.weapon, 1.0)),
+                    shards: Some((boss.shards, 1.0)),
+                    armor: boss.armor.map(|a| (a, 1.0)),
+                    ring: boss.ring.map(|r| (r, 1.0)),
+                }
             }
             None => loot_profile(&e.name),
         };
         // Tougher, later-chapter specimens of the same species pay out more:
         // +15% per level past the first (see `Character::scale_to_level`).
-        let rolled = rng.gen_range(gold_range);
+        let rolled = rng.gen_range(profile.gold);
         let base_gold = rolled + rolled * 15 * e.level.saturating_sub(1) / 100;
         if overkills.get(i).copied().unwrap_or(false) {
             let bonus = base_gold / 2;
@@ -163,17 +258,27 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
         } else {
             gold += base_gold;
         }
-        if let Some((make_item, chance)) = item_chance {
+        if let Some((make_item, chance)) = profile.item {
             if rng.gen::<f32>() < chance {
                 items.push(make_item());
             }
         }
-        if let Some((make_weapon, chance)) = weapon_chance {
+        if let Some((make_weapon, chance)) = profile.weapon {
             if rng.gen::<f32>() < chance {
                 weapons.push(make_weapon());
             }
         }
-        if let Some((shard_range, chance)) = material_chance {
+        if let Some((make_armor, chance)) = profile.armor {
+            if rng.gen::<f32>() < chance {
+                armors.push(make_armor());
+            }
+        }
+        if let Some((make_ring, chance)) = profile.ring {
+            if rng.gen::<f32>() < chance {
+                rings.push(make_ring());
+            }
+        }
+        if let Some((shard_range, chance)) = profile.shards {
             if rng.gen::<f32>() < chance {
                 upgrade_materials += rng.gen_range(shard_range);
             }
@@ -184,6 +289,8 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
         gold,
         items,
         weapons,
+        armors,
+        rings,
         overkill_bonus,
         xp,
         upgrade_materials,
@@ -304,7 +411,7 @@ impl CombatState {
         self.turn_order[self.turn_cursor]
     }
 
-    fn push_log(&mut self, msg: impl Into<String>) {
+    pub(crate) fn push_log(&mut self, msg: impl Into<String>) {
         self.log.push(msg.into());
         // keep the log from growing unbounded; UI only shows the tail anyway
         if self.log.len() > 200 {
@@ -500,11 +607,38 @@ impl CombatState {
             return;
         }
 
+        // Fell Acolytes siphon a member's magic to knit themselves back
+        // together — but only if anyone still has MP worth stealing.
+        if ename == "Fell Acolyte" && rng.gen_bool(0.25) {
+            let mp_targets: Vec<usize> = alive_targets
+                .iter()
+                .copied()
+                .filter(|&i| party.members[i].stats.mp > 0)
+                .collect();
+            if let Some(&ti) = mp_targets.get(rng.gen_range(0..mp_targets.len().max(1))) {
+                let level = self.enemies[ei].level as i32;
+                let drain = (3 + level).min(party.members[ti].stats.mp);
+                party.members[ti].stats.mp -= drain;
+                let heal = 4 + level;
+                self.enemies[ei].heal(heal);
+                let tname = party.members[ti].name.clone();
+                self.push_log(format!(
+                    "{ename} chants a Withering Prayer — {tname} loses {drain} MP \
+                     and {ename} knits itself back together ({heal} HP)."
+                ));
+                return;
+            }
+            // No one has MP left to steal — fall through to a normal attack.
+        }
+
         if let Some(kind) = boss_kind {
             if self.resolve_boss_move(ei, kind, &ename, atk, target_idx, party, rng) {
                 return;
             }
         }
+
+        // Grave Ghouls sometimes gorge on the wound they tear open.
+        let ravenous_bite = ename == "Grave Ghoul" && rng.gen_bool(0.3);
 
         let def = party.members[target_idx].total_defense() + party.stat_delta(StatEffectTarget::Defense);
         let luck = self.enemies[ei].total_luck();
@@ -512,10 +646,20 @@ impl CombatState {
         let dmg = apply_damage_reduction(dmg, &party.members[target_idx]);
         party.members[target_idx].take_damage(dmg);
         let tname = party.members[target_idx].name.clone();
-        self.push_log(format!(
-            "{ename} attacks {tname} for {dmg} damage.{}",
-            if crit { " A critical hit!" } else { "" }
-        ));
+        if ravenous_bite {
+            let heal = dmg / 2;
+            self.enemies[ei].heal(heal);
+            self.push_log(format!(
+                "{ename} sinks its teeth into {tname} for {dmg} damage \
+                 and gorges itself ({heal} HP).{}",
+                if crit { " A critical hit!" } else { "" }
+            ));
+        } else {
+            self.push_log(format!(
+                "{ename} attacks {tname} for {dmg} damage.{}",
+                if crit { " A critical hit!" } else { "" }
+            ));
+        }
         if !party.members[target_idx].is_alive() {
             self.push_log(format!("{tname} falls!"));
         }
@@ -708,10 +852,19 @@ impl CombatState {
         party: &mut Party,
         rng: &mut impl Rng,
     ) {
-        let Some(target) = party.members.get_mut(target_idx) else {
-            return;
+        // CureCurse is party-wide — the only item kind that ignores its target.
+        let msg = if matches!(item_kind, ItemKind::CureCurse) {
+            if party.cure_curses() > 0 {
+                "The curses clinging to the party crumble away.".to_string()
+            } else {
+                "No curses cling to the party.".to_string()
+            }
+        } else {
+            let Some(target) = party.members.get_mut(target_idx) else {
+                return;
+            };
+            crate::game::combat::use_item_kind(item_kind, target)
         };
-        let msg = crate::game::combat::use_item_kind(item_kind, target);
         self.push_log(format!("{user_name} uses an item. {msg}"));
         self.advance_turn(party, rng);
     }
@@ -755,6 +908,10 @@ fn apply_damage_reduction(dmg: i32, target: &Character) -> i32 {
     }
 }
 
+/// Applies a single-target consumable to `target`. `CureCurse` is the one
+/// kind that never reaches here — it's party-wide, so both call sites
+/// (combat item use and the inventory screen) intercept it and call
+/// `Party::cure_curses` instead.
 pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
     match kind {
         ItemKind::Potion { heal_percent } => {
@@ -767,6 +924,24 @@ pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
             target.stats.mp = (target.stats.mp + amount).min(target.stats.max_mp);
             format!("{} recovers {} MP.", target.name, amount)
         }
+        ItemKind::Elixir => {
+            target.stats.hp = target.stats.max_hp;
+            target.stats.mp = target.stats.max_mp;
+            format!("{} is fully restored.", target.name)
+        }
+        ItemKind::Revive { heal_percent } => {
+            if target.is_alive() {
+                // Call sites keep revives away from the living; this is only
+                // a belt-and-braces fallback so the item is never a no-op.
+                target.heal(1);
+                format!("{} is still standing — the ember gutters out.", target.name)
+            } else {
+                let amount = ((target.stats.max_hp as f32 * heal_percent).round() as i32).max(1);
+                target.stats.hp = amount.min(target.stats.max_hp);
+                format!("{} rises to fight again with {} HP!", target.name, amount)
+            }
+        }
+        ItemKind::CureCurse => format!("Nothing clings to {}.", target.name),
     }
 }
 
@@ -774,7 +949,8 @@ pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
 mod tests {
     use super::*;
     use crate::game::character::{
-        ashen_sovereign, barrow_knight, mimic, orc, slime, warrior, wraith, wyrmscale_warden,
+        ashen_sovereign, barrow_knight, mimic, orc, skeleton, slime, warrior, wraith,
+        wyrmscale_warden,
     };
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -1426,6 +1602,39 @@ mod tests {
     }
 
     #[test]
+    fn every_boss_guarantees_its_second_gear_piece() {
+        // Alongside the signature weapon: the Barrow Knight and Warden each
+        // guarantee an armor piece, the Sovereign a ring. Never a dice roll.
+        let mut rng = StdRng::seed_from_u64(11);
+        let knight = roll_loot(&[barrow_knight("The Barrow Knight")], &[false], &mut rng);
+        assert!(knight.armors.iter().any(|a| a.name == "Barrow-Touched Plate"));
+        let warden = roll_loot(&[wyrmscale_warden("Wyrmscale Warden")], &[false], &mut rng);
+        assert!(warden.armors.iter().any(|a| a.name == "Dragonscale Aegis"));
+        let sovereign = roll_loot(&[ashen_sovereign("The Ashen Sovereign")], &[false], &mut rng);
+        assert!(sovereign.rings.iter().any(|r| r.name == "Sovereign's Signet"));
+    }
+
+    #[test]
+    fn species_gear_drops_land_in_the_armor_and_ring_pools() {
+        // A Mimic's ring drop is 35% — across many rolls it must show up,
+        // proving the armor/ring plumbing actually reaches the Loot struct.
+        let mut rng = StdRng::seed_from_u64(4);
+        let mut saw_ring = false;
+        let mut saw_armor = false;
+        for _ in 0..200 {
+            let loot = roll_loot(
+                &[mimic("Mimic"), skeleton("Skeleton")],
+                &[false, false],
+                &mut rng,
+            );
+            saw_ring |= loot.rings.iter().any(|r| r.name == "Mimic's Coil");
+            saw_armor |= loot.armors.iter().any(|a| a.name == "Chainmail Hauberk");
+        }
+        assert!(saw_ring, "the Mimic's Coil never dropped in 200 fights");
+        assert!(saw_armor, "the Chainmail Hauberk never dropped in 200 fights");
+    }
+
+    #[test]
     fn overkill_grants_bonus_gold() {
         let enemies = vec![slime("Slime")];
         let mut rng1 = StdRng::seed_from_u64(50);
@@ -1806,6 +2015,55 @@ mod tests {
         assert!(
             high_amount > low_amount,
             "a character with more max HP should heal for more from the same percent"
+        );
+    }
+
+    #[test]
+    fn an_elixir_fully_restores_hp_and_mp() {
+        let mut hero = warrior("Bram");
+        hero.stats.hp = 1;
+        hero.stats.mp = 0;
+        use_item_kind(ItemKind::Elixir, &mut hero);
+        assert_eq!(hero.stats.hp, hero.stats.max_hp);
+        assert_eq!(hero.stats.mp, hero.stats.max_mp);
+    }
+
+    #[test]
+    fn a_revive_raises_the_fallen_at_the_given_fraction() {
+        let mut hero = warrior("Bram");
+        hero.stats.hp = 0;
+        assert!(!hero.is_alive());
+        let msg = use_item_kind(ItemKind::Revive { heal_percent: 0.5 }, &mut hero);
+        assert!(hero.is_alive());
+        assert_eq!(hero.stats.hp, hero.stats.max_hp / 2);
+        assert!(msg.contains("rises"));
+    }
+
+    #[test]
+    fn a_revive_on_the_living_never_kills_or_no_ops() {
+        let mut hero = warrior("Bram");
+        hero.stats.hp = 5;
+        use_item_kind(ItemKind::Revive { heal_percent: 0.5 }, &mut hero);
+        assert!(hero.stats.hp >= 5, "the fallback must not hurt the target");
+    }
+
+    #[test]
+    fn a_cure_curse_item_in_combat_purges_party_curses() {
+        use crate::game::status::{StatEffectTarget, StatusEffect};
+
+        let mut party = test_party();
+        party.add_effect(StatusEffect {
+            name: "Curse of Frailty".into(),
+            target: StatEffectTarget::Defense,
+            delta: -4,
+            encounters_remaining: 2,
+        });
+        let mut combat = CombatState::new(&party, vec![slime("Slime")]);
+        let mut rng = StdRng::seed_from_u64(7);
+        combat.apply_item_and_advance(ItemKind::CureCurse, "Bram", 0, &mut party, &mut rng);
+        assert!(
+            party.effects.is_empty(),
+            "the purging stone should strip the curse mid-combat"
         );
     }
 }

@@ -5,16 +5,16 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 3,
-        "xp": 62,
-        "unspent_points": 6,
+        "level": 4,
+        "xp": 7,
+        "unspent_points": 9,
         "stats": {
-          "max_hp": 56,
-          "hp": 56,
-          "max_mp": 12,
-          "mp": 12,
-          "attack": 16,
-          "defense": 12,
+          "max_hp": 63,
+          "hp": 63,
+          "max_mp": 13,
+          "mp": 13,
+          "attack": 18,
+          "defense": 14,
           "speed": 6,
           "luck": 5
         },
@@ -52,18 +52,18 @@
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 3,
-        "xp": 62,
-        "unspent_points": 6,
+        "level": 4,
+        "xp": 7,
+        "unspent_points": 9,
         "stats": {
-          "max_hp": 32,
-          "hp": 32,
-          "max_mp": 40,
-          "mp": 40,
-          "attack": 7,
-          "defense": 6,
-          "speed": 10,
-          "luck": 8
+          "max_hp": 35,
+          "hp": 35,
+          "max_mp": 45,
+          "mp": 45,
+          "attack": 8,
+          "defense": 7,
+          "speed": 11,
+          "luck": 9
         },
         "abilities": [
           {
@@ -80,16 +80,22 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Apprentice's Wand",
+          "name": "Thief's Dirk",
           "rarity": "Common",
-          "attack_bonus": 1,
+          "attack_bonus": 3,
           "defense_bonus": 0,
-          "description": "A simple wand every mage starts with.",
+          "description": "Slim, quick, and honest about none of its history.",
           "source": "Starting",
           "upgrade_level": 0,
           "passive": null
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Padded Vest",
+          "rarity": "Common",
+          "defense_bonus": 2,
+          "description": "Quilted cloth over leather. Better than bare skin.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -99,18 +105,18 @@
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 3,
-        "xp": 62,
-        "unspent_points": 6,
+        "level": 4,
+        "xp": 7,
+        "unspent_points": 9,
         "stats": {
-          "max_hp": 42,
-          "hp": 42,
-          "max_mp": 32,
-          "mp": 32,
-          "attack": 8,
-          "defense": 10,
+          "max_hp": 47,
+          "hp": 47,
+          "max_mp": 36,
+          "mp": 36,
+          "attack": 9,
+          "defense": 12,
           "speed": 7,
-          "luck": 6
+          "luck": 7
         },
         "abilities": [
           {
@@ -146,18 +152,18 @@
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 3,
-        "xp": 62,
-        "unspent_points": 6,
+        "level": 4,
+        "xp": 7,
+        "unspent_points": 9,
         "stats": {
-          "max_hp": 38,
-          "hp": 38,
-          "max_mp": 18,
-          "mp": 18,
-          "attack": 13,
-          "defense": 7,
-          "speed": 15,
-          "luck": 16
+          "max_hp": 42,
+          "hp": 42,
+          "max_mp": 20,
+          "mp": 20,
+          "attack": 15,
+          "defense": 8,
+          "speed": 17,
+          "luck": 18
         },
         "abilities": [
           {
@@ -174,16 +180,26 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Thief's Dirk",
-          "rarity": "Common",
-          "attack_bonus": 3,
-          "defense_bonus": 0,
-          "description": "Slim, quick, and honest about none of its history.",
-          "source": "Starting",
+          "name": "Knightsbane",
+          "rarity": "Legendary",
+          "attack_bonus": 24,
+          "defense_bonus": 4,
+          "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
+          "source": {
+            "EnemyDrop": "The Barrow Knight"
+          },
           "upgrade_level": 0,
-          "passive": null
+          "passive": {
+            "Lifesteal": 0.15
+          }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Barrow-Touched Plate",
+          "rarity": "Epic",
+          "defense_bonus": 15,
+          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -191,15 +207,8 @@
         "boss_kind": null
       }
     ],
-    "gold": 210,
-    "effects": [
-      {
-        "name": "Warrior's Blessing",
-        "target": "Attack",
-        "delta": 5,
-        "encounters_remaining": 1
-      }
-    ]
+    "gold": 203,
+    "effects": []
   },
   "inventory": {
     "items": [
@@ -213,7 +222,7 @@
           },
           "value": 15
         },
-        3
+        5
       ],
       [
         {
@@ -225,28 +234,36 @@
           },
           "value": 20
         },
-        2
+        3
+      ],
+      [
+        {
+          "name": "Ember of Return",
+          "kind": {
+            "Revive": {
+              "heal_percent": 0.5
+            }
+          },
+          "value": 60
+        },
+        1
       ]
     ],
     "weapons": [
       {
-        "name": "Knightsbane",
-        "rarity": "Legendary",
-        "attack_bonus": 24,
-        "defense_bonus": 4,
-        "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
-        "source": {
-          "EnemyDrop": "The Barrow Knight"
-        },
+        "name": "Apprentice's Wand",
+        "rarity": "Common",
+        "attack_bonus": 1,
+        "defense_bonus": 0,
+        "description": "A simple wand every mage starts with.",
+        "source": "Starting",
         "upgrade_level": 0,
-        "passive": {
-          "Lifesteal": 0.15
-        }
+        "passive": null
       }
     ],
     "armors": [],
     "rings": [],
-    "upgrade_materials": 9
+    "upgrade_materials": 11
   },
   "current_chapter": "Two",
   "bosses_defeated": [
@@ -258,7 +275,7 @@
     "completed": []
   },
   "player_pos": {
-    "x": 4,
+    "x": 5,
     "y": 7
   }
 }

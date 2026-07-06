@@ -9,7 +9,7 @@ use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
 use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
-use crate::game::item::{Armor, Inventory, Ring, Weapon};
+use crate::game::item::{Armor, Inventory, ItemKind, Ring, Weapon};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Position, Tile};
 use crate::game::npc::{npc_def, NpcId};
@@ -18,7 +18,10 @@ use crate::game::shop::{
     shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopTab,
     ShopUiState,
 };
-use crate::game::state::{roll_field_event, EventState, ExploreState, FieldEvent, GameState};
+use crate::game::state::{
+    roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry,
+    MainMenuState,
+};
 
 pub struct World {
     pub party: Party,
@@ -63,13 +66,12 @@ impl World {
         }
     }
 
-    /// Resumes from the save file if a valid one exists, otherwise starts
-    /// fresh. Deleting `bashborne_save.json` is how you decline a continue.
-    pub fn load_or_new() -> Self {
-        match crate::game::save::read() {
-            Some(data) => Self::from_save(data),
-            None => Self::new(),
-        }
+    /// The startup state: a fresh world parked on the title screen. Whether
+    /// Continue is offered depends on a valid save existing right now.
+    pub fn at_main_menu() -> Self {
+        let mut world = Self::new();
+        world.state = GameState::MainMenu(MainMenuState::new(crate::game::save::read().is_some()));
+        world
     }
 
     /// Snapshots everything persistent into a `SaveData`. Only meaningful
@@ -121,6 +123,7 @@ impl World {
             return;
         }
         match &mut self.state {
+            GameState::MainMenu(_) => self.handle_main_menu_key(key),
             GameState::Explore(_) => self.handle_explore_key(key),
             GameState::Combat(_) => self.handle_combat_key(key),
             GameState::Inventory(_) => self.handle_inventory_key(key),
@@ -144,6 +147,52 @@ impl World {
                     self.should_quit = true;
                 }
             }
+        }
+    }
+
+    fn handle_main_menu_key(&mut self, key: KeyCode) {
+        let GameState::MainMenu(menu) = &mut self.state else {
+            return;
+        };
+        // The overwrite confirmation is modal: nothing else reacts until the
+        // player commits or backs out.
+        if menu.confirm_overwrite {
+            match key {
+                KeyCode::Enter | KeyCode::Char('y') => *self = Self::new(),
+                KeyCode::Esc | KeyCode::Char('n') => menu.confirm_overwrite = false,
+                _ => {}
+            }
+            return;
+        }
+        let entries = menu.entries();
+        match key {
+            KeyCode::Up | KeyCode::Char('w') => {
+                menu.cursor = (menu.cursor + entries.len() - 1) % entries.len();
+            }
+            KeyCode::Down | KeyCode::Char('s') => {
+                menu.cursor = (menu.cursor + 1) % entries.len();
+            }
+            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Enter => match entries[menu.cursor] {
+                MainMenuEntry::Quit => self.should_quit = true,
+                MainMenuEntry::NewGame => {
+                    if menu.has_save {
+                        menu.confirm_overwrite = true;
+                    } else {
+                        *self = Self::new();
+                    }
+                }
+                MainMenuEntry::Continue => match crate::game::save::read() {
+                    Some(data) => *self = Self::from_save(data),
+                    None => {
+                        // The save vanished since the menu was built; drop
+                        // the Continue entry rather than loading garbage.
+                        menu.has_save = false;
+                        menu.cursor = 0;
+                    }
+                },
+            },
+            _ => {}
         }
     }
 
@@ -268,7 +317,7 @@ impl World {
                             npc: None,
                         });
                     }
-                    FieldEvent::Treasure { gold, item, weapon, materials } => {
+                    FieldEvent::Treasure { gold, item, weapon, armor, ring, materials } => {
                         let mut lines = vec![format!("You found a hidden cache! +{gold} gold.")];
                         self.party.gold += gold;
                         if let Some(item) = item {
@@ -281,6 +330,20 @@ impl World {
                                 weapon.rarity, weapon.name
                             ));
                             self.inventory.add_weapon(weapon);
+                        }
+                        if let Some(armor) = armor {
+                            lines.push(format!(
+                                "Folded inside: a {} rarity {}!",
+                                armor.rarity, armor.name
+                            ));
+                            self.inventory.add_armor(armor);
+                        }
+                        if let Some(ring) = ring {
+                            lines.push(format!(
+                                "Tucked in a corner: a {} rarity {}!",
+                                ring.rarity, ring.name
+                            ));
+                            self.inventory.add_ring(ring);
                         }
                         if materials > 0 {
                             lines.push(format!("Buried alongside it: {materials} Titanite Shard(s)!"));
@@ -551,11 +614,26 @@ impl World {
                         };
                     }
                     KeyCode::Enter => {
-                        if cursor < self.inventory.items.len() {
+                        if let Some((item, _)) = self.inventory.items.get(cursor) {
+                            // Revives can only target the fallen; refuse to
+                            // enter target selection if no one is down.
+                            let target_idx = if matches!(item.kind, ItemKind::Revive { .. }) {
+                                let Some(fallen) =
+                                    self.party.members.iter().position(|m| !m.is_alive())
+                                else {
+                                    combat.push_log(
+                                        "No one has fallen — the ember would be wasted.",
+                                    );
+                                    return;
+                                };
+                                fallen
+                            } else {
+                                pi
+                            };
                             combat.phase = CombatPhase::SelectTarget {
                                 actor,
                                 action: CombatAction::Item(cursor),
-                                target_idx: pi,
+                                target_idx,
                             };
                         }
                     }
@@ -573,12 +651,21 @@ impl World {
                 let ActorRef::Player(pi) = actor else { return };
                 let is_heal = match action {
                     CombatAction::Ability(idx) => self.party.members[pi].ability_is_heal(idx),
-                    CombatAction::Item(_) => true, // potions/ethers are always ally-targeted
+                    CombatAction::Item(_) => true, // consumables are always ally-targeted
                     CombatAction::Attack | CombatAction::Flee => false,
+                };
+                // Revives invert the ally filter: only the fallen qualify.
+                let is_revive = match action {
+                    CombatAction::Item(idx) => matches!(
+                        self.inventory.items.get(idx).map(|(i, _)| i.kind),
+                        Some(ItemKind::Revive { .. })
+                    ),
+                    _ => false,
                 };
                 match key {
                     KeyCode::Left | KeyCode::Char('a') | KeyCode::Up | KeyCode::Char('w') => {
-                        let new_idx = cycle_target(&self.party, combat, is_heal, target_idx, -1);
+                        let new_idx =
+                            cycle_target(&self.party, combat, is_heal, is_revive, target_idx, -1);
                         combat.phase = CombatPhase::SelectTarget {
                             actor,
                             action,
@@ -586,7 +673,8 @@ impl World {
                         };
                     }
                     KeyCode::Right | KeyCode::Char('d') | KeyCode::Down | KeyCode::Char('s') => {
-                        let new_idx = cycle_target(&self.party, combat, is_heal, target_idx, 1);
+                        let new_idx =
+                            cycle_target(&self.party, combat, is_heal, is_revive, target_idx, 1);
                         combat.phase = CombatPhase::SelectTarget {
                             actor,
                             action,
@@ -1003,14 +1091,43 @@ impl World {
     fn apply_inventory_selection(&mut self, tab: InventoryTab, idx: usize, member_idx: usize) {
         let message = match tab {
             InventoryTab::Items => {
-                if let Some(kind) = self.inventory.use_at(idx) {
-                    self.party.members.get_mut(member_idx).map(|member| {
-                        let name = member.name.clone();
-                        let effect_msg = crate::game::combat::use_item_kind(kind, member);
-                        format!("{name}: {effect_msg}")
-                    })
-                } else {
-                    None
+                match self.inventory.items.get(idx).map(|(item, _)| item.kind) {
+                    // Party-wide, ignores the chosen member entirely.
+                    Some(ItemKind::CureCurse) => {
+                        self.inventory.use_at(idx);
+                        Some(if self.party.cure_curses() > 0 {
+                            "The curses clinging to the party crumble away.".to_string()
+                        } else {
+                            "No curses cling to the party — the stone is spent anyway."
+                                .to_string()
+                        })
+                    }
+                    // Refuse (without consuming) rather than waste a revive
+                    // on someone still standing.
+                    Some(ItemKind::Revive { .. })
+                        if self
+                            .party
+                            .members
+                            .get(member_idx)
+                            .is_some_and(|m| m.is_alive()) =>
+                    {
+                        self.party
+                            .members
+                            .get(member_idx)
+                            .map(|m| format!("{} is still standing — save the ember.", m.name))
+                    }
+                    Some(_) => {
+                        let kind = self.inventory.use_at(idx);
+                        match (kind, self.party.members.get_mut(member_idx)) {
+                            (Some(kind), Some(member)) => {
+                                let name = member.name.clone();
+                                let effect_msg = crate::game::combat::use_item_kind(kind, member);
+                                Some(format!("{name}: {effect_msg}"))
+                            }
+                            _ => None,
+                        }
+                    }
+                    None => None,
                 }
             }
             InventoryTab::Weapons => {
@@ -1409,8 +1526,11 @@ impl World {
                         "{} spends a point on {stat}. ({} left)",
                         member.name, member.unspent_points
                     ))
-                } else {
+                } else if member.unspent_points == 0 {
                     Some("No points left to spend.".to_string())
+                } else {
+                    // The only other way allocate_point refuses: a hard cap.
+                    Some(format!("{}'s {stat} can grow no further.", member.name))
                 }
             }
             None => None,
@@ -1557,6 +1677,20 @@ impl World {
                     ));
                     self.inventory.add_weapon(weapon);
                 }
+                for armor in loot.armors {
+                    messages.push(format!(
+                        "The enemy dropped a {} rarity armor: {}!",
+                        armor.rarity, armor.name
+                    ));
+                    self.inventory.add_armor(armor);
+                }
+                for ring in loot.rings {
+                    messages.push(format!(
+                        "The enemy dropped a {} rarity ring: {}!",
+                        ring.rarity, ring.name
+                    ));
+                    self.inventory.add_ring(ring);
+                }
                 if loot.upgrade_materials > 0 {
                     self.inventory.upgrade_materials += loot.upgrade_materials;
                     messages.push(format!(
@@ -1680,10 +1814,22 @@ fn cycle_target(
     party: &Party,
     combat: &CombatState,
     is_heal: bool,
+    is_revive: bool,
     current: usize,
     dir: i32,
 ) -> usize {
-    let candidates: Vec<usize> = if is_heal {
+    let candidates: Vec<usize> = if is_revive {
+        // A member revived mid-fight isn't in the turn order (it was built
+        // at combat start), so they won't act until the next encounter —
+        // but they're back on their feet and healable.
+        party
+            .members
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_alive())
+            .map(|(i, _)| i)
+            .collect()
+    } else if is_heal {
         party
             .members
             .iter()
@@ -1710,6 +1856,82 @@ fn cycle_target(
 mod tests {
     use super::*;
     use crate::game::item::{copper_band, iron_sword, padded_vest, ring_of_vigor};
+
+    /// Puts a fresh world on the title screen without touching the
+    /// filesystem — `at_main_menu()` would read the real save file.
+    fn world_at_menu(has_save: bool) -> World {
+        let mut world = World::new();
+        world.state = GameState::MainMenu(MainMenuState::new(has_save));
+        world
+    }
+
+    fn menu(world: &World) -> &MainMenuState {
+        let GameState::MainMenu(menu) = &world.state else {
+            panic!("expected the world to be on the main menu");
+        };
+        menu
+    }
+
+    #[test]
+    fn menu_without_a_save_offers_new_game_and_quit_only() {
+        let world = world_at_menu(false);
+        assert_eq!(
+            menu(&world).entries(),
+            vec![MainMenuEntry::NewGame, MainMenuEntry::Quit]
+        );
+        assert_eq!(
+            menu(&world).entries()[menu(&world).cursor],
+            MainMenuEntry::NewGame
+        );
+    }
+
+    #[test]
+    fn menu_navigation_wraps_and_enter_on_quit_quits() {
+        let mut world = world_at_menu(true);
+        assert_eq!(menu(&world).entries().len(), 3);
+        world.handle_key(KeyCode::Up); // wraps from Continue to Quit
+        assert_eq!(menu(&world).cursor, 2);
+        world.handle_key(KeyCode::Down); // wraps back to Continue
+        assert_eq!(menu(&world).cursor, 0);
+        world.handle_key(KeyCode::Down);
+        world.handle_key(KeyCode::Down); // Quit
+        world.handle_key(KeyCode::Enter);
+        assert!(world.should_quit);
+    }
+
+    #[test]
+    fn new_game_without_a_save_starts_exploring_immediately() {
+        let mut world = world_at_menu(false);
+        world.handle_key(KeyCode::Enter); // cursor starts on New Game
+        assert!(matches!(world.state, GameState::Explore(_)));
+        assert!(!world.should_quit);
+    }
+
+    #[test]
+    fn new_game_with_a_save_asks_before_overwriting() {
+        let mut world = world_at_menu(true);
+        world.handle_key(KeyCode::Down); // Continue -> New Game
+        world.handle_key(KeyCode::Enter);
+        assert!(menu(&world).confirm_overwrite, "should ask, not start");
+
+        world.handle_key(KeyCode::Esc); // turn back
+        assert!(!menu(&world).confirm_overwrite);
+        assert!(
+            matches!(world.state, GameState::MainMenu(_)),
+            "backing out should stay on the menu"
+        );
+
+        world.handle_key(KeyCode::Enter); // New Game again
+        world.handle_key(KeyCode::Enter); // confirm this time
+        assert!(matches!(world.state, GameState::Explore(_)));
+    }
+
+    #[test]
+    fn q_on_the_menu_quits() {
+        let mut world = world_at_menu(true);
+        world.handle_key(KeyCode::Char('q'));
+        assert!(world.should_quit);
+    }
 
     #[test]
     fn i_opens_the_inventory_and_esc_returns_to_explore() {

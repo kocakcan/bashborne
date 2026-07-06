@@ -366,7 +366,26 @@ fn draw_menu_or_result(
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
                     )));
                 }
-                if loot.gold == 0 && loot.items.is_empty() && loot.weapons.is_empty() {
+                for armor in &loot.armors {
+                    let color = crate::ui::rarity_color(armor.rarity);
+                    lines.push(Line::from(Span::styled(
+                        format!("Found armor: {} [{}]", armor.name, armor.rarity),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )));
+                }
+                for ring in &loot.rings {
+                    let color = crate::ui::rarity_color(ring.rarity);
+                    lines.push(Line::from(Span::styled(
+                        format!("Found ring: {} [{}]", ring.name, ring.rarity),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )));
+                }
+                if loot.gold == 0
+                    && loot.items.is_empty()
+                    && loot.weapons.is_empty()
+                    && loot.armors.is_empty()
+                    && loot.rings.is_empty()
+                {
                     lines.push(Line::from("No loot this time."));
                 }
             }

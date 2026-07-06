@@ -54,6 +54,14 @@ impl Party {
         }
     }
 
+    /// Strips every active curse (negative-delta effect), leaving blessings
+    /// untouched. Returns how many were lifted — the Purging Stone's effect.
+    pub fn cure_curses(&mut self) -> usize {
+        let before = self.effects.len();
+        self.effects.retain(|e| e.delta >= 0);
+        before - self.effects.len()
+    }
+
     /// Called once per concluded encounter (victory or successful flee) to count
     /// down and expire effects whose duration has run out.
     pub fn tick_effects(&mut self) {
@@ -61,5 +69,33 @@ impl Party {
             e.encounters_remaining = e.encounters_remaining.saturating_sub(1);
         }
         self.effects.retain(|e| e.encounters_remaining > 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::character::warrior;
+
+    #[test]
+    fn cure_curses_lifts_only_the_negative_effects() {
+        let mut party = Party::new(vec![warrior("Bram")]);
+        party.add_effect(StatusEffect {
+            name: "Warrior's Blessing".into(),
+            target: StatEffectTarget::Attack,
+            delta: 5,
+            encounters_remaining: 2,
+        });
+        party.add_effect(StatusEffect {
+            name: "Curse of Frailty".into(),
+            target: StatEffectTarget::Defense,
+            delta: -4,
+            encounters_remaining: 2,
+        });
+        assert_eq!(party.cure_curses(), 1);
+        assert_eq!(party.effects.len(), 1);
+        assert_eq!(party.effects[0].name, "Warrior's Blessing");
+        // A second stone finds nothing left to purge.
+        assert_eq!(party.cure_curses(), 0);
     }
 }

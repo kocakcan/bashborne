@@ -1,9 +1,10 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::game::character::{xp_to_next_level, ALLOC_STATS};
+use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 
@@ -55,24 +56,23 @@ fn draw_stat_list(frame: &mut Frame, area: Rect, ui: &LevelUpUiState, party: &Pa
     let items: Vec<ListItem> = ALLOC_STATS
         .iter()
         .enumerate()
-        .map(|(i, stat)| {
-            let current = match stat {
-                crate::game::character::AllocStat::MaxHp => member.stats.max_hp,
-                crate::game::character::AllocStat::MaxMp => member.stats.max_mp,
-                crate::game::character::AllocStat::Attack => member.stats.attack,
-                crate::game::character::AllocStat::Defense => member.stats.defense,
-                crate::game::character::AllocStat::Speed => member.stats.speed,
-                crate::game::character::AllocStat::Luck => member.stats.luck,
-            };
-            let increment = match stat {
-                crate::game::character::AllocStat::MaxHp => "+5/pt",
-                crate::game::character::AllocStat::MaxMp => "+3/pt",
-                crate::game::character::AllocStat::Attack => "+2/pt",
-                crate::game::character::AllocStat::Defense => "+2/pt",
-                crate::game::character::AllocStat::Speed => "+1/pt",
-                crate::game::character::AllocStat::Luck => "+1/pt",
+        .map(|(i, &stat)| {
+            let current = member.base_stat(stat);
+            // The selected member's class decides what a point is worth here
+            // (and whether the stat has hit a cap) — see `alloc_profile`.
+            let increment = match member.alloc_preview(stat) {
+                AllocPreview::Full(n) => format!("+{n}/pt"),
+                AllocPreview::Diminished(n) => format!("+{n}/pt, soft cap"),
+                AllocPreview::Capped => "MAX".to_string(),
             };
             let style = crate::ui::cursor_style(i == ui.stat_cursor);
+            let style = if matches!(member.alloc_preview(stat), AllocPreview::Capped)
+                && i != ui.stat_cursor
+            {
+                style.fg(Color::DarkGray)
+            } else {
+                style
+            };
             ListItem::new(Line::from(Span::styled(
                 format!("{:<10} {:>4}   ({increment})", stat.to_string(), current),
                 style,

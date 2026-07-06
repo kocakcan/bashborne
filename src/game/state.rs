@@ -6,8 +6,10 @@ use crate::game::character::Character;
 use crate::game::combat::CombatState;
 use crate::game::inventory_ui::InventoryUiState;
 use crate::game::item::{
-    dragonslayers_oath, ether, iron_sword, potion, sunken_relic_blade, travelers_spear, Item,
-    Weapon,
+    dragonslayers_oath, ember_of_return, ether, iron_loop, iron_sword, moonlit_greatsword,
+    padded_vest, potion, rangers_cloak, ring_of_favor, sovereign_elixir, sunken_relic_blade,
+    sunlit_straightsword, travelers_chestguard, travelers_ring, travelers_spear, warded_loop,
+    worn_leather_jerkin, Armor, Item, Ring, Weapon,
 };
 use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Map, Position};
@@ -52,7 +54,58 @@ pub struct EventState {
     pub npc: Option<NpcId>,
 }
 
+/// The title screen shown at startup, before any world state matters.
+pub struct MainMenuState {
+    pub cursor: usize,
+    /// Whether a valid save exists — gates the Continue entry.
+    pub has_save: bool,
+    /// True while "New Game" is waiting for the player to confirm
+    /// abandoning the existing save.
+    pub confirm_overwrite: bool,
+}
+
+/// An entry on the main menu — which ones appear depends on `has_save`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainMenuEntry {
+    Continue,
+    NewGame,
+    Quit,
+}
+
+impl MainMenuEntry {
+    pub fn label(self) -> &'static str {
+        match self {
+            MainMenuEntry::Continue => "Continue",
+            MainMenuEntry::NewGame => "New Game",
+            MainMenuEntry::Quit => "Quit",
+        }
+    }
+}
+
+impl MainMenuState {
+    pub fn new(has_save: bool) -> Self {
+        Self {
+            cursor: 0,
+            has_save,
+            confirm_overwrite: false,
+        }
+    }
+
+    pub fn entries(&self) -> Vec<MainMenuEntry> {
+        if self.has_save {
+            vec![
+                MainMenuEntry::Continue,
+                MainMenuEntry::NewGame,
+                MainMenuEntry::Quit,
+            ]
+        } else {
+            vec![MainMenuEntry::NewGame, MainMenuEntry::Quit]
+        }
+    }
+}
+
 pub enum GameState {
+    MainMenu(MainMenuState),
     Explore(ExploreState),
     Combat(CombatState),
     Event(EventState),
@@ -69,8 +122,11 @@ pub enum GameState {
 /// current chapter's `ChapterDef::enemy_level`), so the same species table
 /// gets genuinely harder chapter over chapter.
 pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32) -> Vec<Character> {
-    use crate::game::character::{bat, goblin, orc, skeleton, slime, wolf, wraith};
-    let mut enemies = match rng.gen_range(0..10) {
+    use crate::game::character::{
+        bandit, barrow_sentinel, bat, carrion_crow, fell_acolyte, forsaken_knight, goblin,
+        grave_ghoul, hollow, orc, rat, skeleton, slime, wolf, wraith,
+    };
+    let mut enemies = match rng.gen_range(0..20) {
         0 => vec![slime("Slime")],
         1 => vec![slime("Slime"), slime("Slime")],
         2 => vec![goblin("Goblin")],
@@ -80,7 +136,18 @@ pub fn roll_encounter(rng: &mut impl Rng, enemy_level: u32) -> Vec<Character> {
         6 => vec![skeleton("Skeleton")],
         7 => vec![orc("Orc")],
         8 => vec![wraith("Wraith")],
-        _ => vec![goblin("Goblin"), bat("Bat")],
+        9 => vec![goblin("Goblin"), bat("Bat")],
+        10 => vec![hollow("Hollow")],
+        11 => vec![hollow("Hollow"), hollow("Hollow")],
+        12 => vec![rat("Rat"), rat("Rat"), rat("Rat")],
+        13 => vec![carrion_crow("Carrion Crow"), bat("Bat")],
+        14 => vec![bandit("Bandit"), bandit("Bandit")],
+        15 => vec![fell_acolyte("Fell Acolyte"), hollow("Hollow")],
+        16 => vec![grave_ghoul("Grave Ghoul")],
+        17 => vec![grave_ghoul("Grave Ghoul"), hollow("Hollow")],
+        18 => vec![barrow_sentinel("Barrow Sentinel")],
+        // The rare elite roll — the hardest single regular fight there is.
+        _ => vec![forsaken_knight("Forsaken Knight")],
     };
     for enemy in &mut enemies {
         enemy.scale_to_level(enemy_level);
@@ -97,6 +164,8 @@ pub enum FieldEvent {
         gold: u32,
         item: Option<Item>,
         weapon: Option<Weapon>,
+        armor: Option<Armor>,
+        ring: Option<Ring>,
         /// Bonus Titanite Shards buried alongside the treasure — see
         /// `Inventory::upgrade_materials`.
         materials: u32,
@@ -119,20 +188,51 @@ pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
                 FieldEvent::Combat(vec![mimic])
             } else {
                 let gold = rng.gen_range(10..=25);
+                // Mostly basic consumables, with rarer restoratives at the
+                // tail so caches occasionally feel like a real find.
                 let item = if rng.gen_bool(0.5) {
-                    Some(if rng.gen_bool(0.5) { potion() } else { ether() })
+                    Some(match rng.gen_range(0..12) {
+                        0..=4 => potion(),
+                        5..=8 => ether(),
+                        9..=10 => ember_of_return(),
+                        _ => sovereign_elixir(),
+                    })
                 } else {
                     None
                 };
                 // Rare on top of that: the cache also held a weapon. Weighted
                 // toward common/uncommon finds, with a vanishingly small
-                // chance (roughly 1-in-80 overall) of a legendary relic.
+                // chance (roughly 1-in-100 overall) of a legendary relic.
                 let weapon = if rng.gen_ratio(1, 8) {
-                    Some(match rng.gen_range(0..10) {
-                        0..=4 => iron_sword(),
-                        5..=7 => travelers_spear(),
-                        8 => sunken_relic_blade(),
+                    Some(match rng.gen_range(0..12) {
+                        0..=3 => iron_sword(),
+                        4..=6 => travelers_spear(),
+                        7..=8 => sunlit_straightsword(),
+                        9 => sunken_relic_blade(),
+                        10 => moonlit_greatsword(),
                         _ => dragonslayers_oath(),
+                    })
+                } else {
+                    None
+                };
+                // Independent rolls for buried armor and rings — combat
+                // isn't the only way to round out the party's gear.
+                let armor = if rng.gen_ratio(1, 10) {
+                    Some(match rng.gen_range(0..4) {
+                        0 => padded_vest(),
+                        1 => worn_leather_jerkin(),
+                        2 => travelers_chestguard(),
+                        _ => rangers_cloak(),
+                    })
+                } else {
+                    None
+                };
+                let ring = if rng.gen_ratio(1, 12) {
+                    Some(match rng.gen_range(0..4) {
+                        0 => iron_loop(),
+                        1 => travelers_ring(),
+                        2 => warded_loop(),
+                        _ => ring_of_favor(),
                     })
                 } else {
                     None
@@ -141,7 +241,7 @@ pub fn roll_field_event(rng: &mut impl Rng, enemy_level: u32) -> FieldEvent {
                 // alongside the treasure, so exploring (not just fighting)
                 // feeds the blacksmith too.
                 let materials = if rng.gen_ratio(1, 5) { rng.gen_range(1..=3) } else { 0 };
-                FieldEvent::Treasure { gold, item, weapon, materials }
+                FieldEvent::Treasure { gold, item, weapon, armor, ring, materials }
             }
         }
     }

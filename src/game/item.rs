@@ -10,6 +10,14 @@ pub enum ItemKind {
     Potion { heal_percent: f32 },
     /// Restores a fraction of the target's max MP — same reasoning as `Potion`.
     Ether { mp_percent: f32 },
+    /// Fully restores the target's HP and MP in one draught.
+    Elixir,
+    /// Brings a fallen ally back at this fraction of max HP. Useless on the
+    /// living. (A member revived mid-fight rejoins the turn order next fight.)
+    Revive { heal_percent: f32 },
+    /// Strips every active curse (negative status effect) from the party.
+    /// Party-wide by nature, so it never asks for a target.
+    CureCurse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +41,46 @@ pub fn ether() -> Item {
         name: "Ether".into(),
         kind: ItemKind::Ether { mp_percent: 0.35 },
         value: 20,
+    }
+}
+
+pub fn greater_potion() -> Item {
+    Item {
+        name: "Greater Potion".into(),
+        kind: ItemKind::Potion { heal_percent: 0.6 },
+        value: 40,
+    }
+}
+
+pub fn greater_ether() -> Item {
+    Item {
+        name: "Greater Ether".into(),
+        kind: ItemKind::Ether { mp_percent: 0.6 },
+        value: 45,
+    }
+}
+
+pub fn sovereign_elixir() -> Item {
+    Item {
+        name: "Sovereign Elixir".into(),
+        kind: ItemKind::Elixir,
+        value: 90,
+    }
+}
+
+pub fn ember_of_return() -> Item {
+    Item {
+        name: "Ember of Return".into(),
+        kind: ItemKind::Revive { heal_percent: 0.5 },
+        value: 60,
+    }
+}
+
+pub fn purging_stone() -> Item {
+    Item {
+        name: "Purging Stone".into(),
+        kind: ItemKind::CureCurse,
+        value: 40,
     }
 }
 
@@ -277,6 +325,19 @@ pub fn goblin_shiv() -> Weapon {
     }
 }
 
+pub fn hollow_soldiers_blade() -> Weapon {
+    Weapon {
+        name: "Hollow Soldier's Blade".into(),
+        rarity: Rarity::Common,
+        attack_bonus: 4,
+        defense_bonus: 0,
+        description: "Its owner forgot everything but how to swing it.".into(),
+        source: GearSource::EnemyDrop("Hollow".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
 pub fn travelers_spear() -> Weapon {
     Weapon {
         name: "Traveler's Spear".into(),
@@ -298,6 +359,32 @@ pub fn bone_blade() -> Weapon {
         defense_bonus: 0,
         description: "Carved from a fallen skeleton's own femur.".into(),
         source: GearSource::EnemyDrop("Skeleton".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn bandits_falchion() -> Weapon {
+    Weapon {
+        name: "Bandit's Falchion".into(),
+        rarity: Rarity::Uncommon,
+        attack_bonus: 6,
+        defense_bonus: 0,
+        description: "Curved for cutting purses and throats alike.".into(),
+        source: GearSource::EnemyDrop("Bandit".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn sunlit_straightsword() -> Weapon {
+    Weapon {
+        name: "Sunlit Straightsword".into(),
+        rarity: Rarity::Uncommon,
+        attack_bonus: 7,
+        defense_bonus: 1,
+        description: "Kept bright by an oath someone else abandoned.".into(),
+        source: GearSource::World,
         upgrade_level: 0,
         passive: None,
     }
@@ -336,6 +423,58 @@ pub fn sunken_relic_blade() -> Weapon {
         attack_bonus: 11,
         defense_bonus: 0,
         description: "Pulled from somewhere it should never have been found.".into(),
+        source: GearSource::World,
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn fell_censer() -> Weapon {
+    Weapon {
+        name: "Fell Censer".into(),
+        rarity: Rarity::Rare,
+        attack_bonus: 9,
+        defense_bonus: 1,
+        description: "Swings heavy; the smoke it sheds still prays.".into(),
+        source: GearSource::EnemyDrop("Fell Acolyte".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn forsaken_longsword() -> Weapon {
+    Weapon {
+        name: "Forsaken Longsword".into(),
+        rarity: Rarity::Rare,
+        attack_bonus: 10,
+        defense_bonus: 1,
+        description: "Its crest was filed off long before its wielder fell.".into(),
+        source: GearSource::EnemyDrop("Forsaken Knight".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn sentinels_greathammer() -> Weapon {
+    Weapon {
+        name: "Sentinel's Greathammer".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 14,
+        defense_bonus: 3,
+        description: "A pillar with a grip. The barrow shook when it fell.".into(),
+        source: GearSource::EnemyDrop("Barrow Sentinel".into()),
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
+pub fn moonlit_greatsword() -> Weapon {
+    Weapon {
+        name: "Moonlit Greatsword".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 16,
+        defense_bonus: 0,
+        description: "A pale arc of light given an edge. It hums when drawn.".into(),
         source: GearSource::World,
         upgrade_level: 0,
         passive: None,
@@ -483,6 +622,26 @@ pub fn chainmail_hauberk() -> Armor {
     }
 }
 
+pub fn acolytes_vestment() -> Armor {
+    Armor {
+        name: "Acolyte's Vestment".into(),
+        rarity: Rarity::Uncommon,
+        defense_bonus: 5,
+        description: "Ash-gray robes, hemmed with prayers best left unread.".into(),
+        source: GearSource::EnemyDrop("Fell Acolyte".into()),
+    }
+}
+
+pub fn brigand_leathers() -> Armor {
+    Armor {
+        name: "Brigand Leathers".into(),
+        rarity: Rarity::Uncommon,
+        defense_bonus: 6,
+        description: "Patched a dozen times, each patch a bad story.".into(),
+        source: GearSource::EnemyDrop("Bandit".into()),
+    }
+}
+
 pub fn warded_chainmail() -> Armor {
     Armor {
         name: "Warded Chainmail".into(),
@@ -500,6 +659,26 @@ pub fn knights_plate() -> Armor {
         defense_bonus: 10,
         description: "Dented but unbroken, stripped from a brute of an orc.".into(),
         source: GearSource::EnemyDrop("Orc".into()),
+    }
+}
+
+pub fn elite_knights_armor() -> Armor {
+    Armor {
+        name: "Elite Knight's Armor".into(),
+        rarity: Rarity::Rare,
+        defense_bonus: 11,
+        description: "Proud plate that outlived its order and its knight.".into(),
+        source: GearSource::EnemyDrop("Forsaken Knight".into()),
+    }
+}
+
+pub fn sentinels_bulwark() -> Armor {
+    Armor {
+        name: "Sentinel's Bulwark".into(),
+        rarity: Rarity::Epic,
+        defense_bonus: 14,
+        description: "Stone-set plate that stood watch longer than its wearer lived.".into(),
+        source: GearSource::EnemyDrop("Barrow Sentinel".into()),
     }
 }
 
@@ -594,6 +773,17 @@ pub fn ring_of_warding() -> Ring {
     }
 }
 
+pub fn ghouls_knucklebone() -> Ring {
+    Ring {
+        name: "Ghoul's Knucklebone".into(),
+        rarity: Rarity::Uncommon,
+        attack_bonus: 2,
+        defense_bonus: 1,
+        description: "A finger bone lashed into a crude loop. Still hungry.".into(),
+        source: GearSource::EnemyDrop("Grave Ghoul".into()),
+    }
+}
+
 pub fn wolfsbane_signet() -> Ring {
     Ring {
         name: "Wolfsbane Signet".into(),
@@ -613,6 +803,39 @@ pub fn warded_loop() -> Ring {
         defense_bonus: 5,
         description: "A closed circuit of old wards, humming under strain.".into(),
         source: GearSource::World,
+    }
+}
+
+pub fn ring_of_favor() -> Ring {
+    Ring {
+        name: "Ring of Favor".into(),
+        rarity: Rarity::Rare,
+        attack_bonus: 3,
+        defense_bonus: 3,
+        description: "A goddess's favor, or a very good forgery of it.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn sentinels_seal() -> Ring {
+    Ring {
+        name: "Sentinel's Seal".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 0,
+        defense_bonus: 7,
+        description: "The badge of the barrow watch, heavy as duty.".into(),
+        source: GearSource::EnemyDrop("Barrow Sentinel".into()),
+    }
+}
+
+pub fn sovereigns_signet() -> Ring {
+    Ring {
+        name: "Sovereign's Signet".into(),
+        rarity: Rarity::Legendary,
+        attack_bonus: 7,
+        defense_bonus: 5,
+        description: "The seal of a throne of ash. It still expects obedience.".into(),
+        source: GearSource::EnemyDrop("The Ashen Sovereign".into()),
     }
 }
 
@@ -742,12 +965,19 @@ mod tests {
             worn_shortsword(),
             iron_sword(),
             goblin_shiv(),
+            hollow_soldiers_blade(),
             travelers_spear(),
             bone_blade(),
+            bandits_falchion(),
+            sunlit_straightsword(),
             orcish_greataxe(),
             wraithbane_edge(),
             sunken_relic_blade(),
+            fell_censer(),
+            forsaken_longsword(),
             mimics_fang(),
+            sentinels_greathammer(),
+            moonlit_greatsword(),
             dragonslayers_oath(),
             knightsbane(),
             wardens_fang(),

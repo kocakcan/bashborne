@@ -15,11 +15,13 @@ mod event;
 mod explore;
 mod inventory;
 mod levelup;
+mod main_menu;
 mod quest_log;
 mod shop;
 
 pub fn draw(frame: &mut Frame, world: &World) {
     match &world.state {
+        GameState::MainMenu(menu) => main_menu::draw(frame, menu),
         GameState::Explore(explore) => explore::draw(frame, explore, &world.party),
         GameState::Combat(combat) => combat::draw(
             frame,
