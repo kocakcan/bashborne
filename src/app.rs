@@ -1,6 +1,7 @@
-use crossterm::event::KeyCode;
 use rand::rngs::ThreadRng;
 use rand::Rng;
+
+use crate::input::Key;
 
 use crate::game::blacksmith::{
     upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState, SHARD_PRICE,
@@ -24,6 +25,12 @@ use crate::game::state::{
     roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry, MainMenuState,
 };
 
+/// Number of idle-animation frames every sprite (player, NPC, monster) has.
+pub const ANIM_FRAMES: usize = 2;
+/// Real seconds between animation-frame flips — about twice a second, the
+/// same cadence the old ~100ms-poll-driven `anim_tick` produced.
+const ANIM_FRAME_SECONDS: f32 = 0.4;
+
 pub struct World {
     pub party: Party,
     pub inventory: Inventory,
@@ -44,9 +51,10 @@ pub struct World {
     /// `start_new_game_plus` after beating the final boss, capped at 7.
     /// Multiplies every enemy's stats via `Character::apply_ng_plus`.
     pub ng_plus: u32,
-    /// Bumped once per app-loop tick (~100ms); drives the combat screen's
-    /// sprite animation via `anim_frame`.
-    pub anim_tick: u64,
+    /// Accumulates real elapsed seconds; flips `anim_frame_idx` every
+    /// `ANIM_FRAME_SECONDS`, driving the combat/overworld sprite animation.
+    pub anim_timer: f32,
+    pub anim_frame_idx: usize,
     /// Whether the `?` keybind reference popup is currently shown, overlaid
     /// on top of whatever screen is active.
     pub show_help: bool,
@@ -71,7 +79,8 @@ impl World {
             npc_flags: std::collections::HashSet::new(),
             quest_log: crate::game::quest::QuestLog::new(),
             ng_plus: 0,
-            anim_tick: 0,
+            anim_timer: 0.0,
+            anim_frame_idx: 0,
             show_help: false,
         }
     }
@@ -117,7 +126,8 @@ impl World {
             npc_flags: data.npc_flags,
             quest_log: data.quest_log,
             ng_plus: data.ng_plus,
-            anim_tick: 0,
+            anim_timer: 0.0,
+            anim_frame_idx: 0,
             show_help: false,
         }
     }
@@ -143,21 +153,18 @@ impl World {
     }
 
     /// Which sprite animation frame the combat screen should show right now.
-    /// The app loop ticks roughly every 100ms, so dividing by 4 flips the
-    /// frame about twice a second — enough to read as idle motion without
-    /// being distracting.
     pub fn anim_frame(&self) -> usize {
-        (self.anim_tick / 4) as usize % crate::game::sprites::ANIM_FRAMES
+        self.anim_frame_idx
     }
 
-    pub fn handle_key(&mut self, key: KeyCode) {
+    pub fn handle_key(&mut self, key: Key) {
         if self.show_help {
-            if matches!(key, KeyCode::Char('?') | KeyCode::Esc) {
+            if matches!(key, Key::Char('?') | Key::Esc) {
                 self.show_help = false;
             }
             return;
         }
-        if key == KeyCode::Char('?')
+        if key == Key::Char('?')
             && !matches!(
                 self.state,
                 GameState::MainMenu(_) | GameState::GameOver { .. }
@@ -176,7 +183,7 @@ impl World {
             GameState::LevelUp(_) => self.handle_levelup_key(key),
             GameState::Blacksmith(_) => self.handle_blacksmith_key(key),
             GameState::Event(ev) => {
-                if key == KeyCode::Enter {
+                if key == Key::Enter {
                     let return_pos = ev.return_pos;
                     if let Some(id) = ev.npc {
                         self.npc_flags.insert(id);
@@ -188,16 +195,16 @@ impl World {
             }
             GameState::GameOver { victory } => {
                 let victory = *victory;
-                if key == KeyCode::Enter {
+                if key == Key::Enter {
                     self.should_quit = true;
-                } else if victory && matches!(key, KeyCode::Char('n') | KeyCode::Char('N')) {
+                } else if victory && matches!(key, Key::Char('n') | Key::Char('N')) {
                     self.start_new_game_plus();
                 }
             }
         }
     }
 
-    fn handle_main_menu_key(&mut self, key: KeyCode) {
+    fn handle_main_menu_key(&mut self, key: Key) {
         let GameState::MainMenu(menu) = &mut self.state else {
             return;
         };
@@ -205,22 +212,22 @@ impl World {
         // player commits or backs out.
         if menu.confirm_overwrite {
             match key {
-                KeyCode::Enter | KeyCode::Char('y') => *self = Self::new(),
-                KeyCode::Esc | KeyCode::Char('n') => menu.confirm_overwrite = false,
+                Key::Enter | Key::Char('y') => *self = Self::new(),
+                Key::Esc | Key::Char('n') => menu.confirm_overwrite = false,
                 _ => {}
             }
             return;
         }
         let entries = menu.entries();
         match key {
-            KeyCode::Up | KeyCode::Char('w') => {
+            Key::Up | Key::Char('w') => {
                 menu.cursor = (menu.cursor + entries.len() - 1) % entries.len();
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            Key::Down | Key::Char('s') => {
                 menu.cursor = (menu.cursor + 1) % entries.len();
             }
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Enter => match entries[menu.cursor] {
+            Key::Char('q') | Key::Esc => self.should_quit = true,
+            Key::Enter => match entries[menu.cursor] {
                 MainMenuEntry::Quit => self.should_quit = true,
                 MainMenuEntry::NewGame => {
                     if menu.has_save {
@@ -243,7 +250,7 @@ impl World {
         }
     }
 
-    fn handle_explore_key(&mut self, key: KeyCode) {
+    fn handle_explore_key(&mut self, key: Key) {
         // The quit confirmation is modal: nothing else reacts until the
         // player commits or backs out, mirroring `confirm_overwrite` on the
         // main menu.
@@ -253,8 +260,8 @@ impl World {
         };
         if confirm_quit {
             match key {
-                KeyCode::Enter | KeyCode::Char('y') => self.should_quit = true,
-                KeyCode::Esc | KeyCode::Char('n') => {
+                Key::Enter | Key::Char('y') => self.should_quit = true,
+                Key::Esc | Key::Char('n') => {
                     let GameState::Explore(explore) = &mut self.state else {
                         return;
                     };
@@ -264,28 +271,28 @@ impl World {
             }
             return;
         }
-        if key == KeyCode::Char('q') {
+        if key == Key::Char('q') {
             let GameState::Explore(explore) = &mut self.state else {
                 return;
             };
             explore.confirm_quit = true;
             return;
         }
-        if key == KeyCode::PageUp {
+        if key == Key::PageUp {
             let GameState::Explore(explore) = &mut self.state else {
                 return;
             };
             explore.log_scroll = (explore.log_scroll + 10).min(explore.log.len());
             return;
         }
-        if key == KeyCode::PageDown {
+        if key == Key::PageDown {
             let GameState::Explore(explore) = &mut self.state else {
                 return;
             };
             explore.log_scroll = explore.log_scroll.saturating_sub(10);
             return;
         }
-        if key == KeyCode::Char('S') {
+        if key == Key::Char('S') {
             let GameState::Explore(explore) = &self.state else {
                 return;
             };
@@ -300,7 +307,7 @@ impl World {
             explore.push_log(message);
             return;
         }
-        if key == KeyCode::Char('i') {
+        if key == Key::Char('i') {
             let GameState::Explore(explore) = &self.state else {
                 return;
             };
@@ -308,7 +315,7 @@ impl World {
             self.state = GameState::Inventory(InventoryUiState::new(return_pos));
             return;
         }
-        if key == KeyCode::Char('l') {
+        if key == Key::Char('l') {
             let GameState::Explore(explore) = &self.state else {
                 return;
             };
@@ -317,7 +324,7 @@ impl World {
                 GameState::QuestLog(crate::game::quest_ui::QuestLogUiState::new(return_pos));
             return;
         }
-        if key == KeyCode::Char('u') {
+        if key == Key::Char('u') {
             let GameState::Explore(explore) = &self.state else {
                 return;
             };
@@ -325,7 +332,7 @@ impl World {
             self.state = GameState::LevelUp(LevelUpUiState::new(return_pos));
             return;
         }
-        if key == KeyCode::Char('e') {
+        if key == Key::Char('e') {
             let GameState::Explore(explore) = &self.state else {
                 return;
             };
@@ -347,10 +354,10 @@ impl World {
             return;
         };
         let delta = match key {
-            KeyCode::Up | KeyCode::Char('w') => Some((0, -1)),
-            KeyCode::Down | KeyCode::Char('s') => Some((0, 1)),
-            KeyCode::Left | KeyCode::Char('a') => Some((-1, 0)),
-            KeyCode::Right | KeyCode::Char('d') => Some((1, 0)),
+            Key::Up | Key::Char('w') => Some((0, -1)),
+            Key::Down | Key::Char('s') => Some((0, 1)),
+            Key::Left | Key::Char('a') => Some((-1, 0)),
+            Key::Right | Key::Char('d') => Some((1, 0)),
             _ => None,
         };
         let Some((dx, dy)) = delta else { return };
@@ -584,13 +591,13 @@ impl World {
             .collect()
     }
 
-    fn handle_quest_log_key(&mut self, key: KeyCode) {
+    fn handle_quest_log_key(&mut self, key: Key) {
         let GameState::QuestLog(ui_ref) = &self.state else {
             return;
         };
         let cursor = ui_ref.cursor;
         match key {
-            KeyCode::Esc => {
+            Key::Esc => {
                 let GameState::QuestLog(ui) = &self.state else {
                     return;
                 };
@@ -599,14 +606,14 @@ impl World {
                 explore.player_pos = return_pos;
                 self.state = GameState::Explore(explore);
             }
-            KeyCode::Up | KeyCode::Char('w') => {
+            Key::Up | Key::Char('w') => {
                 let len = self.quest_log.active.len().max(1);
                 let GameState::QuestLog(ui) = &mut self.state else {
                     return;
                 };
                 ui.cursor = (cursor + len - 1) % len;
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            Key::Down | Key::Char('s') => {
                 let len = self.quest_log.active.len().max(1);
                 let GameState::QuestLog(ui) = &mut self.state else {
                     return;
@@ -617,16 +624,16 @@ impl World {
         }
     }
 
-    fn handle_combat_key(&mut self, key: KeyCode) {
+    fn handle_combat_key(&mut self, key: Key) {
         let GameState::Combat(combat) = &mut self.state else {
             return;
         };
 
-        if key == KeyCode::PageUp {
+        if key == Key::PageUp {
             combat.log_scroll = (combat.log_scroll + 10).min(combat.log.len());
             return;
         }
-        if key == KeyCode::PageDown {
+        if key == Key::PageDown {
             combat.log_scroll = combat.log_scroll.saturating_sub(10);
             return;
         }
@@ -637,13 +644,13 @@ impl World {
                 let ActorRef::Player(pi) = actor else { return };
                 let menu_len = 4; // Attack, Ability, Item, Flee
                 match key {
-                    KeyCode::Up | KeyCode::Char('w') => {
+                    Key::Up | Key::Char('w') => {
                         combat.menu_cursor = (combat.menu_cursor + menu_len - 1) % menu_len;
                     }
-                    KeyCode::Down | KeyCode::Char('s') => {
+                    Key::Down | Key::Char('s') => {
                         combat.menu_cursor = (combat.menu_cursor + 1) % menu_len;
                     }
-                    KeyCode::Enter => match combat.menu_cursor {
+                    Key::Enter => match combat.menu_cursor {
                         0 => {
                             let alive = combat.alive_enemy_indices();
                             let target_idx = alive.first().copied().unwrap_or(0);
@@ -684,21 +691,21 @@ impl World {
                 let ActorRef::Player(pi) = actor else { return };
                 let ability_count = self.party.members[pi].abilities.len().max(1);
                 match key {
-                    KeyCode::Up | KeyCode::Char('w') => {
+                    Key::Up | Key::Char('w') => {
                         let new_cursor = (cursor + ability_count - 1) % ability_count;
                         combat.phase = CombatPhase::SelectAbility {
                             actor,
                             cursor: new_cursor,
                         };
                     }
-                    KeyCode::Down | KeyCode::Char('s') => {
+                    Key::Down | Key::Char('s') => {
                         let new_cursor = (cursor + 1) % ability_count;
                         combat.phase = CombatPhase::SelectAbility {
                             actor,
                             cursor: new_cursor,
                         };
                     }
-                    KeyCode::Enter => {
+                    Key::Enter => {
                         let is_heal = self.party.members[pi].ability_is_heal(cursor);
                         let targets_all = self.party.members[pi]
                             .abilities
@@ -722,7 +729,7 @@ impl World {
                             self.resolve_pending_target();
                         }
                     }
-                    KeyCode::Esc => {
+                    Key::Esc => {
                         combat.phase = CombatPhase::SelectAction { actor };
                     }
                     _ => {}
@@ -732,21 +739,21 @@ impl World {
                 let ActorRef::Player(pi) = actor else { return };
                 let item_count = self.inventory.items.len().max(1);
                 match key {
-                    KeyCode::Up | KeyCode::Char('w') => {
+                    Key::Up | Key::Char('w') => {
                         let new_cursor = (cursor + item_count - 1) % item_count;
                         combat.phase = CombatPhase::SelectItem {
                             actor,
                             cursor: new_cursor,
                         };
                     }
-                    KeyCode::Down | KeyCode::Char('s') => {
+                    Key::Down | Key::Char('s') => {
                         let new_cursor = (cursor + 1) % item_count;
                         combat.phase = CombatPhase::SelectItem {
                             actor,
                             cursor: new_cursor,
                         };
                     }
-                    KeyCode::Enter => {
+                    Key::Enter => {
                         if let Some((item, _)) = self.inventory.items.get(cursor) {
                             // Revives can only target the fallen; refuse to
                             // enter target selection if no one is down.
@@ -769,7 +776,7 @@ impl World {
                             };
                         }
                     }
-                    KeyCode::Esc => {
+                    Key::Esc => {
                         combat.phase = CombatPhase::SelectAction { actor };
                     }
                     _ => {}
@@ -795,7 +802,7 @@ impl World {
                     _ => false,
                 };
                 match key {
-                    KeyCode::Left | KeyCode::Char('a') | KeyCode::Up | KeyCode::Char('w') => {
+                    Key::Left | Key::Char('a') | Key::Up | Key::Char('w') => {
                         let new_idx =
                             cycle_target(&self.party, combat, is_heal, is_revive, target_idx, -1);
                         combat.phase = CombatPhase::SelectTarget {
@@ -804,7 +811,7 @@ impl World {
                             target_idx: new_idx,
                         };
                     }
-                    KeyCode::Right | KeyCode::Char('d') | KeyCode::Down | KeyCode::Char('s') => {
+                    Key::Right | Key::Char('d') | Key::Down | Key::Char('s') => {
                         let new_idx =
                             cycle_target(&self.party, combat, is_heal, is_revive, target_idx, 1);
                         combat.phase = CombatPhase::SelectTarget {
@@ -813,8 +820,8 @@ impl World {
                             target_idx: new_idx,
                         };
                     }
-                    KeyCode::Enter => self.resolve_pending_target(),
-                    KeyCode::Esc => {
+                    Key::Enter => self.resolve_pending_target(),
+                    Key::Esc => {
                         combat.phase = match action {
                             CombatAction::Ability(idx) => {
                                 CombatPhase::SelectAbility { actor, cursor: idx }
@@ -830,7 +837,7 @@ impl World {
             }
             _ => {
                 // Victory / Defeat / Fled: any key returns to the appropriate next state.
-                if matches!(key, KeyCode::Enter) {
+                if matches!(key, Key::Enter) {
                     self.conclude_combat();
                 }
             }
@@ -871,7 +878,7 @@ impl World {
         combat.resolve_current_turn(&mut self.party, &mut self.rng);
     }
 
-    fn handle_inventory_key(&mut self, key: KeyCode) {
+    fn handle_inventory_key(&mut self, key: Key) {
         // Pull out Copy state first so this immutable borrow of self.state ends
         // immediately, freeing self.inventory/self.party up for the branches below.
         let GameState::Inventory(inv_ref) = &self.state else {
@@ -883,7 +890,7 @@ impl World {
 
         match mode {
             InventoryMode::Browsing => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &self.state else {
                         return;
                     };
@@ -892,21 +899,21 @@ impl World {
                     explore.player_pos = return_pos;
                     self.state = GameState::Explore(explore);
                 }
-                KeyCode::Tab | KeyCode::Right | KeyCode::Char('d') => {
+                Key::Tab | Key::Right | Key::Char('d') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
                     inv.tab = inv.tab.next();
                     inv.cursor = 0;
                 }
-                KeyCode::Left | KeyCode::Char('a') => {
+                Key::Left | Key::Char('a') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
                     inv.tab = inv.tab.prev();
                     inv.cursor = 0;
                 }
-                KeyCode::Char('p') => {
+                Key::Char('p') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -915,7 +922,7 @@ impl World {
                         slot_cursor: 0,
                     };
                 }
-                KeyCode::Up | KeyCode::Char('w') => {
+                Key::Up | Key::Char('w') => {
                     let len = self.inventory_tab_len(tab);
                     if len > 0 {
                         let GameState::Inventory(inv) = &mut self.state else {
@@ -924,7 +931,7 @@ impl World {
                         inv.cursor = (cursor + len - 1) % len;
                     }
                 }
-                KeyCode::Down | KeyCode::Char('s') => {
+                Key::Down | Key::Char('s') => {
                     let len = self.inventory_tab_len(tab);
                     if len > 0 {
                         let GameState::Inventory(inv) = &mut self.state else {
@@ -933,7 +940,7 @@ impl World {
                         inv.cursor = (cursor + 1) % len;
                     }
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     if tab == InventoryTab::Materials {
                         let GameState::Inventory(inv) = &mut self.state else {
                             return;
@@ -961,13 +968,13 @@ impl World {
                 idx,
                 member_cursor,
             } => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
                     inv.mode = InventoryMode::Browsing;
                 }
-                KeyCode::Up | KeyCode::Char('w') => {
+                Key::Up | Key::Char('w') => {
                     let len = self.party.members.len().max(1);
                     let new_cursor = (member_cursor + len - 1) % len;
                     let GameState::Inventory(inv) = &mut self.state else {
@@ -979,7 +986,7 @@ impl World {
                         member_cursor: new_cursor,
                     };
                 }
-                KeyCode::Down | KeyCode::Char('s') => {
+                Key::Down | Key::Char('s') => {
                     let len = self.party.members.len().max(1);
                     let new_cursor = (member_cursor + 1) % len;
                     let GameState::Inventory(inv) = &mut self.state else {
@@ -991,7 +998,7 @@ impl World {
                         member_cursor: new_cursor,
                     };
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     if tab == InventoryTab::Rings {
                         let GameState::Inventory(inv) = &mut self.state else {
                             return;
@@ -1012,13 +1019,13 @@ impl World {
                 member_idx,
                 slot_cursor,
             } => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
                     inv.mode = InventoryMode::Browsing;
                 }
-                KeyCode::Up | KeyCode::Char('w') | KeyCode::Down | KeyCode::Char('s') => {
+                Key::Up | Key::Char('w') | Key::Down | Key::Char('s') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1028,7 +1035,7 @@ impl World {
                         slot_cursor: 1 - slot_cursor,
                     };
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     let slot = if slot_cursor == 0 {
                         RingSlot::First
                     } else {
@@ -1042,13 +1049,13 @@ impl World {
                 member_cursor,
                 slot_cursor,
             } => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
                     inv.mode = InventoryMode::Browsing;
                 }
-                KeyCode::Up | KeyCode::Char('w') => {
+                Key::Up | Key::Char('w') => {
                     let len = self.party.members.len().max(1);
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
@@ -1058,7 +1065,7 @@ impl World {
                         slot_cursor,
                     };
                 }
-                KeyCode::Down | KeyCode::Char('s') => {
+                Key::Down | Key::Char('s') => {
                     let len = self.party.members.len().max(1);
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
@@ -1068,7 +1075,7 @@ impl World {
                         slot_cursor,
                     };
                 }
-                KeyCode::Left | KeyCode::Char('a') => {
+                Key::Left | Key::Char('a') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1077,7 +1084,7 @@ impl World {
                         slot_cursor: (slot_cursor + EQUIP_SLOTS.len() - 1) % EQUIP_SLOTS.len(),
                     };
                 }
-                KeyCode::Right | KeyCode::Char('d') | KeyCode::Tab => {
+                Key::Right | Key::Char('d') | Key::Tab => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1086,7 +1093,7 @@ impl World {
                         slot_cursor: (slot_cursor + 1) % EQUIP_SLOTS.len(),
                     };
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1103,7 +1110,7 @@ impl World {
                 slot,
                 action_cursor,
             } => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1112,7 +1119,7 @@ impl World {
                         slot_cursor: equip_slot_index(slot),
                     };
                 }
-                KeyCode::Up | KeyCode::Char('w') | KeyCode::Down | KeyCode::Char('s') => {
+                Key::Up | Key::Char('w') | Key::Down | Key::Char('s') => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1122,7 +1129,7 @@ impl World {
                         action_cursor: 1 - action_cursor,
                     };
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     if action_cursor == 0 {
                         let message = self.unequip_to_bag(member_idx, slot);
                         let GameState::Inventory(inv) = &mut self.state else {
@@ -1155,7 +1162,7 @@ impl World {
                 slot,
                 to_cursor,
             } => match key {
-                KeyCode::Esc => {
+                Key::Esc => {
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
                     };
@@ -1164,7 +1171,7 @@ impl World {
                         slot_cursor: equip_slot_index(slot),
                     };
                 }
-                KeyCode::Up | KeyCode::Char('w') => {
+                Key::Up | Key::Char('w') => {
                     let len = self.party.members.len().max(1);
                     let new_cursor = cycle_member_skip(len, from_member, to_cursor, -1);
                     let GameState::Inventory(inv) = &mut self.state else {
@@ -1176,7 +1183,7 @@ impl World {
                         to_cursor: new_cursor,
                     };
                 }
-                KeyCode::Down | KeyCode::Char('s') => {
+                Key::Down | Key::Char('s') => {
                     let len = self.party.members.len().max(1);
                     let new_cursor = cycle_member_skip(len, from_member, to_cursor, 1);
                     let GameState::Inventory(inv) = &mut self.state else {
@@ -1188,7 +1195,7 @@ impl World {
                         to_cursor: new_cursor,
                     };
                 }
-                KeyCode::Enter => {
+                Key::Enter => {
                     let message = self.move_gear_between_members(from_member, to_cursor, slot);
                     let GameState::Inventory(inv) = &mut self.state else {
                         return;
@@ -1393,7 +1400,7 @@ impl World {
         }
     }
 
-    fn handle_shop_key(&mut self, key: KeyCode) {
+    fn handle_shop_key(&mut self, key: Key) {
         // Same read-then-branch shape as handle_inventory_key: copy out the
         // Copy fields first so this shared borrow of self.state ends before
         // we touch self.party/self.inventory in the branches below.
@@ -1405,7 +1412,7 @@ impl World {
         let cursor = shop_ref.cursor;
 
         match key {
-            KeyCode::Esc => {
+            Key::Esc => {
                 let GameState::Shop(shop) = &self.state else {
                     return;
                 };
@@ -1414,21 +1421,21 @@ impl World {
                 explore.player_pos = return_pos;
                 self.state = GameState::Explore(explore);
             }
-            KeyCode::Left | KeyCode::Char('a') | KeyCode::Right | KeyCode::Char('d') => {
+            Key::Left | Key::Char('a') | Key::Right | Key::Char('d') => {
                 let GameState::Shop(shop) = &mut self.state else {
                     return;
                 };
                 shop.mode = shop.mode.toggled();
                 shop.cursor = 0;
             }
-            KeyCode::Tab => {
+            Key::Tab => {
                 let GameState::Shop(shop) = &mut self.state else {
                     return;
                 };
                 shop.tab = shop.tab.next();
                 shop.cursor = 0;
             }
-            KeyCode::Up | KeyCode::Char('w') => {
+            Key::Up | Key::Char('w') => {
                 let len = self.shop_list_len(mode, tab);
                 if len > 0 {
                     let GameState::Shop(shop) = &mut self.state else {
@@ -1437,7 +1444,7 @@ impl World {
                     shop.cursor = (cursor + len - 1) % len;
                 }
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            Key::Down | Key::Char('s') => {
                 let len = self.shop_list_len(mode, tab);
                 if len > 0 {
                     let GameState::Shop(shop) = &mut self.state else {
@@ -1446,7 +1453,7 @@ impl World {
                     shop.cursor = (cursor + 1) % len;
                 }
             }
-            KeyCode::Enter => match mode {
+            Key::Enter => match mode {
                 ShopMode::Buy => self.apply_shop_buy(tab, cursor),
                 ShopMode::Sell => self.apply_shop_sell(tab, cursor),
             },
@@ -1542,7 +1549,7 @@ impl World {
             ShopTab::Weapons => {
                 if idx < self.inventory.weapons.len() {
                     let weapon = self.inventory.weapons.remove(idx);
-                    let price = weapon.rarity.base_value() / 2;
+                    let price = crate::game::shop::sell_price(weapon.rarity);
                     let name = weapon.name.clone();
                     self.party.gold += price;
                     Some(format!("Sold {name} for {price} gold."))
@@ -1553,7 +1560,7 @@ impl World {
             ShopTab::Armor => {
                 if idx < self.inventory.armors.len() {
                     let armor = self.inventory.armors.remove(idx);
-                    let price = armor.rarity.base_value() / 2;
+                    let price = crate::game::shop::sell_price(armor.rarity);
                     let name = armor.name.clone();
                     self.party.gold += price;
                     Some(format!("Sold {name} for {price} gold."))
@@ -1564,7 +1571,7 @@ impl World {
             ShopTab::Rings => {
                 if idx < self.inventory.rings.len() {
                     let ring = self.inventory.rings.remove(idx);
-                    let price = ring.rarity.base_value() / 2;
+                    let price = crate::game::shop::sell_price(ring.rarity);
                     let name = ring.name.clone();
                     self.party.gold += price;
                     Some(format!("Sold {name} for {price} gold."))
@@ -1592,7 +1599,7 @@ impl World {
         }
     }
 
-    fn handle_levelup_key(&mut self, key: KeyCode) {
+    fn handle_levelup_key(&mut self, key: Key) {
         let GameState::LevelUp(ui) = &self.state else {
             return;
         };
@@ -1600,7 +1607,7 @@ impl World {
         let stat_cursor = ui.stat_cursor;
 
         match key {
-            KeyCode::Esc => {
+            Key::Esc => {
                 let GameState::LevelUp(ui) = &self.state else {
                     return;
                 };
@@ -1609,7 +1616,7 @@ impl World {
                 explore.player_pos = return_pos;
                 self.state = GameState::Explore(explore);
             }
-            KeyCode::Up | KeyCode::Char('w') => {
+            Key::Up | Key::Char('w') => {
                 let len = self.party.members.len();
                 if len > 0 {
                     let GameState::LevelUp(ui) = &mut self.state else {
@@ -1618,7 +1625,7 @@ impl World {
                     ui.member_cursor = (member_cursor + len - 1) % len;
                 }
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            Key::Down | Key::Char('s') => {
                 let len = self.party.members.len();
                 if len > 0 {
                     let GameState::LevelUp(ui) = &mut self.state else {
@@ -1627,21 +1634,21 @@ impl World {
                     ui.member_cursor = (member_cursor + 1) % len;
                 }
             }
-            KeyCode::Left | KeyCode::Char('a') => {
+            Key::Left | Key::Char('a') => {
                 let len = ALLOC_STATS.len();
                 let GameState::LevelUp(ui) = &mut self.state else {
                     return;
                 };
                 ui.stat_cursor = (stat_cursor + len - 1) % len;
             }
-            KeyCode::Right | KeyCode::Char('d') => {
+            Key::Right | Key::Char('d') => {
                 let len = ALLOC_STATS.len();
                 let GameState::LevelUp(ui) = &mut self.state else {
                     return;
                 };
                 ui.stat_cursor = (stat_cursor + 1) % len;
             }
-            KeyCode::Enter => self.apply_levelup_allocation(member_cursor, stat_cursor),
+            Key::Enter => self.apply_levelup_allocation(member_cursor, stat_cursor),
             _ => {}
         }
     }
@@ -1673,14 +1680,14 @@ impl World {
         }
     }
 
-    fn handle_blacksmith_key(&mut self, key: KeyCode) {
+    fn handle_blacksmith_key(&mut self, key: Key) {
         let GameState::Blacksmith(bs) = &self.state else {
             return;
         };
         let cursor = bs.cursor;
 
         match key {
-            KeyCode::Esc => {
+            Key::Esc => {
                 let GameState::Blacksmith(bs) = &self.state else {
                     return;
                 };
@@ -1689,7 +1696,7 @@ impl World {
                 explore.player_pos = return_pos;
                 self.state = GameState::Explore(explore);
             }
-            KeyCode::Up | KeyCode::Char('w') => {
+            Key::Up | Key::Char('w') => {
                 let len = weapon_refs(&self.inventory, &self.party).len();
                 if len > 0 {
                     let GameState::Blacksmith(bs) = &mut self.state else {
@@ -1698,7 +1705,7 @@ impl World {
                     bs.cursor = (cursor + len - 1) % len;
                 }
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            Key::Down | Key::Char('s') => {
                 let len = weapon_refs(&self.inventory, &self.party).len();
                 if len > 0 {
                     let GameState::Blacksmith(bs) = &mut self.state else {
@@ -1707,8 +1714,8 @@ impl World {
                     bs.cursor = (cursor + 1) % len;
                 }
             }
-            KeyCode::Enter => self.apply_blacksmith_upgrade(cursor),
-            KeyCode::Char('b') | KeyCode::Char('B') => self.buy_titanite_shard(),
+            Key::Enter => self.apply_blacksmith_upgrade(cursor),
+            Key::Char('b') | Key::Char('B') => self.buy_titanite_shard(),
             _ => {}
         }
     }
@@ -1762,10 +1769,15 @@ impl World {
         }
     }
 
-    /// Called once per app loop tick; advances enemy turns automatically since they
-    /// don't wait on keyboard input, and steps the sprite-animation clock.
-    pub fn tick(&mut self) {
-        self.anim_tick = self.anim_tick.wrapping_add(1);
+    /// Called once per rendered frame; advances enemy turns automatically
+    /// since they don't wait on keyboard input, and steps the
+    /// sprite-animation clock by the frame's real elapsed time.
+    pub fn tick(&mut self, dt: f32) {
+        self.anim_timer += dt;
+        while self.anim_timer >= ANIM_FRAME_SECONDS {
+            self.anim_timer -= ANIM_FRAME_SECONDS;
+            self.anim_frame_idx = (self.anim_frame_idx + 1) % ANIM_FRAMES;
+        }
         if let GameState::Combat(combat) = &mut self.state {
             if let CombatPhase::SelectAction {
                 actor: ActorRef::Enemy(_),
@@ -1793,6 +1805,7 @@ impl World {
             self.party.tick_effects();
             let mut messages = Vec::new();
             let mut chapter_advanced = false;
+            let mut game_won = false;
             if boss_was_here {
                 let boss_name = chapter_def(self.current_chapter).boss_display_name;
                 self.bosses_defeated.insert(self.current_chapter);
@@ -1803,8 +1816,7 @@ impl World {
                         chapter_advanced = true;
                     }
                     None => {
-                        self.state = GameState::GameOver { victory: true };
-                        return;
+                        game_won = true;
                     }
                 }
             }
@@ -1868,6 +1880,10 @@ impl World {
             }
             if messages.is_empty() {
                 messages.push("The enemies dropped nothing.".to_string());
+            }
+            if game_won {
+                self.state = GameState::GameOver { victory: true };
+                return;
             }
             let mut explore = ExploreState::for_chapter(self.current_chapter);
             // Beating a chapter's boss moves the party onto an entirely new
@@ -2040,20 +2056,20 @@ mod tests {
     fn menu_navigation_wraps_and_enter_on_quit_quits() {
         let mut world = world_at_menu(true);
         assert_eq!(menu(&world).entries().len(), 3);
-        world.handle_key(KeyCode::Up); // wraps from Continue to Quit
+        world.handle_key(Key::Up); // wraps from Continue to Quit
         assert_eq!(menu(&world).cursor, 2);
-        world.handle_key(KeyCode::Down); // wraps back to Continue
+        world.handle_key(Key::Down); // wraps back to Continue
         assert_eq!(menu(&world).cursor, 0);
-        world.handle_key(KeyCode::Down);
-        world.handle_key(KeyCode::Down); // Quit
-        world.handle_key(KeyCode::Enter);
+        world.handle_key(Key::Down);
+        world.handle_key(Key::Down); // Quit
+        world.handle_key(Key::Enter);
         assert!(world.should_quit);
     }
 
     #[test]
     fn new_game_without_a_save_starts_exploring_immediately() {
         let mut world = world_at_menu(false);
-        world.handle_key(KeyCode::Enter); // cursor starts on New Game
+        world.handle_key(Key::Enter); // cursor starts on New Game
         assert!(matches!(world.state, GameState::Explore(_)));
         assert!(!world.should_quit);
     }
@@ -2061,26 +2077,26 @@ mod tests {
     #[test]
     fn new_game_with_a_save_asks_before_overwriting() {
         let mut world = world_at_menu(true);
-        world.handle_key(KeyCode::Down); // Continue -> New Game
-        world.handle_key(KeyCode::Enter);
+        world.handle_key(Key::Down); // Continue -> New Game
+        world.handle_key(Key::Enter);
         assert!(menu(&world).confirm_overwrite, "should ask, not start");
 
-        world.handle_key(KeyCode::Esc); // turn back
+        world.handle_key(Key::Esc); // turn back
         assert!(!menu(&world).confirm_overwrite);
         assert!(
             matches!(world.state, GameState::MainMenu(_)),
             "backing out should stay on the menu"
         );
 
-        world.handle_key(KeyCode::Enter); // New Game again
-        world.handle_key(KeyCode::Enter); // confirm this time
+        world.handle_key(Key::Enter); // New Game again
+        world.handle_key(Key::Enter); // confirm this time
         assert!(matches!(world.state, GameState::Explore(_)));
     }
 
     #[test]
     fn q_on_the_menu_quits() {
         let mut world = world_at_menu(true);
-        world.handle_key(KeyCode::Char('q'));
+        world.handle_key(Key::Char('q'));
         assert!(world.should_quit);
     }
 
@@ -2088,9 +2104,9 @@ mod tests {
     fn i_opens_the_inventory_and_esc_returns_to_explore() {
         let mut world = World::new();
         assert!(matches!(world.state, GameState::Explore(_)));
-        world.handle_key(KeyCode::Char('i'));
+        world.handle_key(Key::Char('i'));
         assert!(matches!(world.state, GameState::Inventory(_)));
-        world.handle_key(KeyCode::Esc);
+        world.handle_key(Key::Esc);
         assert!(matches!(world.state, GameState::Explore(_)));
     }
 
@@ -2099,16 +2115,16 @@ mod tests {
         let mut world = World::new();
         world.inventory.add_weapon(iron_sword());
 
-        world.handle_key(KeyCode::Char('i')); // open inventory (Items tab)
-        world.handle_key(KeyCode::Tab); // switch to Weapons tab
-        world.handle_key(KeyCode::Enter); // pick the Iron Sword -> choose member (Bram, cursor 0)
+        world.handle_key(Key::Char('i')); // open inventory (Items tab)
+        world.handle_key(Key::Tab); // switch to Weapons tab
+        world.handle_key(Key::Enter); // pick the Iron Sword -> choose member (Bram, cursor 0)
 
         let previous_weapon = world.party.members[0]
             .equipped_weapon
             .as_ref()
             .map(|w| w.name.clone());
 
-        world.handle_key(KeyCode::Enter); // confirm equip on Bram
+        world.handle_key(Key::Enter); // confirm equip on Bram
 
         assert_eq!(
             world.party.members[0]
@@ -2132,9 +2148,9 @@ mod tests {
         let mut world = World::new();
         world.party.members[0].stats.hp = 1;
 
-        world.handle_key(KeyCode::Char('i')); // open inventory (Items tab, Potion first)
-        world.handle_key(KeyCode::Enter); // pick the potion -> choose member (Bram, cursor 0)
-        world.handle_key(KeyCode::Enter); // confirm use on Bram
+        world.handle_key(Key::Char('i')); // open inventory (Items tab, Potion first)
+        world.handle_key(Key::Enter); // pick the potion -> choose member (Bram, cursor 0)
+        world.handle_key(Key::Enter); // confirm use on Bram
 
         assert!(
             world.party.members[0].stats.hp > 1,
@@ -2158,10 +2174,10 @@ mod tests {
         };
         combat.menu_cursor = 2; // Item
 
-        world.handle_key(KeyCode::Enter); // open the item submenu (starts on Potion)
-        world.handle_key(KeyCode::Down); // move to Ether
-        world.handle_key(KeyCode::Enter); // pick Ether, target self by default
-        world.handle_key(KeyCode::Enter); // confirm target
+        world.handle_key(Key::Enter); // open the item submenu (starts on Potion)
+        world.handle_key(Key::Down); // move to Ether
+        world.handle_key(Key::Enter); // pick Ether, target self by default
+        world.handle_key(Key::Enter); // confirm target
 
         assert_eq!(
             world.party.members[0].stats.mp, 4,
@@ -2190,9 +2206,9 @@ mod tests {
         let mut world = World::new();
         // World::new() spawns the party inside the walled town square.
         assert!(matches!(world.state, GameState::Explore(_)));
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
         assert!(matches!(world.state, GameState::Shop(_)));
-        world.handle_key(KeyCode::Esc);
+        world.handle_key(Key::Esc);
         assert!(matches!(world.state, GameState::Explore(_)));
     }
 
@@ -2208,8 +2224,8 @@ mod tests {
             .map(|(_, qty)| *qty)
             .unwrap_or(0);
 
-        world.handle_key(KeyCode::Char('e')); // Buy tab, Items tab, cursor on Potion (15 gold)
-        world.handle_key(KeyCode::Enter);
+        world.handle_key(Key::Char('e')); // Buy tab, Items tab, cursor on Potion (15 gold)
+        world.handle_key(Key::Enter);
 
         assert_eq!(world.party.gold, gold_before - 15);
         let potions_after = world
@@ -2227,9 +2243,9 @@ mod tests {
         let mut world = World::new();
         world.party.gold = 5; // Iron Sword costs 20
 
-        world.handle_key(KeyCode::Char('e'));
-        world.handle_key(KeyCode::Tab); // Weapons tab, cursor on Iron Sword
-        world.handle_key(KeyCode::Enter);
+        world.handle_key(Key::Char('e'));
+        world.handle_key(Key::Tab); // Weapons tab, cursor on Iron Sword
+        world.handle_key(Key::Enter);
 
         assert_eq!(
             world.party.gold, 5,
@@ -2245,10 +2261,10 @@ mod tests {
         let gold_before = world.party.gold;
         let expected_price = iron_sword().rarity.base_value() / 2;
 
-        world.handle_key(KeyCode::Char('e')); // Buy/Items
-        world.handle_key(KeyCode::Left); // -> Sell/Items
-        world.handle_key(KeyCode::Tab); // -> Sell/Weapons, cursor on the Iron Sword
-        world.handle_key(KeyCode::Enter); // sell it
+        world.handle_key(Key::Char('e')); // Buy/Items
+        world.handle_key(Key::Left); // -> Sell/Items
+        world.handle_key(Key::Tab); // -> Sell/Weapons, cursor on the Iron Sword
+        world.handle_key(Key::Enter); // sell it
 
         assert_eq!(world.party.gold, gold_before + expected_price);
         assert!(
@@ -2263,7 +2279,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 26, y: 7 }; // one tile above the lair
         }
-        world.handle_key(KeyCode::Down); // step onto the lair at (26, 8)
+        world.handle_key(Key::Down); // step onto the lair at (26, 8)
 
         let GameState::Combat(combat) = &world.state else {
             panic!("expected the boss fight to start");
@@ -2277,7 +2293,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 26, y: 7 };
         }
-        world.handle_key(KeyCode::Down); // enter the boss fight
+        world.handle_key(Key::Down); // enter the boss fight
 
         let GameState::Combat(combat) = &mut world.state else {
             panic!("expected the boss fight to start");
@@ -2302,7 +2318,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 26, y: 7 };
         }
-        world.handle_key(KeyCode::Down); // enter the boss fight
+        world.handle_key(Key::Down); // enter the boss fight
 
         let GameState::Combat(combat) = &mut world.state else {
             panic!("expected the boss fight to start");
@@ -2312,6 +2328,47 @@ mod tests {
 
         assert!(world.bosses_defeated.contains(&ChapterId::Three));
         assert!(matches!(world.state, GameState::GameOver { victory: true }));
+    }
+
+    #[test]
+    fn defeating_the_final_boss_grants_its_loot_before_ending_the_game() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Three;
+        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Three));
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = Position { x: 26, y: 7 };
+        }
+        world.handle_key(Key::Down); // enter the boss fight
+
+        let GameState::Combat(combat) = &mut world.state else {
+            panic!("expected the boss fight to start");
+        };
+        combat.phase = CombatPhase::Victory;
+        combat.loot = Some(crate::game::combat::Loot {
+            gold: 500,
+            items: Vec::new(),
+            weapons: vec![crate::game::item::sovereigns_reckoning()],
+            armors: Vec::new(),
+            rings: vec![crate::game::item::sovereigns_signet()],
+            overkill_bonus: 0,
+            xp: 0,
+            upgrade_materials: 0,
+        });
+        let starting_gold = world.party.gold;
+        world.conclude_combat();
+
+        assert!(matches!(world.state, GameState::GameOver { victory: true }));
+        assert_eq!(world.party.gold, starting_gold + 500);
+        assert!(world
+            .inventory
+            .weapons
+            .iter()
+            .any(|w| w.name == crate::game::item::sovereigns_reckoning().name));
+        assert!(world
+            .inventory
+            .rings
+            .iter()
+            .any(|r| r.name == crate::game::item::sovereigns_signet().name));
     }
 
     #[test]
@@ -2325,7 +2382,7 @@ mod tests {
         world.current_chapter = ChapterId::Three;
         world.state = GameState::GameOver { victory: true };
 
-        world.handle_key(KeyCode::Char('n'));
+        world.handle_key(Key::Char('n'));
 
         assert_eq!(world.ng_plus, 1);
         assert_eq!(world.current_chapter, ChapterId::One);
@@ -2344,7 +2401,7 @@ mod tests {
         let mut world = World::new();
         world.state = GameState::GameOver { victory: false };
 
-        world.handle_key(KeyCode::Char('n'));
+        world.handle_key(Key::Char('n'));
 
         assert_eq!(world.ng_plus, 0);
         assert!(matches!(
@@ -2358,7 +2415,7 @@ mod tests {
         let mut world = World::new();
         for _ in 0..10 {
             world.state = GameState::GameOver { victory: true };
-            world.handle_key(KeyCode::Char('n'));
+            world.handle_key(Key::Char('n'));
         }
         assert_eq!(world.ng_plus, 7);
     }
@@ -2376,11 +2433,11 @@ mod tests {
                 .unwrap()
                 .0;
         }
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
         assert!(matches!(world.state, GameState::Blacksmith(_)));
         let shards_before = world.inventory.upgrade_materials;
 
-        world.handle_key(KeyCode::Char('b'));
+        world.handle_key(Key::Char('b'));
 
         assert_eq!(
             world.inventory.upgrade_materials, shards_before,
@@ -2401,7 +2458,7 @@ mod tests {
             }));
         let shards_before = world.inventory.upgrade_materials;
 
-        world.handle_key(KeyCode::Char('b'));
+        world.handle_key(Key::Char('b'));
 
         assert_eq!(world.party.gold, 1000 - SHARD_PRICE);
         assert_eq!(world.inventory.upgrade_materials, shards_before + 1);
@@ -2419,7 +2476,7 @@ mod tests {
             }));
         let shards_before = world.inventory.upgrade_materials;
 
-        world.handle_key(KeyCode::Char('b'));
+        world.handle_key(Key::Char('b'));
 
         assert_eq!(world.party.gold, SHARD_PRICE - 1);
         assert_eq!(world.inventory.upgrade_materials, shards_before);
@@ -2430,11 +2487,11 @@ mod tests {
         let mut world = World::new();
         world.inventory.add_armor(padded_vest());
 
-        world.handle_key(KeyCode::Char('i')); // Items tab
-        world.handle_key(KeyCode::Tab); // Weapons
-        world.handle_key(KeyCode::Tab); // Armor
-        world.handle_key(KeyCode::Enter); // pick the Padded Vest -> choose member (Bram)
-        world.handle_key(KeyCode::Enter); // confirm equip on Bram
+        world.handle_key(Key::Char('i')); // Items tab
+        world.handle_key(Key::Tab); // Weapons
+        world.handle_key(Key::Tab); // Armor
+        world.handle_key(Key::Enter); // pick the Padded Vest -> choose member (Bram)
+        world.handle_key(Key::Enter); // confirm equip on Bram
 
         assert_eq!(
             world.party.members[0]
@@ -2451,13 +2508,13 @@ mod tests {
         let mut world = World::new();
         world.inventory.add_ring(copper_band());
 
-        world.handle_key(KeyCode::Char('i')); // Items
-        world.handle_key(KeyCode::Tab); // Weapons
-        world.handle_key(KeyCode::Tab); // Armor
-        world.handle_key(KeyCode::Tab); // Rings
-        world.handle_key(KeyCode::Enter); // pick the Copper Band -> choose member (Bram)
-        world.handle_key(KeyCode::Enter); // confirm member -> now choose ring slot (First)
-        world.handle_key(KeyCode::Enter); // confirm First slot
+        world.handle_key(Key::Char('i')); // Items
+        world.handle_key(Key::Tab); // Weapons
+        world.handle_key(Key::Tab); // Armor
+        world.handle_key(Key::Tab); // Rings
+        world.handle_key(Key::Enter); // pick the Copper Band -> choose member (Bram)
+        world.handle_key(Key::Enter); // confirm member -> now choose ring slot (First)
+        world.handle_key(Key::Enter); // confirm First slot
 
         assert_eq!(
             world.party.members[0].equipped_rings[0]
@@ -2474,14 +2531,14 @@ mod tests {
         let mut world = World::new();
         world.inventory.add_ring(ring_of_vigor());
 
-        world.handle_key(KeyCode::Char('i'));
-        world.handle_key(KeyCode::Tab);
-        world.handle_key(KeyCode::Tab);
-        world.handle_key(KeyCode::Tab); // Rings tab
-        world.handle_key(KeyCode::Enter); // pick ring -> choose member (Bram)
-        world.handle_key(KeyCode::Enter); // confirm member -> choose ring slot
-        world.handle_key(KeyCode::Down); // move to Second slot
-        world.handle_key(KeyCode::Enter); // confirm Second slot
+        world.handle_key(Key::Char('i'));
+        world.handle_key(Key::Tab);
+        world.handle_key(Key::Tab);
+        world.handle_key(Key::Tab); // Rings tab
+        world.handle_key(Key::Enter); // pick ring -> choose member (Bram)
+        world.handle_key(Key::Enter); // confirm member -> choose ring slot
+        world.handle_key(Key::Down); // move to Second slot
+        world.handle_key(Key::Enter); // confirm Second slot
 
         assert!(world.party.members[0].equipped_rings[0].is_none());
         assert_eq!(
@@ -2497,10 +2554,10 @@ mod tests {
         let mut world = World::new();
         assert!(world.inventory.weapons.is_empty());
 
-        world.handle_key(KeyCode::Char('i')); // open inventory (Browsing)
-        world.handle_key(KeyCode::Char('p')); // PartyGear, member 0 (Bram), slot 0 (Weapon)
-        world.handle_key(KeyCode::Enter); // -> PartyGearAction, action_cursor 0 ("Unequip to bag")
-        world.handle_key(KeyCode::Enter); // confirm unequip
+        world.handle_key(Key::Char('i')); // open inventory (Browsing)
+        world.handle_key(Key::Char('p')); // PartyGear, member 0 (Bram), slot 0 (Weapon)
+        world.handle_key(Key::Enter); // -> PartyGearAction, action_cursor 0 ("Unequip to bag")
+        world.handle_key(Key::Enter); // confirm unequip
 
         assert!(
             world.party.members[0].equipped_weapon.is_none(),
@@ -2520,12 +2577,12 @@ mod tests {
     fn party_gear_move_swaps_gear_between_two_members_without_touching_the_bag() {
         let mut world = World::new();
 
-        world.handle_key(KeyCode::Char('i')); // open inventory (Browsing)
-        world.handle_key(KeyCode::Char('p')); // PartyGear, member 0 (Bram), slot 0 (Weapon)
-        world.handle_key(KeyCode::Enter); // -> PartyGearAction, action_cursor 0
-        world.handle_key(KeyCode::Down); // -> action_cursor 1 ("Move to another member")
-        world.handle_key(KeyCode::Enter); // -> PartyGearTarget, defaults to member 1 (Sella)
-        world.handle_key(KeyCode::Enter); // confirm the swap
+        world.handle_key(Key::Char('i')); // open inventory (Browsing)
+        world.handle_key(Key::Char('p')); // PartyGear, member 0 (Bram), slot 0 (Weapon)
+        world.handle_key(Key::Enter); // -> PartyGearAction, action_cursor 0
+        world.handle_key(Key::Down); // -> action_cursor 1 ("Move to another member")
+        world.handle_key(Key::Enter); // -> PartyGearTarget, defaults to member 1 (Sella)
+        world.handle_key(Key::Enter); // confirm the swap
 
         assert_eq!(
             world.party.members[0]
@@ -2561,10 +2618,10 @@ mod tests {
         // matching how a player would actually reach this state.
         world.party.members[0].equip_weapon(iron_sword());
 
-        world.handle_key(KeyCode::Char('i')); // open inventory
-        world.handle_key(KeyCode::Char('p')); // PartyGear, member 0, slot Weapon
-        world.handle_key(KeyCode::Enter); // -> PartyGearAction
-        world.handle_key(KeyCode::Enter); // Unequip to bag
+        world.handle_key(Key::Char('i')); // open inventory
+        world.handle_key(Key::Char('p')); // PartyGear, member 0, slot Weapon
+        world.handle_key(Key::Enter); // -> PartyGearAction
+        world.handle_key(Key::Enter); // Unequip to bag
 
         assert!(world
             .inventory
@@ -2572,12 +2629,12 @@ mod tests {
             .iter()
             .any(|w| w.name == "Iron Sword"));
 
-        world.handle_key(KeyCode::Esc); // back to PartyGear
-        world.handle_key(KeyCode::Esc); // back to Explore
+        world.handle_key(Key::Esc); // back to PartyGear
+        world.handle_key(Key::Esc); // back to Explore
 
-        world.handle_key(KeyCode::Char('e')); // open the shop (standing in town)
-        world.handle_key(KeyCode::Left); // Buy -> Sell
-        world.handle_key(KeyCode::Tab); // Items -> Weapons tab
+        world.handle_key(Key::Char('e')); // open the shop (standing in town)
+        world.handle_key(Key::Left); // Buy -> Sell
+        world.handle_key(Key::Tab); // Items -> Weapons tab
                                         // Cursor starts on whichever spare weapon sorts first; find the Iron Sword
                                         // by pressing Down until it's selected, bounded by the bag's length.
         let idx = world
@@ -2587,9 +2644,9 @@ mod tests {
             .position(|w| w.name == "Iron Sword")
             .expect("iron sword should be in the bag");
         for _ in 0..idx {
-            world.handle_key(KeyCode::Down);
+            world.handle_key(Key::Down);
         }
-        world.handle_key(KeyCode::Enter); // sell it
+        world.handle_key(Key::Enter); // sell it
 
         assert_eq!(world.party.gold, gold_before + expected_price);
         assert!(
@@ -2669,7 +2726,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 12, y: 5 }; // the Old Herbalist's spot
         }
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
 
         let GameState::Event(ev) = &world.state else {
             panic!("expected talking to the NPC to open a dialogue event");
@@ -2684,11 +2741,11 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 12, y: 5 };
         }
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
         assert!(!world
             .npc_flags
             .contains(&crate::game::npc::NpcId::OldHerbalist));
-        world.handle_key(KeyCode::Enter); // dismiss
+        world.handle_key(Key::Enter); // dismiss
 
         assert!(world
             .npc_flags
@@ -2703,7 +2760,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 12, y: 5 };
         }
-        world.handle_key(KeyCode::Char('e')); // talk again (quest still unsatisfied: only 3/4 Potions)
+        world.handle_key(Key::Char('e')); // talk again (quest still unsatisfied: only 3/4 Potions)
         let GameState::Event(ev) = &world.state else {
             panic!("expected dialogue to open again");
         };
@@ -2725,7 +2782,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 12, y: 5 };
         }
-        world.handle_key(KeyCode::Char('e')); // first talk: accepts the quest and immediately satisfies it
+        world.handle_key(Key::Char('e')); // first talk: accepts the quest and immediately satisfies it
 
         let GameState::Event(ev) = &world.state else {
             panic!("expected the turn-in dialogue to open");
@@ -2761,7 +2818,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 10, y: 5 }; // the Wounded Scout's spot
         }
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
 
         let GameState::Event(ev) = &world.state else {
             panic!("expected talking to the scout to open dialogue");
@@ -2791,7 +2848,7 @@ mod tests {
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 5, y: 5 }; // the Ashen Pilgrim's spot
         }
-        world.handle_key(KeyCode::Char('e'));
+        world.handle_key(Key::Char('e'));
 
         let GameState::Event(ev) = &world.state else {
             panic!("expected talking to the pilgrim to open dialogue");
@@ -2812,22 +2869,22 @@ mod tests {
     #[test]
     fn q_in_explore_asks_before_quitting() {
         let mut world = World::new();
-        world.handle_key(KeyCode::Char('q'));
+        world.handle_key(Key::Char('q'));
         assert!(!world.should_quit, "should ask first, not quit outright");
         let GameState::Explore(explore) = &world.state else {
             panic!("expected to still be exploring");
         };
         assert!(explore.confirm_quit);
 
-        world.handle_key(KeyCode::Esc); // back out
+        world.handle_key(Key::Esc); // back out
         let GameState::Explore(explore) = &world.state else {
             panic!("expected to still be exploring");
         };
         assert!(!explore.confirm_quit);
         assert!(!world.should_quit);
 
-        world.handle_key(KeyCode::Char('q'));
-        world.handle_key(KeyCode::Enter); // confirm
+        world.handle_key(Key::Char('q'));
+        world.handle_key(Key::Enter); // confirm
         assert!(world.should_quit);
     }
 
@@ -2862,7 +2919,7 @@ mod tests {
         }
         let log_len = explore.log.len();
 
-        world.handle_key(KeyCode::PageUp);
+        world.handle_key(Key::PageUp);
         let GameState::Explore(explore) = &world.state else {
             unreachable!()
         };
@@ -2870,14 +2927,14 @@ mod tests {
 
         // Scrolling further up clamps at the total number of lines, it never
         // goes negative or past the start of history.
-        world.handle_key(KeyCode::PageUp);
-        world.handle_key(KeyCode::PageUp);
+        world.handle_key(Key::PageUp);
+        world.handle_key(Key::PageUp);
         let GameState::Explore(explore) = &world.state else {
             unreachable!()
         };
         assert_eq!(explore.log_scroll, log_len);
 
-        world.handle_key(KeyCode::PageDown);
+        world.handle_key(Key::PageDown);
         let GameState::Explore(explore) = &world.state else {
             unreachable!()
         };
@@ -2899,7 +2956,7 @@ mod tests {
         };
         combat.menu_cursor = 0; // Attack
 
-        world.handle_key(KeyCode::Enter);
+        world.handle_key(Key::Enter);
 
         let GameState::Combat(combat) = &world.state else {
             panic!("expected to still be in combat");
@@ -2922,13 +2979,13 @@ mod tests {
         let log_len = combat.log.len();
         world.state = GameState::Combat(combat);
 
-        world.handle_key(KeyCode::PageUp);
+        world.handle_key(Key::PageUp);
         let GameState::Combat(combat) = &world.state else {
             unreachable!()
         };
         assert_eq!(combat.log_scroll, log_len);
 
-        world.handle_key(KeyCode::PageDown);
+        world.handle_key(Key::PageDown);
         let GameState::Combat(combat) = &world.state else {
             unreachable!()
         };
@@ -2940,7 +2997,7 @@ mod tests {
         let mut world = World::new();
         assert!(!world.show_help);
 
-        world.handle_key(KeyCode::Char('?'));
+        world.handle_key(Key::Char('?'));
         assert!(world.show_help);
 
         // While the overlay is open, other keys (like movement) shouldn't
@@ -2949,7 +3006,7 @@ mod tests {
             GameState::Explore(explore) => explore.player_pos,
             _ => panic!("expected to be exploring"),
         };
-        world.handle_key(KeyCode::Down);
+        world.handle_key(Key::Down);
         let pos_after = match &world.state {
             GameState::Explore(explore) => explore.player_pos,
             _ => panic!("expected to be exploring"),
@@ -2959,7 +3016,7 @@ mod tests {
             "input should be swallowed by the help overlay"
         );
 
-        world.handle_key(KeyCode::Char('?'));
+        world.handle_key(Key::Char('?'));
         assert!(!world.show_help);
     }
 }

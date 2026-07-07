@@ -1,4 +1,3 @@
-use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::game::quest::QuestId;
@@ -102,26 +101,6 @@ pub fn npc_def(id: NpcId) -> NpcDef {
             after: vec![],
             quest: None,
         },
-    }
-}
-
-/// The glyph drawn on the map for this NPC, distinct from every `Tile`
-/// glyph and from the player's `@` marker.
-pub fn glyph_for(id: NpcId) -> char {
-    match id {
-        NpcId::OldHerbalist => 'h',
-        NpcId::WoundedScout => 's',
-        NpcId::AshenPilgrim => 'p',
-        NpcId::Blacksmith => 'b',
-    }
-}
-
-pub fn color_for(id: NpcId) -> Color {
-    match id {
-        NpcId::OldHerbalist => Color::LightYellow,
-        NpcId::WoundedScout => Color::LightCyan,
-        NpcId::AshenPilgrim => Color::Gray,
-        NpcId::Blacksmith => Color::LightRed,
     }
 }
 

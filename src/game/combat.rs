@@ -348,6 +348,21 @@ pub enum CombatAction {
     Flee,
 }
 
+/// Whether `action` (taken by the party member at `actor_idx`) is aimed at
+/// the party (heals/items) rather than the enemy side — used by the target
+/// picker to decide which roster to cycle the cursor through.
+pub fn targets_party(action: CombatAction, actor_idx: usize, party: &Party) -> bool {
+    match action {
+        CombatAction::Item(_) => true, // current items (potion/ether) are always party-targeted
+        CombatAction::Ability(idx) => party
+            .members
+            .get(actor_idx)
+            .map(|m| m.ability_is_heal(idx))
+            .unwrap_or(false),
+        CombatAction::Attack | CombatAction::Flee => false,
+    }
+}
+
 pub enum CombatPhase {
     // A player-controlled actor is choosing what to do.
     SelectAction {

@@ -2,9 +2,16 @@ use crate::game::item::{
     chainmail_hauberk, copper_band, ember_of_return, ether, greater_ether, greater_potion,
     iron_loop, iron_sword, potion, purging_stone, rangers_cloak, ring_of_vigor, sunken_relic_blade,
     sunlit_straightsword, travelers_chestguard, travelers_spear, warded_loop, ArmorFactory,
-    ItemFactory, RingFactory, WeaponFactory,
+    ItemFactory, Rarity, RingFactory, WeaponFactory,
 };
 use crate::game::map::Position;
+
+/// Sell-back price for a piece of gear of the given rarity — half its
+/// catalog value, the one formula both the shop and the sell-confirmation
+/// UI must agree on.
+pub fn sell_price(rarity: Rarity) -> u32 {
+    rarity.base_value() / 2
+}
 
 /// The shop's own tab split — conceptually the same "Items vs Weapons vs
 /// Armor vs Rings" categories as the out-of-combat inventory screen, but

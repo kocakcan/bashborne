@@ -5,16 +5,16 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 4,
-        "xp": 7,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 66,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 63,
-          "hp": 63,
-          "max_mp": 13,
-          "mp": 13,
-          "attack": 18,
-          "defense": 14,
+          "max_hp": 49,
+          "hp": 42,
+          "max_mp": 11,
+          "mp": 11,
+          "attack": 14,
+          "defense": 10,
           "speed": 6,
           "luck": 5
         },
@@ -23,13 +23,15 @@
             "name": "Power Strike",
             "mp_cost": 3,
             "base_power": 10,
-            "kind": "PhysicalDamage"
+            "kind": "PhysicalDamage",
+            "targets_all_enemies": false
           },
           {
             "name": "Crushing Blow",
             "mp_cost": 6,
             "base_power": 18,
-            "kind": "PhysicalDamage"
+            "kind": "PhysicalDamage",
+            "targets_all_enemies": false
           }
         ],
         "equipped_weapon": {
@@ -47,89 +49,89 @@
           null,
           null
         ],
-        "boss_kind": null
+        "boss_kind": null,
+        "is_elite": false
       },
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 4,
-        "xp": 7,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 66,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 35,
-          "hp": 35,
-          "max_mp": 45,
-          "mp": 45,
-          "attack": 8,
-          "defense": 7,
-          "speed": 11,
-          "luck": 9
+          "max_hp": 29,
+          "hp": 21,
+          "max_mp": 35,
+          "mp": 35,
+          "attack": 6,
+          "defense": 5,
+          "speed": 9,
+          "luck": 7
         },
         "abilities": [
           {
             "name": "Firebolt",
             "mp_cost": 6,
             "base_power": 16,
-            "kind": "MagicDamage"
+            "kind": "MagicDamage",
+            "targets_all_enemies": false
           },
           {
             "name": "Lightning Bolt",
             "mp_cost": 12,
             "base_power": 26,
-            "kind": "MagicDamage"
+            "kind": "MagicDamage",
+            "targets_all_enemies": false
           }
         ],
         "equipped_weapon": {
-          "name": "Thief's Dirk",
+          "name": "Apprentice's Wand",
           "rarity": "Common",
-          "attack_bonus": 3,
+          "attack_bonus": 1,
           "defense_bonus": 0,
-          "description": "Slim, quick, and honest about none of its history.",
+          "description": "A simple wand every mage starts with.",
           "source": "Starting",
           "upgrade_level": 0,
           "passive": null
         },
-        "equipped_armor": {
-          "name": "Padded Vest",
-          "rarity": "Common",
-          "defense_bonus": 2,
-          "description": "Quilted cloth over leather. Better than bare skin.",
-          "source": "World"
-        },
+        "equipped_armor": null,
         "equipped_rings": [
           null,
           null
         ],
-        "boss_kind": null
+        "boss_kind": null,
+        "is_elite": false
       },
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 4,
-        "xp": 7,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 66,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 47,
-          "hp": 47,
-          "max_mp": 36,
-          "mp": 36,
-          "attack": 9,
-          "defense": 12,
+          "max_hp": 37,
+          "hp": 37,
+          "max_mp": 28,
+          "mp": 28,
+          "attack": 7,
+          "defense": 8,
           "speed": 7,
-          "luck": 7
+          "luck": 5
         },
         "abilities": [
           {
             "name": "Mend",
             "mp_cost": 8,
             "base_power": 18,
-            "kind": "Heal"
+            "kind": "Heal",
+            "targets_all_enemies": false
           },
           {
             "name": "Smite",
             "mp_cost": 5,
             "base_power": 12,
-            "kind": "PhysicalDamage"
+            "kind": "PhysicalDamage",
+            "targets_all_enemies": false
           }
         ],
         "equipped_weapon": {
@@ -147,67 +149,61 @@
           null,
           null
         ],
-        "boss_kind": null
+        "boss_kind": null,
+        "is_elite": false
       },
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 4,
-        "xp": 7,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 66,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 42,
-          "hp": 42,
-          "max_mp": 20,
-          "mp": 20,
-          "attack": 15,
-          "defense": 8,
-          "speed": 17,
-          "luck": 18
+          "max_hp": 34,
+          "hp": 34,
+          "max_mp": 16,
+          "mp": 16,
+          "attack": 11,
+          "defense": 6,
+          "speed": 13,
+          "luck": 14
         },
         "abilities": [
           {
             "name": "Backstab",
             "mp_cost": 4,
             "base_power": 12,
-            "kind": "PhysicalDamage"
+            "kind": "PhysicalDamage",
+            "targets_all_enemies": false
           },
           {
             "name": "Fan of Knives",
             "mp_cost": 9,
-            "base_power": 22,
-            "kind": "PhysicalDamage"
+            "base_power": 14,
+            "kind": "PhysicalDamage",
+            "targets_all_enemies": true
           }
         ],
         "equipped_weapon": {
-          "name": "Knightsbane",
-          "rarity": "Legendary",
-          "attack_bonus": 24,
-          "defense_bonus": 4,
-          "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
-          "source": {
-            "EnemyDrop": "The Barrow Knight"
-          },
+          "name": "Thief's Dirk",
+          "rarity": "Common",
+          "attack_bonus": 3,
+          "defense_bonus": 0,
+          "description": "Slim, quick, and honest about none of its history.",
+          "source": "Starting",
           "upgrade_level": 0,
-          "passive": {
-            "Lifesteal": 0.15
-          }
+          "passive": null
         },
-        "equipped_armor": {
-          "name": "Barrow-Touched Plate",
-          "rarity": "Epic",
-          "defense_bonus": 15,
-          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
-          "source": "World"
-        },
+        "equipped_armor": null,
         "equipped_rings": [
           null,
           null
         ],
-        "boss_kind": null
+        "boss_kind": null,
+        "is_elite": false
       }
     ],
-    "gold": 203,
+    "gold": 125,
     "effects": []
   },
   "inventory": {
@@ -220,9 +216,10 @@
               "heal_percent": 0.35
             }
           },
-          "value": 15
+          "value": 15,
+          "description": "A murky red draught that knits shallow wounds shut."
         },
-        5
+        3
       ],
       [
         {
@@ -232,50 +229,31 @@
               "mp_percent": 0.35
             }
           },
-          "value": 20
+          "value": 20,
+          "description": "Bitter and metallic; steadies the mind enough to cast again."
         },
-        3
-      ],
-      [
-        {
-          "name": "Ember of Return",
-          "kind": {
-            "Revive": {
-              "heal_percent": 0.5
-            }
-          },
-          "value": 60
-        },
-        1
+        2
       ]
     ],
-    "weapons": [
-      {
-        "name": "Apprentice's Wand",
-        "rarity": "Common",
-        "attack_bonus": 1,
-        "defense_bonus": 0,
-        "description": "A simple wand every mage starts with.",
-        "source": "Starting",
-        "upgrade_level": 0,
-        "passive": null
-      }
-    ],
+    "weapons": [],
     "armors": [],
     "rings": [],
-    "upgrade_materials": 11
+    "upgrade_materials": 5
   },
-  "current_chapter": "Two",
-  "bosses_defeated": [
-    "One"
+  "current_chapter": "One",
+  "bosses_defeated": [],
+  "npc_flags": [
+    "OldHerbalist"
   ],
-  "npc_flags": [],
   "quest_log": {
-    "active": [],
+    "active": [
+      "HerbalistsRequest"
+    ],
     "completed": []
   },
   "player_pos": {
-    "x": 5,
-    "y": 7
-  }
+    "x": 16,
+    "y": 8
+  },
+  "ng_plus": 0
 }

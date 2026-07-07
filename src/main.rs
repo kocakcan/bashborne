@@ -1,61 +1,62 @@
 mod app;
-mod event;
 mod game;
-mod ui;
+mod input;
+mod render;
 
-use std::io::stdout;
-use std::panic;
-use std::time::Duration;
-
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle,
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
+use macroquad::prelude::*;
 
 use app::World;
+use render::assets::Assets;
 
-fn main() -> anyhow::Result<()> {
-    install_panic_hook();
-
-    enable_raw_mode()?;
-    let mut out = stdout();
-    execute!(out, EnterAlternateScreen, SetTitle("Bashborne"))?;
-    let backend = CrosstermBackend::new(out);
-    let mut terminal = Terminal::new(backend)?;
-
-    let result = run(&mut terminal);
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    result
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Bashborne".to_owned(),
+        window_width: 960,
+        window_height: 540,
+        ..Default::default()
+    }
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> anyhow::Result<()> {
+#[macroquad::main(window_conf)]
+async fn main() {
+    let assets = Assets::load().await;
     // Start on the title screen; Continue/New Game decide the save's fate.
     let mut world = World::at_main_menu();
+    match std::env::var("BB_SCREEN").as_deref() {
+        Ok("explore") => world = World::new(),
+        Ok("inventory") => {
+            world = World::new();
+            world.inventory.weapons.push(game::item::iron_sword());
+            world.inventory.weapons.push(game::item::bandits_falchion());
+            world.inventory.armors.push(game::item::padded_vest());
+            world.inventory.rings.push(game::item::copper_band());
+            world.inventory.rings.push(game::item::iron_loop());
+            world.inventory.upgrade_materials = 3;
+            let return_pos = game::map::Position { x: 0, y: 0 };
+            let mut inv_ui = game::inventory_ui::InventoryUiState::new(return_pos);
+            match std::env::var("BB_INV_MODE").as_deref() {
+                Ok("weapons") => inv_ui.tab = game::inventory_ui::InventoryTab::Weapons,
+                Ok("party_gear") => {
+                    inv_ui.mode = game::inventory_ui::InventoryMode::PartyGear {
+                        member_cursor: 1,
+                        slot_cursor: 0,
+                    }
+                }
+                _ => {}
+            }
+            world.state = game::state::GameState::Inventory(inv_ui);
+        }
+        _ => {}
+    }
 
     while !world.should_quit {
-        terminal.draw(|frame| ui::draw(frame, &world))?;
-
-        if let Some(key) = event::poll_key(Duration::from_millis(100))? {
+        if let Some(key) = input::poll_key() {
             world.handle_key(key);
         }
-        world.tick();
-    }
-    Ok(())
-}
+        world.tick(get_frame_time());
 
-/// Ensures raw mode / alternate screen are torn down even if we panic,
-/// otherwise the user's terminal is left in a broken state.
-fn install_panic_hook() {
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen);
-        default_hook(info);
-    }));
+        render::draw(&assets, &world);
+
+        next_frame().await;
+    }
 }
