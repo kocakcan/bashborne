@@ -95,17 +95,36 @@ pub fn rarity_color(rarity: Rarity) -> Color {
 /// scaled to `size`x`size` — drawn in the normal per-screen canvas pass
 /// alongside tile/character art, not through `TextCmd`/`flush_text`.
 pub fn draw_icon(texture: &Texture2D, rect: Rect, x: f32, y: f32, size: f32) {
+    draw_icon_tinted(texture, rect, x, y, size, WHITE);
+}
+
+/// Same as `draw_icon`, but multiplies the texture by `color` instead of
+/// always drawing it untinted — used for the procedural monster silhouettes
+/// (`render::assets::monster_rect`), which are plain white so they can be
+/// recolored per-species/elite at draw time via `combat::species_color`,
+/// the same way a Kenney icon would be tinted.
+pub fn draw_icon_tinted(texture: &Texture2D, rect: Rect, x: f32, y: f32, size: f32, color: Color) {
     draw_texture_ex(
         texture,
         x,
         y,
-        WHITE,
+        color,
         DrawTextureParams {
             dest_size: Some(vec2(size, size)),
             source: Some(rect),
             ..Default::default()
         },
     );
+}
+
+/// Top-left `y` to draw an `icon_size`-tall icon at so its vertical center
+/// lines up with the cap-height center of a text line baselined at `text_y`
+/// with font size `text_size` — text is baseline-anchored (`flush_text`)
+/// while `draw_icon` is top-left-anchored, so pairing them at the same raw
+/// `y` reads as visibly misaligned without this conversion.
+pub fn icon_y_for_text(text_y: f32, text_size: f32, icon_size: f32) -> f32 {
+    let text_center = text_y - text_size * 0.35;
+    text_center - icon_size / 2.0
 }
 
 /// Fixed color per allocatable stat — no matching heart/droplet/boot/clover

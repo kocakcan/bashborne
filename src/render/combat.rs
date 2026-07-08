@@ -5,9 +5,12 @@ use crate::game::combat::{targets_party, ActorRef, CombatAction, CombatPhase, Co
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 use crate::render::assets::{
-    armor_icon_rect, item_kind_icon_rect, ring_icon_rect, weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
+    armor_icon_rect, boss_monster_rect, item_kind_icon_rect, monster_rect, ring_icon_rect, weapon_icon_rect, Assets,
+    CANVAS_HEIGHT, CANVAS_WIDTH,
 };
-use crate::render::common::{draw_icon, hp_color, push_text, rarity_color, stat_color, TextCmd};
+use crate::render::common::{
+    draw_icon, draw_icon_tinted, hp_color, icon_y_for_text, push_text, rarity_color, stat_color, TextCmd,
+};
 
 const ACTION_LABELS: [&str; 4] = ["Attack", "Ability", "Item", "Flee"];
 
@@ -34,8 +37,10 @@ fn species_color(name: &str, elite: bool) -> Color {
     c
 }
 
+const EFFECTS_STRIP_H: f32 = 12.0;
+
 pub fn draw(assets: &Assets, font: &Font, combat: &CombatState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
-    draw_enemies(font, combat, party, 12.0, CANVAS_WIDTH, 100.0, cmds);
+    draw_enemies(assets, font, combat, party, 12.0, CANVAS_WIDTH, 100.0, cmds);
     draw_party(combat, party, 12.0 + 100.0, CANVAS_WIDTH * 0.5, 70.0, cmds);
     draw_menu_or_result(
         assets,
@@ -48,16 +53,49 @@ pub fn draw(assets: &Assets, font: &Font, combat: &CombatState, party: &Party, i
         70.0,
         cmds,
     );
+    draw_effects_strip(font, party, 12.0 + 100.0 + 70.0, CANVAS_WIDTH, EFFECTS_STRIP_H, cmds);
     draw_log(
         &combat.log,
-        12.0 + 100.0 + 70.0,
+        12.0 + 100.0 + 70.0 + EFFECTS_STRIP_H,
         CANVAS_WIDTH,
-        CANVAS_HEIGHT - (12.0 + 100.0 + 70.0),
+        CANVAS_HEIGHT - (12.0 + 100.0 + 70.0 + EFFECTS_STRIP_H),
         cmds,
     );
 }
 
+/// Shows the party's active blessings/curses (`Party::effects`) so the
+/// player can see what's boosting/hurting them mid-fight — previously this
+/// data was fully tracked but never surfaced anywhere in combat.
+fn draw_effects_strip(font: &Font, party: &Party, y: f32, w: f32, h: f32, cmds: &mut Vec<TextCmd>) {
+    draw_rectangle_lines(0.0, y, w, h, 1.0, WHITE);
+    if party.effects.is_empty() {
+        push_text(cmds, "No active effects.", 4.0, y + h - 3.0, 7.0, GRAY);
+        return;
+    }
+    let mut tx = 4.0;
+    let ty = y + h - 3.0;
+    for (i, effect) in party.effects.iter().enumerate() {
+        let tag = format!(
+            "{} {:+} {} ({}){}",
+            effect.name,
+            effect.delta,
+            effect.target,
+            effect.encounters_remaining,
+            if i + 1 < party.effects.len() { "," } else { "" }
+        );
+        let color = if effect.delta >= 0 { GREEN } else { RED };
+        let d = measure_text(&tag, Some(font), 7, 1.0);
+        if tx + d.width > w - 4.0 {
+            push_text(cmds, format!("+{} more", party.effects.len() - i), tx, ty, 7.0, GRAY);
+            break;
+        }
+        push_text(cmds, tag.clone(), tx, ty, 7.0, color);
+        tx += d.width + 4.0;
+    }
+}
+
 fn draw_enemies(
+    assets: &Assets,
     font: &Font,
     combat: &CombatState,
     party: &Party,
@@ -88,10 +126,23 @@ fn draw_enemies(
             let color = species_color(&enemy.name, enemy.is_elite);
             let box_w = (col_w - 20.0).min(48.0);
             let box_h = 40.0;
-            draw_rectangle(cx - box_w / 2.0, y + 10.0, box_w, box_h, color);
+            draw_rectangle(cx - box_w / 2.0, y + 10.0, box_w, box_h, Color::new(color.r, color.g, color.b, 0.18));
             if is_targeted {
                 draw_rectangle_lines(cx - box_w / 2.0, y + 10.0, box_w, box_h, 2.0, WHITE);
             }
+            let sprite_rect = match enemy.boss_kind {
+                Some(kind) => boss_monster_rect(kind),
+                None => monster_rect(&enemy.name),
+            };
+            let sprite_size = box_w.min(box_h) - 4.0;
+            draw_icon_tinted(
+                &assets.monsters,
+                sprite_rect,
+                cx - sprite_size / 2.0,
+                y + 10.0 + (box_h - sprite_size) / 2.0,
+                sprite_size,
+                color,
+            );
             let name = enemy.display_name();
             let nd = measure_text(&name, Some(font), 9, 1.0);
             push_text(cmds, name, cx - nd.width / 2.0, y + 60.0, 9.0, WHITE);
@@ -225,18 +276,23 @@ fn draw_menu_or_result(
                     9.0,
                     color,
                 );
-                let power = ability.effective_power(&party.members[pi]);
-                let desc = match ability.kind {
-                    AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
-                        if ability.targets_all_enemies {
-                            format!("   ~{power} dmg, all enemies")
-                        } else {
-                            format!("   ~{power} dmg, one enemy")
+                let (desc, desc_color) = if !affordable {
+                    ("   Not enough MP".to_string(), RED)
+                } else {
+                    let power = ability.effective_power(&party.members[pi]);
+                    let desc = match ability.kind {
+                        AbilityKind::PhysicalDamage | AbilityKind::MagicDamage => {
+                            if ability.targets_all_enemies {
+                                format!("   ~{power} dmg, all enemies")
+                            } else {
+                                format!("   ~{power} dmg, one enemy")
+                            }
                         }
-                    }
-                    AbilityKind::Heal => format!("   heals {power} HP"),
+                        AbilityKind::Heal => format!("   heals {power} HP"),
+                    };
+                    (desc, LIGHTGRAY)
                 };
-                push_text(cmds, desc, pad, y + 24.0 + i as f32 * 22.0, 8.0, LIGHTGRAY);
+                push_text(cmds, desc, pad, y + 24.0 + i as f32 * 22.0, 8.0, desc_color);
             }
         }
         CombatPhase::SelectItem {
@@ -251,11 +307,17 @@ fn draw_menu_or_result(
                 let color = if selected { YELLOW } else { WHITE };
                 let prefix = if selected { "> " } else { "  " };
                 let row_y = y + 14.0 + i as f32 * 22.0;
-                draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, row_y - 7.0, 8.0);
+                draw_icon(
+                    &assets.tiles,
+                    item_kind_icon_rect(&item.kind),
+                    pad,
+                    icon_y_for_text(row_y, 9.0, 8.0),
+                    8.0,
+                );
                 push_text(cmds, format!("{prefix}{} x{qty}", item.name), pad + 10.0, row_y, 9.0, color);
                 push_text(
                     cmds,
-                    item.description.clone(),
+                    item.kind.purpose_description(),
                     pad + 10.0,
                     y + 24.0 + i as f32 * 22.0,
                     7.0,
@@ -280,7 +342,7 @@ fn draw_menu_or_result(
                 _ => "Choose a target".to_string(),
             };
             let hint_x = if let Some(rect) = item_icon {
-                draw_icon(&assets.tiles, rect, pad, y + 14.0 - 7.0, 8.0);
+                draw_icon(&assets.tiles, rect, pad, icon_y_for_text(y + 14.0, 9.0, 8.0), 8.0);
                 pad + 10.0
             } else {
                 pad
@@ -297,66 +359,71 @@ fn draw_menu_or_result(
         }
         CombatPhase::Victory => {
             push_text(cmds, "Victory!", pad, y + 14.0, 12.0, GREEN);
+            let footer_y = y + h - 8.0;
+            let list_bottom = footer_y - 10.0;
             let mut ty = y + 28.0;
             if let Some(loot) = &combat.loot {
+                let mut entries: Vec<(Option<(&Texture2D, Rect)>, String, Color, f32)> = Vec::new();
                 if loot.gold > 0 {
-                    push_text(cmds, format!("Found {} gold.", loot.gold), pad, ty, 8.0, WHITE);
-                    ty += 10.0;
+                    entries.push((None, format!("Found {} gold.", loot.gold), WHITE, 10.0));
                 }
                 if loot.overkill_bonus > 0 {
-                    push_text(
-                        cmds,
+                    entries.push((
+                        None,
                         format!("Overkill bonus: +{} gold!", loot.overkill_bonus),
-                        pad,
-                        ty,
-                        8.0,
                         YELLOW,
-                    );
-                    ty += 10.0;
+                        10.0,
+                    ));
                 }
                 for item in &loot.items {
-                    draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, ty - 6.0, 7.0);
-                    push_text(cmds, format!("Found: {}", item.name), pad + 9.0, ty, 8.0, WHITE);
-                    ty += 11.0;
+                    entries.push((
+                        Some((&assets.tiles, item_kind_icon_rect(&item.kind))),
+                        format!("Found: {}", item.name),
+                        WHITE,
+                        11.0,
+                    ));
                 }
                 for weapon in &loot.weapons {
-                    draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 6.0, 7.0);
-                    push_text(
-                        cmds,
+                    entries.push((
+                        Some((&assets.characters, weapon_icon_rect())),
                         format!("Weapon: {} [{}]", weapon.name, weapon.rarity),
-                        pad + 9.0,
-                        ty,
-                        8.0,
                         rarity_color(weapon.rarity),
-                    );
-                    ty += 11.0;
+                        11.0,
+                    ));
                 }
                 for armor in &loot.armors {
-                    draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 6.0, 7.0);
-                    push_text(
-                        cmds,
+                    entries.push((
+                        Some((&assets.characters, armor_icon_rect())),
                         format!("Armor: {} [{}]", armor.name, armor.rarity),
-                        pad + 9.0,
-                        ty,
-                        8.0,
                         rarity_color(armor.rarity),
-                    );
-                    ty += 11.0;
+                        11.0,
+                    ));
                 }
                 for ring in &loot.rings {
-                    draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 6.0, 7.0);
-                    push_text(
-                        cmds,
+                    entries.push((
+                        Some((&assets.tiles, ring_icon_rect())),
                         format!("Ring: {} [{}]", ring.name, ring.rarity),
-                        pad + 9.0,
-                        ty,
-                        8.0,
                         rarity_color(ring.rarity),
-                    );
-                    ty += 11.0;
+                        11.0,
+                    ));
+                }
+
+                let total = entries.len();
+                for (i, (icon, text, color, step)) in entries.into_iter().enumerate() {
+                    if ty + step > list_bottom {
+                        push_text(cmds, format!("+{} more", total - i), pad, ty, 8.0, GRAY);
+                        break;
+                    }
+                    if let Some((tex, rect)) = icon {
+                        draw_icon(tex, rect, pad, icon_y_for_text(ty, 8.0, 7.0), 7.0);
+                        push_text(cmds, text, pad + 9.0, ty, 8.0, color);
+                    } else {
+                        push_text(cmds, text, pad, ty, 8.0, color);
+                    }
+                    ty += step;
                 }
             }
-            push_text(cmds, "Press Enter to continue.", pad, y + h - 8.0, 8.0, LIGHTGRAY);
+            push_text(cmds, "Press Enter to continue.", pad, footer_y, 8.0, LIGHTGRAY);
         }
         CombatPhase::Defeat => {
             push_text(cmds, "Your party has fallen.", pad, y + 14.0, 10.0, RED);

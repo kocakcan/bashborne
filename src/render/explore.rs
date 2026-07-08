@@ -92,13 +92,27 @@ fn draw_bottom_strip(explore: &ExploreState, party: &Party, strip_y: f32, cmds: 
             8.0,
             LIGHTGRAY,
         );
+        push_text(
+            cmds,
+            format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
+            x + bar_w * 0.55,
+            y + 24.0,
+            8.0,
+            SKYBLUE,
+        );
         let next = xp_to_next_level(m.level);
         let xp_ratio = (m.xp as f32 / next as f32).clamp(0.0, 1.0);
         draw_rectangle(x, y + 30.0, bar_w, 3.0, DARKGRAY);
-        draw_rectangle(x, y + 30.0, bar_w * xp_ratio, 3.0, SKYBLUE);
+        draw_rectangle(x, y + 30.0, bar_w * xp_ratio, 3.0, GREEN);
+        push_text(
+            cmds,
+            format!("XP {}/{}", m.xp, next),
+            x,
+            y + 40.0,
+            7.0,
+            LIGHTGRAY,
+        );
     }
-
-    push_text(cmds, format!("Gold: {}", party.gold), 4.0, strip_y + 40.0, 9.0, GOLD);
 
     let log_y = strip_y + 54.0;
     let visible = 3;

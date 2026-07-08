@@ -5,7 +5,7 @@ use crate::game::chapter::ChapterId;
 use crate::game::inventory_ui::InventoryMode;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
-use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
+use crate::render::assets::{Assets, CANVAS_HEIGHT, CANVAS_WIDTH};
 use crate::render::common::{push_text, rarity_color, scroll_window, TextCmd};
 use crate::render::inventory::draw_party_gear;
 
@@ -16,13 +16,20 @@ const LEFT_W: f32 = CANVAS_WIDTH * 0.65;
 const RIGHT_X: f32 = LEFT_W;
 const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 
-pub fn draw(bs: &BlacksmithUiState, party: &Party, inventory: &Inventory, current_chapter: ChapterId, cmds: &mut Vec<TextCmd>) {
+pub fn draw(
+    assets: &Assets,
+    bs: &BlacksmithUiState,
+    party: &Party,
+    inventory: &Inventory,
+    current_chapter: ChapterId,
+    cmds: &mut Vec<TextCmd>,
+) {
     let content_y0 = HEADER_Y + HEADER_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
     draw_header(party, inventory, cmds);
     draw_weapon_list(bs, party, inventory, content_y0, content_y1, cmds);
-    draw_party_gear(party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
+    draw_party_gear(assets, party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
     draw_footer(bs.message.as_deref(), current_chapter == ChapterId::Three, content_y1, cmds);
 }
 

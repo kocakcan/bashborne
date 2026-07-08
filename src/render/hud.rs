@@ -11,7 +11,7 @@ const HUD_FONT: f32 = 10.0;
 /// Thin, always-visible chrome row showing the current chapter and (once
 /// unlocked) the New Game+ cycle. Skipped on the main menu, where neither
 /// value means anything yet.
-pub fn draw_status_bar(world: &World, cmds: &mut Vec<TextCmd>) {
+pub fn draw_status_bar(world: &World, font: &Font, cmds: &mut Vec<TextCmd>) {
     if matches!(world.state, GameState::MainMenu(_)) {
         return;
     }
@@ -22,6 +22,10 @@ pub fn draw_status_bar(world: &World, cmds: &mut Vec<TextCmd>) {
         text.push_str(&format!("   NG+{}", world.ng_plus));
     }
     push_text(cmds, text, 4.0, 9.0, HUD_FONT, WHITE);
+
+    let gold_text = format!("Gold: {}", world.party.gold);
+    let d = measure_text(&gold_text, Some(font), HUD_FONT as u16, 1.0);
+    push_text(cmds, gold_text, CANVAS_WIDTH - d.width - 4.0, 9.0, HUD_FONT, GOLD);
 }
 
 pub fn draw_help_overlay(cmds: &mut Vec<TextCmd>) {

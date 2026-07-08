@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 
+use crate::game::chapter::BossKind;
 use crate::game::item::ItemKind;
 use crate::game::map::Tile;
 use crate::game::npc::NpcId;
@@ -25,6 +26,7 @@ fn cell(col: u32, row: u32) -> Rect {
 pub struct Assets {
     pub tiles: Texture2D,
     pub characters: Texture2D,
+    pub monsters: Texture2D,
     pub font: Font,
     pub canvas: RenderTarget,
     pub text_material: Material,
@@ -42,6 +44,8 @@ impl Assets {
             None,
         );
         characters.set_filter(FilterMode::Nearest);
+        let monsters = Texture2D::from_file_with_format(include_bytes!("../../assets/monsters.png"), None);
+        monsters.set_filter(FilterMode::Nearest);
 
         // Nearest-filtered so the glyph atlas scales crisply alongside the
         // tile art instead of the default Linear filter turning it to mush
@@ -92,6 +96,7 @@ impl Assets {
         Self {
             tiles,
             characters,
+            monsters,
             font,
             canvas,
             text_material,
@@ -169,8 +174,12 @@ pub fn weapon_icon_rect() -> Rect {
 }
 
 /// Generic armor icon (in `characters`), same reasoning as `weapon_icon_rect`.
+/// `cell(34, 1)` looked right in isolation but sits on a filled circular
+/// badge backdrop in the sheet, which reads as a stray background box next
+/// to the weapon icon's plain transparent silhouette — `cell(34, 2)` is a
+/// bare shield silhouette with no backdrop, matching the sword's style.
 pub fn armor_icon_rect() -> Rect {
-    cell(34, 1)
+    cell(34, 2)
 }
 
 /// Generic ring icon (in `tiles`).
@@ -192,5 +201,43 @@ pub fn item_kind_icon_rect(kind: &ItemKind) -> Rect {
         ItemKind::Elixir => cell(56, 11),
         ItemKind::Revive { .. } => cell(55, 12),
         ItemKind::CureCurse => cell(53, 9),
+    }
+}
+
+/// Atlas rect (in `monsters`) for a regular enemy species, keyed off
+/// `Character::name` — every roll_encounter/mimic() call passes one of these
+/// literal species names (see `game::state::roll_encounter`). A name that
+/// doesn't match anything (e.g. an ad-hoc test double) falls back to the
+/// sheet's generic "Unknown" silhouette rather than panicking, since the
+/// name here is just a display string, not a validated enum.
+pub fn monster_rect(name: &str) -> Rect {
+    match name {
+        "Slime" => cell(0, 0),
+        "Goblin" => cell(1, 0),
+        "Bat" => cell(2, 0),
+        "Wolf" => cell(3, 0),
+        "Skeleton" => cell(4, 0),
+        "Orc" => cell(0, 1),
+        "Wraith" => cell(1, 1),
+        "Mimic" => cell(2, 1),
+        "Hollow" => cell(3, 1),
+        "Rat" => cell(4, 1),
+        "Carrion Crow" => cell(0, 2),
+        "Bandit" => cell(1, 2),
+        "Fell Acolyte" => cell(2, 2),
+        "Grave Ghoul" => cell(3, 2),
+        "Barrow Sentinel" => cell(4, 2),
+        "Forsaken Knight" => cell(0, 3),
+        _ => cell(4, 3), // "Unknown" placeholder
+    }
+}
+
+/// Atlas rect (in `monsters`) for a boss, keyed by `BossKind` rather than
+/// name (bosses are given arbitrary display names, unlike regular species).
+pub fn boss_monster_rect(kind: BossKind) -> Rect {
+    match kind {
+        BossKind::BarrowKnight => cell(1, 3),
+        BossKind::WyrmscaleWarden => cell(2, 3),
+        BossKind::AshenSovereign => cell(3, 3),
     }
 }

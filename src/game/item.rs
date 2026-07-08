@@ -20,6 +20,24 @@ pub enum ItemKind {
     CureCurse,
 }
 
+impl ItemKind {
+    /// What this item actually does, in combat-menu-appropriate terms —
+    /// used where the player is deciding whether to use it (the combat Item
+    /// menu), as opposed to `Item::description`'s flavor text (used where
+    /// the player is just browsing, e.g. the inventory screen).
+    pub fn purpose_description(&self) -> String {
+        match self {
+            ItemKind::Potion { heal_percent } => format!("Heals {:.0}% HP", heal_percent * 100.0),
+            ItemKind::Ether { mp_percent } => format!("Restores {:.0}% MP", mp_percent * 100.0),
+            ItemKind::Elixir => "Fully restores HP and MP".into(),
+            ItemKind::Revive { heal_percent } => {
+                format!("Revives a fallen ally at {:.0}% HP", heal_percent * 100.0)
+            }
+            ItemKind::CureCurse => "Removes all active curses".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub name: String,

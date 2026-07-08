@@ -5,18 +5,18 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 8,
-        "xp": 2,
-        "unspent_points": 12,
+        "level": 11,
+        "xp": 156,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 154,
-          "hp": 154,
-          "max_mp": 17,
-          "mp": 17,
-          "attack": 26,
-          "defense": 22,
+          "max_hp": 182,
+          "hp": 182,
+          "max_mp": 20,
+          "mp": 20,
+          "attack": 48,
+          "defense": 42,
           "speed": 6,
-          "luck": 5
+          "luck": 7
         },
         "abilities": [
           {
@@ -35,16 +35,26 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Worn Shortsword",
-          "rarity": "Common",
-          "attack_bonus": 2,
-          "defense_bonus": 0,
-          "description": "A nicked, well-used blade. Better than fists.",
-          "source": "Starting",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Sovereign's Reckoning",
+          "rarity": "Legendary",
+          "attack_bonus": 32,
+          "defense_bonus": 8,
+          "description": "What's left of a throne, reforged into something that only takes.",
+          "source": {
+            "EnemyDrop": "The Ashen Sovereign"
+          },
+          "upgrade_level": 1,
+          "passive": {
+            "ArmorPierce": 0.5
+          }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Ranger's Cloak",
+          "rarity": "Uncommon",
+          "defense_bonus": 5,
+          "description": "Woven to shed rain, blades, and notice alike.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -55,18 +65,18 @@
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 8,
-        "xp": 2,
-        "unspent_points": 12,
+        "level": 11,
+        "xp": 156,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 74,
-          "hp": 74,
-          "max_mp": 65,
-          "mp": 65,
-          "attack": 12,
-          "defense": 11,
-          "speed": 15,
-          "luck": 13
+          "max_hp": 83,
+          "hp": 83,
+          "max_mp": 80,
+          "mp": 80,
+          "attack": 42,
+          "defense": 23,
+          "speed": 18,
+          "luck": 16
         },
         "abilities": [
           {
@@ -85,16 +95,26 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Sunken Relic Blade",
-          "rarity": "Rare",
-          "attack_bonus": 11,
-          "defense_bonus": 0,
-          "description": "Pulled from somewhere it should never have been found.",
-          "source": "World",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Warden's Fang",
+          "rarity": "Legendary",
+          "attack_bonus": 29,
+          "defense_bonus": 7,
+          "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
+          "source": {
+            "EnemyDrop": "Wyrmscale Warden"
+          },
+          "upgrade_level": 1,
+          "passive": {
+            "DamageReduction": 0.15
+          }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Dragonscale Aegis",
+          "rarity": "Legendary",
+          "defense_bonus": 24,
+          "description": "Overlapping scales said to have turned aside a dragon's breath.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -105,18 +125,18 @@
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 8,
-        "xp": 2,
-        "unspent_points": 12,
+        "level": 11,
+        "xp": 156,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 112,
-          "hp": 112,
-          "max_mp": 52,
-          "mp": 52,
-          "attack": 13,
-          "defense": 20,
+          "max_hp": 127,
+          "hp": 127,
+          "max_mp": 64,
+          "mp": 64,
+          "attack": 36,
+          "defense": 40,
           "speed": 7,
-          "luck": 11
+          "luck": 15
         },
         "abilities": [
           {
@@ -135,13 +155,13 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Acolyte's Mace",
-          "rarity": "Common",
-          "attack_bonus": 2,
-          "defense_bonus": 1,
-          "description": "Blunt and humble, blessed only lightly.",
-          "source": "Starting",
-          "upgrade_level": 0,
+          "name": "Sunken Relic Blade",
+          "rarity": "Rare",
+          "attack_bonus": 14,
+          "defense_bonus": 0,
+          "description": "Pulled from somewhere it should never have been found.",
+          "source": "World",
+          "upgrade_level": 1,
           "passive": null
         },
         "equipped_armor": null,
@@ -155,18 +175,18 @@
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 8,
-        "xp": 2,
-        "unspent_points": 12,
+        "level": 11,
+        "xp": 156,
+        "unspent_points": 3,
         "stats": {
-          "max_hp": 94,
-          "hp": 94,
-          "max_mp": 28,
-          "mp": 28,
-          "attack": 23,
-          "defense": 12,
-          "speed": 25,
-          "luck": 26
+          "max_hp": 106,
+          "hp": 106,
+          "max_mp": 34,
+          "mp": 34,
+          "attack": 50,
+          "defense": 25,
+          "speed": 31,
+          "luck": 34
         },
         "abilities": [
           {
@@ -187,13 +207,13 @@
         "equipped_weapon": {
           "name": "Knightsbane",
           "rarity": "Legendary",
-          "attack_bonus": 29,
-          "defense_bonus": 7,
+          "attack_bonus": 34,
+          "defense_bonus": 10,
           "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
           "source": {
             "EnemyDrop": "The Barrow Knight"
           },
-          "upgrade_level": 1,
+          "upgrade_level": 2,
           "passive": {
             "Lifesteal": 0.15
           }
@@ -206,14 +226,23 @@
           "source": "World"
         },
         "equipped_rings": [
-          null,
+          {
+            "name": "Sovereign's Signet",
+            "rarity": "Legendary",
+            "attack_bonus": 7,
+            "defense_bonus": 5,
+            "description": "The seal of a throne of ash. It still expects obedience.",
+            "source": {
+              "EnemyDrop": "The Ashen Sovereign"
+            }
+          },
           null
         ],
         "boss_kind": null,
         "is_elite": false
       }
     ],
-    "gold": 568,
+    "gold": 657,
     "effects": []
   },
   "inventory": {
@@ -229,7 +258,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        6
+        10
       ],
       [
         {
@@ -247,62 +276,69 @@
     ],
     "weapons": [
       {
-        "name": "Apprentice's Wand",
-        "rarity": "Common",
-        "attack_bonus": 1,
-        "defense_bonus": 0,
-        "description": "A simple wand every mage starts with.",
-        "source": "Starting",
+        "name": "Mimic's Fang",
+        "rarity": "Epic",
+        "attack_bonus": 15,
+        "defense_bonus": 1,
+        "description": "Still faintly warm. It was a tooth a moment ago.",
+        "source": {
+          "EnemyDrop": "Mimic"
+        },
         "upgrade_level": 0,
         "passive": null
       },
       {
-        "name": "Warden's Fang",
+        "name": "Knightsbane",
         "rarity": "Legendary",
         "attack_bonus": 24,
         "defense_bonus": 4,
-        "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
+        "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
         "source": {
-          "EnemyDrop": "Wyrmscale Warden"
+          "EnemyDrop": "The Barrow Knight"
         },
         "upgrade_level": 0,
         "passive": {
-          "DamageReduction": 0.15
+          "Lifesteal": 0.15
         }
       }
     ],
     "armors": [
       {
-        "name": "Dragonscale Aegis",
-        "rarity": "Legendary",
-        "defense_bonus": 24,
-        "description": "Overlapping scales said to have turned aside a dragon's breath.",
+        "name": "Barrow-Touched Plate",
+        "rarity": "Epic",
+        "defense_bonus": 15,
+        "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
         "source": "World"
       }
     ],
-    "rings": [],
-    "upgrade_materials": 15
+    "rings": [
+      {
+        "name": "Ring of Favor",
+        "rarity": "Rare",
+        "attack_bonus": 3,
+        "defense_bonus": 3,
+        "description": "A goddess's favor, or a very good forgery of it.",
+        "source": "World"
+      }
+    ],
+    "upgrade_materials": 6
   },
-  "current_chapter": "Three",
+  "current_chapter": "Two",
   "bosses_defeated": [
-    "Two",
     "One"
   ],
   "npc_flags": [
-    "WoundedScout",
     "OldHerbalist"
   ],
   "quest_log": {
-    "active": [
-      "HerbalistsRequest"
-    ],
+    "active": [],
     "completed": [
-      "ScoutsCommendation"
+      "HerbalistsRequest"
     ]
   },
   "player_pos": {
     "x": 4,
-    "y": 2
+    "y": 7
   },
-  "ng_plus": 0
+  "ng_plus": 1
 }

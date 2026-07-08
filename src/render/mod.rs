@@ -43,6 +43,7 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::QuestLog(ql_ui) => quest_log::draw(ql_ui, &world.quest_log, &mut text),
         GameState::LevelUp(lu_ui) => levelup::draw(lu_ui, &world.party, &mut text),
         GameState::Blacksmith(bs_ui) => blacksmith::draw(
+            assets,
             bs_ui,
             &world.party,
             &world.inventory,
@@ -52,7 +53,7 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::GameOver { victory } => draw_game_over(font, *victory, &mut text),
     }
 
-    hud::draw_status_bar(world, &mut text);
+    hud::draw_status_bar(world, font, &mut text);
     if world.show_help {
         hud::draw_help_overlay(&mut text);
     }

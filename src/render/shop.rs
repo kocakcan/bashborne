@@ -42,7 +42,7 @@ pub fn draw(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inve
         ShopMode::Sell => draw_sell_list(assets, shop, inventory, content_y0, cmds),
     }
 
-    draw_party_gear(party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
+    draw_party_gear(assets, party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
     draw_footer(shop.message.as_deref(), content_y1, CANVAS_HEIGHT, cmds);
 }
 

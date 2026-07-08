@@ -8,12 +8,20 @@ use crate::render::assets::{
     armor_icon_rect, item_kind_icon_rect, material_icon_rect, ring_icon_rect, weapon_icon_rect, Assets,
     CANVAS_HEIGHT, CANVAS_WIDTH,
 };
-use crate::render::common::{draw_icon, hp_color, push_text, rarity_color, scroll_window, stat_color, TextCmd};
+use crate::render::common::{
+    draw_icon, hp_color, icon_y_for_text, push_text, rarity_color, scroll_window, stat_color, TextCmd,
+};
 
 /// Icons are drawn at this size, with row text shifted this many px to the
 /// right of where it used to start, to leave room for them.
 const ICON_SIZE: f32 = 8.0;
 const ICON_GAP: f32 = 10.0;
+/// Vertical space reserved per list row — wide enough for a name line plus a
+/// 2-line word-wrapped description underneath without crowding the next row.
+const ROW_STRIDE: f32 = 34.0;
+/// Weapons additionally show a passive-effect line below the description, so
+/// they need more vertical room than the other tabs' rows.
+const WEAPON_ROW_STRIDE: f32 = 42.0;
 
 // Leaves room for the persistent status bar chrome drawn at y 0-12 (see
 // `hud::draw_status_bar`) — the same convention `explore::MAP_TOP` and
@@ -25,17 +33,43 @@ const LEFT_W: f32 = CANVAS_WIDTH * 0.55;
 const RIGHT_X: f32 = LEFT_W;
 const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 
-/// Clips a description/source line to fit the left panel's width at the 7px
-/// detail-line font size — the left panel is only ~260 logical px wide, far
-/// short of the terminal width the original ratatui text assumed.
-fn truncate(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max_chars.saturating_sub(3)).collect();
-        out.push_str("...");
-        out
+/// Word-wraps `s` to at most `max_lines` lines of ~`max_chars` characters
+/// each — the left panel is only ~260 logical px wide, far short of the
+/// terminal width the original ratatui text assumed, so long flavor lines
+/// need to wrap rather than get cut off mid-sentence. Only ellipsizes the
+/// last line if the text still doesn't fit in `max_lines`.
+fn wrap_lines(s: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
+    let words: Vec<&str> = s.split_whitespace().collect();
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut idx = 0;
+    while idx < words.len() {
+        let word = words[idx];
+        let extra = if current.is_empty() { 0 } else { 1 };
+        if !current.is_empty() && current.chars().count() + extra + word.chars().count() > max_chars {
+            lines.push(std::mem::take(&mut current));
+            if lines.len() == max_lines {
+                break;
+            }
+            continue;
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+        idx += 1;
     }
+    let all_consumed = idx == words.len();
+    if lines.len() < max_lines && !current.is_empty() {
+        lines.push(current);
+    } else if !all_consumed {
+        if let Some(last) = lines.last_mut() {
+            let mut truncated: String = last.chars().take(max_chars.saturating_sub(3)).collect();
+            truncated.push_str("...");
+            *last = truncated;
+        }
+    }
+    lines
 }
 
 pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
@@ -62,7 +96,7 @@ pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory
         }
     }
 
-    draw_party_gear(party, &inv_ui.mode, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
+    draw_party_gear(assets, party, &inv_ui.mode, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
     draw_footer(inv_ui.message.as_deref(), content_y1, CANVAS_HEIGHT, cmds);
 }
 
@@ -106,15 +140,23 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             for (row, i) in range.enumerate() {
                 let (item, qty) = &inventory.items[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * 30.0;
+                let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let color = if selected { YELLOW } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
-                draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, ty - 7.0, ICON_SIZE);
+                draw_icon(
+                    &assets.tiles,
+                    item_kind_icon_rect(&item.kind),
+                    pad,
+                    icon_y_for_text(ty, 8.0, ICON_SIZE),
+                    ICON_SIZE,
+                );
                 push_text(cmds, format!("{marker}{} x{qty}", item.name), text_pad, ty, 8.0, color);
-                push_text(cmds, truncate(&item.description, 44), text_pad + 4.0, ty + 11.0, 7.0, LIGHTGRAY);
+                for (li, line) in wrap_lines(&item.description, 44, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad, ty + 11.0 + li as f32 * 7.0, 7.0, LIGHTGRAY);
+                }
             }
         }
         InventoryTab::Weapons => {
@@ -126,7 +168,7 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             for (row, i) in range.enumerate() {
                 let w = &inventory.weapons[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * 30.0;
+                let ty = y0 + 10.0 + row as f32 * WEAPON_ROW_STRIDE;
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
@@ -135,7 +177,13 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                 if w.defense_bonus > 0 {
                     stats.push_str(&format!(" DEF+{}", w.defense_bonus));
                 }
-                draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
+                draw_icon(
+                    &assets.characters,
+                    weapon_icon_rect(),
+                    pad,
+                    icon_y_for_text(ty, 8.0, ICON_SIZE),
+                    ICON_SIZE,
+                );
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] {stats}", w.display_name(), w.rarity),
@@ -145,16 +193,14 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     rarity_color(w.rarity),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(
-                    cmds,
-                    truncate(&format!("{} - {}", w.description, w.source), 44),
-                    text_pad + 4.0,
-                    ty + 11.0,
-                    7.0,
-                    detail_color,
-                );
+                let desc_lines = wrap_lines(&format!("{} - {}", w.description, w.source), 44, 2);
+                let mut ly = ty + 11.0;
+                for line in &desc_lines {
+                    push_text(cmds, line, text_pad, ly, 7.0, detail_color);
+                    ly += 7.0;
+                }
                 if let Some(passive) = &w.passive {
-                    push_text(cmds, truncate(&passive.description(), 44), text_pad + 4.0, ty + 20.0, 7.0, YELLOW);
+                    push_text(cmds, passive.description(), text_pad, ly, 7.0, YELLOW);
                 }
             }
         }
@@ -167,12 +213,18 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             for (row, i) in range.enumerate() {
                 let a = &inventory.armors[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * 30.0;
+                let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
-                draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
+                draw_icon(
+                    &assets.characters,
+                    armor_icon_rect(),
+                    pad,
+                    icon_y_for_text(ty, 8.0, ICON_SIZE),
+                    ICON_SIZE,
+                );
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] DEF+{}", a.name, a.rarity, a.defense_bonus),
@@ -182,14 +234,9 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     rarity_color(a.rarity),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(
-                    cmds,
-                    truncate(&format!("{} - {}", a.description, a.source), 44),
-                    text_pad + 4.0,
-                    ty + 11.0,
-                    7.0,
-                    detail_color,
-                );
+                for (li, line) in wrap_lines(&format!("{} - {}", a.description, a.source), 44, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad, ty + 11.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         InventoryTab::Rings => {
@@ -201,7 +248,7 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             for (row, i) in range.enumerate() {
                 let r = &inventory.rings[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * 30.0;
+                let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
@@ -213,7 +260,13 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                 if r.defense_bonus > 0 {
                     bonus.push_str(&format!("DEF+{}", r.defense_bonus));
                 }
-                draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
+                draw_icon(
+                    &assets.tiles,
+                    ring_icon_rect(),
+                    pad,
+                    icon_y_for_text(ty, 8.0, ICON_SIZE),
+                    ICON_SIZE,
+                );
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] {bonus}", r.name, r.rarity),
@@ -223,14 +276,9 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     rarity_color(r.rarity),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(
-                    cmds,
-                    truncate(&format!("{} - {}", r.description, r.source), 44),
-                    text_pad + 4.0,
-                    ty + 11.0,
-                    7.0,
-                    detail_color,
-                );
+                for (li, line) in wrap_lines(&format!("{} - {}", r.description, r.source), 44, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad, ty + 11.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         InventoryTab::Materials => {
@@ -239,7 +287,13 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             } else {
                 let selected = inv_ui.cursor == 0;
                 let color = if selected { YELLOW } else { WHITE };
-                draw_icon(&assets.tiles, material_icon_rect(), pad, y0 + 5.0, ICON_SIZE);
+                draw_icon(
+                    &assets.tiles,
+                    material_icon_rect(),
+                    pad,
+                    icon_y_for_text(y0 + 12.0, 8.0, ICON_SIZE),
+                    ICON_SIZE,
+                );
                 push_text(
                     cmds,
                     format!("Titanite Shard x{}", inventory.upgrade_materials),
@@ -436,7 +490,16 @@ fn slot_label(slot: EquipSlot) -> &'static str {
 /// Takes its own `x0`/`w` rather than the module's `RIGHT_X`/`RIGHT_W`
 /// because the shop uses a different left/right split (65/35) than the
 /// inventory screen (55/45).
-pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, x0: f32, y0: f32, w: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
+pub(super) fn draw_party_gear(
+    assets: &Assets,
+    party: &Party,
+    mode: &InventoryMode,
+    x0: f32,
+    y0: f32,
+    w: f32,
+    y1: f32,
+    cmds: &mut Vec<TextCmd>,
+) {
     draw_rectangle_lines(x0, y0, w, y1 - y0, 1.0, WHITE);
     push_text(cmds, "Party (p to move/unequip)", x0 + 3.0, y0 + 9.0, 7.0, LIGHTGRAY);
 
@@ -504,18 +567,33 @@ pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, x0: f32, y0: 
             push_text(cmds, format!("{marker}{}:{name}", slot_label(slot)), bar_x, sy, 6.0, name_color);
             sy += 6.0;
         }
+        let stat_icon_size = 6.0;
+        draw_icon(
+            &assets.characters,
+            weapon_icon_rect(),
+            bar_x,
+            icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
+            stat_icon_size,
+        );
         push_text(
             cmds,
             format!("ATK {}", m.total_attack()),
-            bar_x,
+            bar_x + stat_icon_size + 2.0,
             sy + 2.0,
             6.0,
             stat_color(AllocStat::Attack),
         );
+        draw_icon(
+            &assets.characters,
+            armor_icon_rect(),
+            bar_x + bar_w / 2.0,
+            icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
+            stat_icon_size,
+        );
         push_text(
             cmds,
             format!("DEF {}", m.total_defense()),
-            bar_x + bar_w / 2.0,
+            bar_x + bar_w / 2.0 + stat_icon_size + 2.0,
             sy + 2.0,
             6.0,
             stat_color(AllocStat::Defense),
