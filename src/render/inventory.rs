@@ -38,7 +38,7 @@ pub fn draw(inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmd
     draw_rectangle_lines(0.0, content_y0, CANVAS_WIDTH, content_y1 - content_y0, 1.0, WHITE);
 
     match &inv_ui.mode {
-        InventoryMode::Browsing => draw_list(inv_ui, inventory, content_y0, content_y1, cmds),
+        InventoryMode::Browsing => draw_list(inv_ui, inventory, content_y0, cmds),
         InventoryMode::SelectMember { tab, idx, member_cursor } => {
             draw_member_picker(party, inventory, *tab, *idx, *member_cursor, content_y0, cmds)
         }
@@ -54,7 +54,7 @@ pub fn draw(inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmd
         }
     }
 
-    draw_party_gear(party, &inv_ui.mode, content_y0, content_y1, cmds);
+    draw_party_gear(party, &inv_ui.mode, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
     draw_footer(inv_ui.message.as_deref(), content_y1, CANVAS_HEIGHT, cmds);
 }
 
@@ -84,7 +84,7 @@ fn draw_tabs(active: InventoryTab, cmds: &mut Vec<TextCmd>) {
     );
 }
 
-fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
     let pad = 4.0;
     let visible = 6usize;
     match inv_ui.tab {
@@ -419,9 +419,12 @@ fn slot_label(slot: EquipSlot) -> &'static str {
 
 /// Shared with `shop::draw` (called there with `InventoryMode::Browsing`,
 /// which yields no slot highlight — the shop never lets you move gear).
-pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, y0: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
-    draw_rectangle_lines(RIGHT_X, y0, RIGHT_W, y1 - y0, 1.0, WHITE);
-    push_text(cmds, "Party (p to move/unequip)", RIGHT_X + 3.0, y0 + 9.0, 7.0, LIGHTGRAY);
+/// Takes its own `x0`/`w` rather than the module's `RIGHT_X`/`RIGHT_W`
+/// because the shop uses a different left/right split (65/35) than the
+/// inventory screen (55/45).
+pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, x0: f32, y0: f32, w: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
+    draw_rectangle_lines(x0, y0, w, y1 - y0, 1.0, WHITE);
+    push_text(cmds, "Party (p to move/unequip)", x0 + 3.0, y0 + 9.0, 7.0, LIGHTGRAY);
 
     let highlight: Option<(usize, EquipSlot)> = match *mode {
         InventoryMode::PartyGear { member_cursor, slot_cursor } => Some((member_cursor, EQUIP_SLOTS[slot_cursor])),
@@ -433,8 +436,8 @@ pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, y0: f32, y1: 
     let member_h = (y1 - (y0 + 12.0)) / party.members.len().max(1) as f32;
     for (mi, m) in party.members.iter().enumerate() {
         let base_y = y0 + 12.0 + mi as f32 * member_h;
-        let bar_x = RIGHT_X + 3.0;
-        let bar_w = RIGHT_W - 6.0;
+        let bar_x = x0 + 3.0;
+        let bar_w = w - 6.0;
         push_text(cmds, m.name.clone(), bar_x, base_y + 6.0, 7.0, WHITE);
         let ratio = m.hp_ratio().clamp(0.0, 1.0) as f32;
         draw_rectangle(bar_x, base_y + 8.0, bar_w, 2.0, DARKGRAY);

@@ -4,12 +4,16 @@ use crate::app::World;
 use crate::game::state::GameState;
 
 pub mod assets;
+mod blacksmith;
 mod combat;
 mod common;
 mod event;
 mod explore;
 mod inventory;
+mod levelup;
 mod main_menu;
+mod quest_log;
+mod shop;
 
 pub use assets::Assets;
 use assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
@@ -35,10 +39,16 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::Inventory(inv_ui) => {
             inventory::draw(inv_ui, &world.party, &world.inventory, &mut text)
         }
-        GameState::Shop(_) => draw_placeholder(font, "Shop", &mut text),
-        GameState::QuestLog(_) => draw_placeholder(font, "Quest Log", &mut text),
-        GameState::LevelUp(_) => draw_placeholder(font, "Level Up", &mut text),
-        GameState::Blacksmith(_) => draw_placeholder(font, "Blacksmith", &mut text),
+        GameState::Shop(shop_ui) => shop::draw(shop_ui, &world.party, &world.inventory, &mut text),
+        GameState::QuestLog(ql_ui) => quest_log::draw(ql_ui, &world.quest_log, &mut text),
+        GameState::LevelUp(lu_ui) => levelup::draw(lu_ui, &world.party, &mut text),
+        GameState::Blacksmith(bs_ui) => blacksmith::draw(
+            bs_ui,
+            &world.party,
+            &world.inventory,
+            world.current_chapter,
+            &mut text,
+        ),
         GameState::GameOver { victory } => draw_game_over(font, *victory, &mut text),
     }
 
@@ -51,29 +61,6 @@ pub fn draw(assets: &Assets, world: &World) {
     clear_background(BLACK);
     blit_canvas_to_window(assets);
     flush_text(font, &assets.text_material, &text);
-}
-
-fn draw_placeholder(font: &Font, name: &str, cmds: &mut Vec<TextCmd>) {
-    let text = format!("{name} — not yet implemented in the new renderer");
-    let d = measure_text(&text, Some(font), 12, 1.0);
-    push_text(
-        cmds,
-        text,
-        (CANVAS_WIDTH - d.width) / 2.0,
-        CANVAS_HEIGHT / 2.0,
-        12.0,
-        LIGHTGRAY,
-    );
-    let hint = "Esc to go back";
-    let hd = measure_text(hint, Some(font), 9, 1.0);
-    push_text(
-        cmds,
-        hint,
-        (CANVAS_WIDTH - hd.width) / 2.0,
-        CANVAS_HEIGHT / 2.0 + 18.0,
-        9.0,
-        GRAY,
-    );
 }
 
 fn draw_game_over(font: &Font, victory: bool, cmds: &mut Vec<TextCmd>) {
