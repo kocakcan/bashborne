@@ -9,7 +9,7 @@ use crate::render::assets::{
     armor_icon_rect, item_kind_icon_rect, ring_icon_rect, weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 use crate::render::common::{draw_icon, push_text, rarity_color, scroll_window, stat_color, TextCmd};
-use crate::render::inventory::draw_party_gear;
+use crate::render::inventory::{draw_party_gear, wrap_lines};
 
 const HEADER_Y: f32 = 12.0;
 const HEADER_H: f32 = 18.0;
@@ -19,16 +19,6 @@ const RIGHT_X: f32 = LEFT_W;
 const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 const ICON_SIZE: f32 = 8.0;
 const ICON_GAP: f32 = 10.0;
-
-fn truncate(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max_chars.saturating_sub(3)).collect();
-        out.push_str("...");
-        out
-    }
-}
 
 pub fn draw(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     let content_y0 = HEADER_Y + HEADER_H;
@@ -94,9 +84,9 @@ fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: 
                     .map(|(_, qty)| *qty)
                     .unwrap_or(0);
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 22.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 20.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let color = if selected { YELLOW } else if !affordable { DARKGRAY } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
@@ -110,7 +100,9 @@ fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: 
                     color,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(cmds, truncate(&sample.description, 52), text_pad + 4.0, ty + 10.0, 7.0, detail_color);
+                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Weapons => {
@@ -210,9 +202,9 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
             for (row, i) in range.enumerate() {
                 let (item, qty) = &inventory.items[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 22.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 20.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let color = if selected { YELLOW } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
@@ -226,7 +218,9 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                     color,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(cmds, truncate(&item.description, 52), text_pad + 4.0, ty + 10.0, 7.0, detail_color);
+                for (li, line) in wrap_lines(&item.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Weapons => {

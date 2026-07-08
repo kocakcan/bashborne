@@ -126,7 +126,6 @@ fn draw_enemies(
             let color = species_color(&enemy.name, enemy.is_elite);
             let box_w = (col_w - 20.0).min(48.0);
             let box_h = 40.0;
-            draw_rectangle(cx - box_w / 2.0, y + 10.0, box_w, box_h, Color::new(color.r, color.g, color.b, 0.18));
             if is_targeted {
                 draw_rectangle_lines(cx - box_w / 2.0, y + 10.0, box_w, box_h, 2.0, WHITE);
             }

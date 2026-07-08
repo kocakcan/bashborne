@@ -79,7 +79,12 @@ fn draw_bottom_strip(explore: &ExploreState, party: &Party, strip_y: f32, cmds: 
     for (i, m) in party.members.iter().enumerate() {
         let x = i as f32 * member_w + 4.0;
         let y = strip_y + 4.0;
-        push_text(cmds, format!("{} Lv{}", m.name, m.level), x, y + 8.0, 8.0, WHITE);
+        let (name_text, name_color) = if m.unspent_points > 0 {
+            (format!("{} Lv{} +{}pt", m.name, m.level, m.unspent_points), YELLOW)
+        } else {
+            (format!("{} Lv{}", m.name, m.level), WHITE)
+        };
+        push_text(cmds, name_text, x, y + 8.0, 8.0, name_color);
         let bar_w = member_w - 8.0;
         let ratio = m.hp_ratio().clamp(0.0, 1.0) as f32;
         draw_rectangle(x, y + 12.0, bar_w, 4.0, DARKGRAY);

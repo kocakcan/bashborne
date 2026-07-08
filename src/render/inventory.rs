@@ -38,7 +38,7 @@ const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 /// terminal width the original ratatui text assumed, so long flavor lines
 /// need to wrap rather than get cut off mid-sentence. Only ellipsizes the
 /// last line if the text still doesn't fit in `max_lines`.
-fn wrap_lines(s: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
+pub(super) fn wrap_lines(s: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
     let words: Vec<&str> = s.split_whitespace().collect();
     let mut lines: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -164,7 +164,12 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                 push_text(cmds, "No spare weapons.", pad, y0 + 12.0, 8.0, GRAY);
                 return;
             }
-            let range = scroll_window(inventory.weapons.len(), inv_ui.cursor, visible);
+            // Rows here use the taller WEAPON_ROW_STRIDE (extra room for a
+            // passive line), so fewer of them fit in the same panel height
+            // than the other tabs' `visible` — without this, the last row
+            // spills past the panel border into the footer's tip text.
+            let weapon_visible = 5usize;
+            let range = scroll_window(inventory.weapons.len(), inv_ui.cursor, weapon_visible);
             for (row, i) in range.enumerate() {
                 let w = &inventory.weapons[i];
                 let selected = i == inv_ui.cursor;
@@ -567,7 +572,7 @@ pub(super) fn draw_party_gear(
             push_text(cmds, format!("{marker}{}:{name}", slot_label(slot)), bar_x, sy, 6.0, name_color);
             sy += 6.0;
         }
-        let stat_icon_size = 6.0;
+        let stat_icon_size = 8.0;
         draw_icon(
             &assets.characters,
             weapon_icon_rect(),

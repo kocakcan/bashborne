@@ -7,7 +7,7 @@ use crate::game::item::Inventory;
 use crate::game::party::Party;
 use crate::render::assets::{Assets, CANVAS_HEIGHT, CANVAS_WIDTH};
 use crate::render::common::{push_text, rarity_color, scroll_window, TextCmd};
-use crate::render::inventory::draw_party_gear;
+use crate::render::inventory::{draw_party_gear, wrap_lines};
 
 const HEADER_Y: f32 = 12.0;
 const HEADER_H: f32 = 18.0;
@@ -15,6 +15,12 @@ const FOOTER_H: f32 = 30.0;
 const LEFT_W: f32 = CANVAS_WIDTH * 0.65;
 const RIGHT_X: f32 = LEFT_W;
 const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
+/// Flat per-row height, generous enough to fit a name/cost line plus a
+/// 2-line wrapped passive description without the next weapon's row
+/// starting underneath it (mirrors `inventory.rs`'s `WEAPON_ROW_STRIDE`).
+/// The passive's second wrapped line sits at `ty+26`; at font size 7 that
+/// needs ~8px of clearance before the next row's name, hence 40 not 34.
+const ROW_STRIDE: f32 = 40.0;
 
 pub fn draw(
     assets: &Assets,
@@ -55,15 +61,17 @@ fn draw_weapon_list(bs: &BlacksmithUiState, party: &Party, inventory: &Inventory
         return;
     }
 
-    let visible = 8usize;
+    // ROW_STRIDE leaves room for a 2-line wrapped passive; at that height
+    // only 5 rows fit the panel before the next one would spill past y1.
+    let visible = 5usize;
     let range = scroll_window(refs.len(), bs.cursor, visible);
     for (row, i) in range.enumerate() {
         let r = refs[i];
         let weapon = weapon_for(r, inventory, party).expect("weapon_refs stays in sync");
         let selected = i == bs.cursor;
-        let ty = y0 + 10.0 + row as f32 * 24.0;
+        let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
         if selected {
-            draw_rectangle(0.0, ty - 8.0, LEFT_W, 22.0, Color::new(1.0, 1.0, 1.0, 0.12));
+            draw_rectangle(0.0, ty - 8.0, LEFT_W, ROW_STRIDE - 2.0, Color::new(1.0, 1.0, 1.0, 0.12));
         }
         let marker = if selected { "> " } else { "  " };
         push_text(
@@ -91,7 +99,9 @@ fn draw_weapon_list(bs: &BlacksmithUiState, party: &Party, inventory: &Inventory
         };
         push_text(cmds, cost_text.0, pad + 8.0, ty + 10.0, 7.0, cost_text.1);
         if let Some(passive) = &weapon.passive {
-            push_text(cmds, passive.description(), pad + 8.0, ty + 19.0, 7.0, YELLOW);
+            for (li, line) in wrap_lines(&passive.description(), 52, 2).iter().enumerate() {
+                push_text(cmds, line, pad + 8.0, ty + 19.0 + li as f32 * 7.0, 7.0, YELLOW);
+            }
         }
     }
 }
