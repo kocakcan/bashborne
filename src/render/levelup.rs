@@ -4,7 +4,7 @@ use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
-use crate::render::common::{push_text, TextCmd};
+use crate::render::common::{push_text, stat_color, TextCmd};
 
 const HEADER_Y: f32 = 12.0;
 const HEADER_H: f32 = 20.0;
@@ -66,7 +66,7 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
         } else if matches!(preview, AllocPreview::Capped) {
             DARKGRAY
         } else {
-            WHITE
+            stat_color(stat)
         };
         let marker = if selected { "> " } else { "  " };
         push_text(

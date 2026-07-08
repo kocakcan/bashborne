@@ -4,14 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Bashborne is a Dark Souls–flavored, turn-based RPG that runs entirely in a
-terminal, built in Rust with `ratatui` + `crossterm`. No other runtime,
-network, or build tooling is involved — it's a single-binary TUI game.
+Bashborne is a Dark Souls–flavored, turn-based RPG built in Rust with
+`macroquad`, a real 2D-canvas/OpenGL game engine — it opens an actual window
+(not a terminal UI). Everything is drawn onto a fixed low-res offscreen
+canvas (480x270) using bundled Kenney pixel-art sprite sheets and a pixel
+font, then blitted to the real window at integer scale. No other runtime,
+network, or build tooling is involved — it's a single-binary game.
+
+**Note:** earlier versions of this project (and of this file) used
+`ratatui`/`crossterm` to render as a terminal UI (`src/ui/`, `src/event.rs`).
+That was fully replaced by the macroquad rewrite; those paths no longer
+exist. If you find other docs/comments still describing a terminal UI,
+they're stale — trust the source tree over old prose.
 
 ## Commands
 
 ```
-cargo run             # play the game (needs a real terminal, not piped stdin/stdout)
+cargo run             # play the game (opens a real window; not a terminal UI)
 cargo build            # compile without running
 cargo test              # run all unit tests
 cargo test <name>        # run a single test by name (e.g. cargo test resolve_enemy_action)
@@ -19,11 +28,9 @@ cargo test --lib module::   # run all tests within one module, e.g. cargo test g
 ```
 
 Dependency versions in `Cargo.toml` are pinned exactly
-(`ratatui = "=0.26.3"`, `crossterm = "=0.27.0"`, `rand = "=0.8.5"`) because
-the project was originally built against an old rustc. Don't loosen these
-without checking the toolchain actually in use — nothing in the code
-requires the older versions. `anyhow`, `serde`, and `serde_json` are
-ordinary caret deps.
+(`macroquad = "=0.4.15"`, `rand = "=0.8.5"`). Don't loosen these without
+checking the toolchain/engine version actually in use. `anyhow`, `serde`,
+and `serde_json` are ordinary caret deps.
 
 There is no lint/format config checked in (no `rustfmt.toml`/`.clippy.toml`);
 use standard `cargo fmt` / `cargo clippy` defaults if asked to clean up code.
@@ -32,26 +39,30 @@ use standard `cargo fmt` / `cargo clippy` defaults if asked to clean up code.
 
 ```
 src/
-  main.rs          — terminal setup/teardown (raw mode, alt screen, panic hook), run loop
-  event.rs         — thin crossterm key-poll wrapper
-  app.rs           — World (Party + Inventory + GameState + chapter progress + rng), all input handling, save/load hooks
-  ui/
-    mod.rs         — persistent chapter/NG+ status bar chrome, then dispatches to the right screen based on GameState; shared HP-bar/rarity-color helpers
-    explore.rs     — map viewport + party panel (incl. levels/XP and active effects) + log
-    combat.rs      — animated enemy sprites/HP bars + party panel + action/ability/item menus + log
+  main.rs          — window_conf (title/size), Assets::load, the macroquad main loop (poll key -> tick -> draw -> next_frame)
+  input.rs         — engine-agnostic Key enum; poll_key() wraps macroquad's raw KeyCode polling
+  app.rs           — World (Party + Inventory + GameState + chapter progress + rng + anim timer), all input handling, save/load hooks
+  render/
+    mod.rs         — sets up the offscreen camera/canvas, dispatches to the right screen based on GameState, blits the canvas to the window, then flushes queued text
+    assets.rs      — Assets (tile/character textures, font, canvas render target, text shader material), the shared 17px-pitch sprite-atlas `cell()` helper, and per-tile/NPC/weapon/armor/ring/item-kind icon-rect lookups
+    common.rs      — TextCmd queue (push_text/flush_text), canvas_transform, hp_color/rarity_color/stat_color helpers, draw_icon, scroll_window
+    hud.rs         — persistent chapter/NG+ status bar chrome + the `?` keybind help overlay
+    explore.rs     — map viewport + party panel (levels/HP/XP bars) + log
+    combat.rs      — enemy panel (flat species-colored boxes + HP bars) + party panel + action/ability/item menus + log
     event.rs       — blessing/curse/treasure/NPC-dialogue narrative screen
-    inventory.rs   — out-of-combat inventory screen (equip gear, use items, move gear between members)
+    inventory.rs   — out-of-combat inventory screen (equip gear, use items, move gear between members); also exports draw_party_gear, shared with the shop screen
     shop.rs        — town shop screen (buy/sell)
     quest_log.rs   — active/completed quest list
     levelup.rs     — stat-point allocation screen
     blacksmith.rs  — weapon-upgrade screen
+    main_menu.rs   — title screen (Continue/New Game/Quit)
   game/
     character.rs   — Stats, Class, Character, Ability, per-class LevelGrowth, XP curve, roster + boss factory fns
     party.rs       — Party (Vec<Character> + gold + active status effects)
     item.rs        — Item, Rarity, Weapon/Armor/Ring, WeaponPassive, Inventory, gear factory functions
     inventory_ui.rs — InventoryUiState/Tab/Mode backing the out-of-combat inventory screen
     shop.rs        — fixed buy stock, ShopUiState, buy/sell pricing
-    map.rs         — Tile, Map, Position (hand-authored ASCII layouts, one per chapter, incl. boss lairs)
+    map.rs         — Tile, Map, Position (hand-authored tile layouts, one per chapter, incl. boss lairs)
     combat.rs      — CombatState: turn order, action resolution, crits, loot/XP, boss AI, win/lose detection
     chapter.rs     — ChapterId/ChapterDef registry (map, boss, NPCs, enemy_level), BossKind
     npc.rs         — NpcId registry: dialogue, map glyphs, quest hooks
@@ -59,11 +70,33 @@ src/
     quest_ui.rs    — QuestLogUiState backing the quest-log screen
     levelup.rs     — LevelUpUiState backing the allocation screen
     blacksmith.rs  — upgrade costs/increments, BlacksmithUiState
-    sprites.rs     — two-frame animated ASCII art + per-species color for the combat screen
     status.rs      — StatusEffect: buffs/curses that persist across encounters
     save.rs        — SaveData (serde/JSON) + read/write of bashborne_save.json
     state.rs       — GameState enum, ExploreState, field-event table
 ```
+
+### Rendering model
+
+Every screen draws into a fixed 480x270 logical canvas (`render::assets::
+CANVAS_WIDTH`/`CANVAS_HEIGHT`), which `render::mod::draw` then blits to the
+real window at the largest clean integer scale (letterboxed) so pixel art
+stays crisp at any window size. Sprites/tiles/icons are drawn directly onto
+the canvas via `draw_texture_ex` in canvas space. Text is handled
+differently: screens queue it via `push_text` into a `Vec<TextCmd>` instead
+of rasterizing into the low-res canvas (a pixel font at 7-10px canvas-space
+sizes is illegible), and `flush_text` renders it afterward in real screen
+space at its true final size, using a hard-edge alpha-threshold shader so
+glyphs read crisp like the Nearest-filtered tile art instead of carrying
+fontdue's usual AA fringe. Anything new that should look like the existing
+pixel art (icons, tiles, sprites) belongs in the canvas-space `draw_texture_ex`
+pass, not the `TextCmd`/`flush_text` path.
+
+Both bundled Kenney sheets (`assets/roguelike_rpg_pack.png` for tiles/items,
+`assets/roguelike_characters.png` for the player/NPCs/weapons/armor) share a
+17px-pitch/16px-tile grid, indexed via `assets::cell(col, row) -> Rect`.
+Weapons/armor/rings/materials each get one generic icon (the underlying
+structs have no sub-type field to key finer art off of); consumables get one
+icon per `ItemKind` variant.
 
 ### State machine
 
@@ -146,11 +179,11 @@ math); monsters leave it `None`. `Rarity` (`item.rs`) is a five-tier enum
 field-treasure rolls, per-species drop chances (`combat::loot_profile`),
 the shop (Common/Uncommon/Rare only), or the boss (Legendary, guaranteed).
 
-`i` from Explore opens the out-of-combat inventory (`ui/inventory.rs`,
+`i` from Explore opens the out-of-combat inventory (`render/inventory.rs`,
 state in `game/inventory_ui.rs`) to equip gear or use consumables on any
 party member — displaced gear returns to the bag, and the `p` party-gear
 mode can unequip or move pieces between members directly. `e` on a town
-tile opens the shop (`ui/shop.rs`, `game/shop.rs`); selling only works on
+tile opens the shop (`render/shop.rs`, `game/shop.rs`); selling only works on
 spare (unequipped) gear. In combat, "Item" opens a submenu
 (`CombatPhase::SelectItem`) to pick which consumable to use.
 
@@ -187,53 +220,51 @@ victory screen and the exploration log.
 
 ## Testing
 
-Unit tests live alongside the modules they cover (`app.rs`, `game/combat.rs`,
-`game/character.rs`, `game/item.rs`, `game/map.rs`, `game/shop.rs`) and
+Unit tests live alongside the modules they cover (`app.rs` and most of
+`game/*.rs`: `blacksmith`, `chapter`, `character`, `combat`, `inventory_ui`,
+`item`, `map`, `npc`, `party`, `quest`, `save`, `shop`, `state`, `status`) and
 exercise game logic directly (turn order, damage, weapon/rarity math, loot
-and shop pricing, boss scripted moves, inventory/shop input handling)
-without needing a terminal. UI rendering code has no automated tests.
+and shop pricing, boss scripted moves, inventory/shop input handling,
+save/load round-tripping) without needing a window. `render/*.rs` has no
+automated tests.
 
-**If you need to verify the TUI itself interactively**: naive ANSI-stripping
-of the terminal output stream doesn't work, because ratatui only
-retransmits *changed* cells with explicit cursor-positioning escape codes —
-stripped-and-concatenated text from multiple frames comes out jumbled. Feed
-the real PTY output through a proper terminal emulator (e.g. the `pyte`
-Python package) to reconstruct an accurate screen buffer before asserting
-against it.
+**If you need to verify rendering itself**: macroquad opens a real OS
+window, so this can't be driven headlessly like a terminal UI — there's no
+PTY/ANSI stream to capture. Run `cargo run` and check visually (or take a
+screenshot of the window) after a change to `render/*.rs` or `input.rs`.
 
 ## Save/load
 
-`S` while exploring writes `bashborne_save.json` (serde/JSON, in the
-working directory) via `game/save.rs`; startup (`World::load_or_new`)
-resumes from it automatically if present — deleting the file is how a
-player declines the continue. Only exploration state persists (party,
-inventory, chapter/boss/NPC/quest progress, position); combat and menus are
-never saved. `SaveData.version` gates loading: any mismatch or parse
-failure silently falls back to a fresh game.
-
-## Sprite animation
-
-Combat sprites have two idle frames (`sprites::ANIM_FRAMES`), flipped about
-twice a second by `World::anim_tick` (stepped once per ~100ms app-loop
-tick). Two invariants, enforced by unit tests in `sprites.rs`: a species'
-frames must share a line count (so the HP bar doesn't jump), and every line
-within a frame must be the same width — the combat screen centers lines
-independently, so a ragged line visibly drifts sideways.
+Shift+S while exploring writes `bashborne_save.json` (serde/JSON, in the
+working directory) via `game/save.rs`. Plain `s`/Down-arrow both move the
+player south — `input.rs::poll_key` only lets the physical S key fall
+through to `Key::Char('S')` (the save shortcut `app.rs` checks for) when
+Shift is held; otherwise it's folded into `Key::Down` alongside the arrow
+key and `w`/`a`/`d`. The game never auto-loads: it always boots to the main
+menu (`World::at_main_menu`), which offers a Continue entry only if
+`game/save.rs::read()` finds a valid save; picking it calls `World::
+from_save`. Deleting the save file is how a player makes Continue disappear.
+Only exploration state persists (party, inventory, chapter/boss/NPC/quest
+progress, position); combat and menus are never saved. `SaveData.version`
+gates loading: any mismatch or parse failure silently falls back to no save
+being offered.
 
 ## Known stubs / deliberately unfinished seams
 
 - The playable-class roster (Warrior/Mage/Cleric/Rogue) is fixed at game
   start; there's no party selection or recruitment.
+- `World.anim_timer`/`anim_frame_idx` (`app.rs`) still tick every frame but
+  nothing in `render/*.rs` reads `anim_frame_idx` anymore — enemies are
+  drawn as flat species-colored boxes (`combat::species_color`), not
+  animated sprite frames. This is leftover plumbing from an earlier
+  ASCII-sprite-animation version of the combat screen; it's currently dead
+  code (`cargo build` warns on `World::anim_frame`), not a bug to "fix" by
+  wiring it back up unless you're deliberately re-adding sprite animation.
 
 ## Platform notes
 
-The game is cross-platform by construction — `main.rs`/`event.rs` only use
-crossterm/ratatui abstractions (no manual ANSI, no platform `#[cfg]`s
-anywhere in the repo), and `game/save.rs`'s save path is a plain,
-separator-agnostic `PathBuf`. On Windows, use Windows Terminal (or another
-UTF-8-locale terminal) — legacy `conhost`/plain `cmd.exe` may mis-render the
-box-drawing HP bars (`ui/mod.rs::hp_bar`, using `█`/`░`), the ASCII-art
-title (`ui/main_menu.rs`), and arrow-key hint glyphs scattered across
-`ui/*.rs`; run `chcp 65001` first if you must use a legacy console. Either
-platform needs an 80x24 terminal at minimum (`ui/mod.rs::MIN_COLS`/
-`MIN_ROWS`); `cargo run`/`cargo build` are identical on both.
+The game is cross-platform by construction — macroquad itself targets
+Windows/macOS/Linux (and web/mobile) uniformly, nothing in the repo has
+platform `#[cfg]`s, and `game/save.rs`'s save path is a plain,
+separator-agnostic `PathBuf`. `cargo run`/`cargo build` are identical on all
+desktop platforms.

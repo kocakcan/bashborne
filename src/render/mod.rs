@@ -33,13 +33,13 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::MainMenu(menu) => main_menu::draw(font, menu, &mut text),
         GameState::Explore(explore) => explore::draw(assets, explore, &world.party, &mut text),
         GameState::Combat(combat) => {
-            combat::draw(font, combat, &world.party, &world.inventory, &mut text)
+            combat::draw(assets, font, combat, &world.party, &world.inventory, &mut text)
         }
         GameState::Event(ev) => event::draw(ev, &mut text),
         GameState::Inventory(inv_ui) => {
-            inventory::draw(inv_ui, &world.party, &world.inventory, &mut text)
+            inventory::draw(assets, inv_ui, &world.party, &world.inventory, &mut text)
         }
-        GameState::Shop(shop_ui) => shop::draw(shop_ui, &world.party, &world.inventory, &mut text),
+        GameState::Shop(shop_ui) => shop::draw(assets, shop_ui, &world.party, &world.inventory, &mut text),
         GameState::QuestLog(ql_ui) => quest_log::draw(ql_ui, &world.quest_log, &mut text),
         GameState::LevelUp(lu_ui) => levelup::draw(lu_ui, &world.party, &mut text),
         GameState::Blacksmith(bs_ui) => blacksmith::draw(

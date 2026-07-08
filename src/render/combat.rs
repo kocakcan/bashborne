@@ -1,11 +1,13 @@
 use macroquad::prelude::*;
 
-use crate::game::character::AbilityKind;
+use crate::game::character::{AbilityKind, AllocStat};
 use crate::game::combat::{targets_party, ActorRef, CombatAction, CombatPhase, CombatState};
 use crate::game::item::Inventory;
 use crate::game::party::Party;
-use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
-use crate::render::common::{hp_color, push_text, rarity_color, TextCmd};
+use crate::render::assets::{
+    armor_icon_rect, item_kind_icon_rect, ring_icon_rect, weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
+};
+use crate::render::common::{draw_icon, hp_color, push_text, rarity_color, stat_color, TextCmd};
 
 const ACTION_LABELS: [&str; 4] = ["Attack", "Ability", "Item", "Flee"];
 
@@ -32,10 +34,11 @@ fn species_color(name: &str, elite: bool) -> Color {
     c
 }
 
-pub fn draw(font: &Font, combat: &CombatState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
+pub fn draw(assets: &Assets, font: &Font, combat: &CombatState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     draw_enemies(font, combat, party, 12.0, CANVAS_WIDTH, 100.0, cmds);
     draw_party(combat, party, 12.0 + 100.0, CANVAS_WIDTH * 0.5, 70.0, cmds);
     draw_menu_or_result(
+        assets,
         combat,
         party,
         inventory,
@@ -150,18 +153,25 @@ fn draw_party(combat: &CombatState, party: &Party, y: f32, w: f32, h: f32, cmds:
             4.0,
             if m.is_alive() { hp_color(m.hp_ratio()) } else { GRAY },
         );
+        let (hp_color_, mp_color_) = if m.is_alive() {
+            (stat_color(AllocStat::MaxHp), stat_color(AllocStat::MaxMp))
+        } else {
+            (GRAY, GRAY)
+        };
+        push_text(cmds, format!("{}/{}", m.stats.hp, m.stats.max_hp), bar_x, row_y + 13.0, 7.0, hp_color_);
         push_text(
             cmds,
-            format!("{}/{} MP{}/{}", m.stats.hp, m.stats.max_hp, m.stats.mp, m.stats.max_mp),
-            bar_x,
+            format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
+            bar_x + bar_w * 0.55,
             row_y + 13.0,
             7.0,
-            LIGHTGRAY,
+            mp_color_,
         );
     }
 }
 
 fn draw_menu_or_result(
+    assets: &Assets,
     combat: &CombatState,
     party: &Party,
     inventory: &Inventory,
@@ -240,18 +250,13 @@ fn draw_menu_or_result(
                 let selected = i == cursor;
                 let color = if selected { YELLOW } else { WHITE };
                 let prefix = if selected { "> " } else { "  " };
-                push_text(
-                    cmds,
-                    format!("{prefix}{} x{qty}", item.name),
-                    pad,
-                    y + 14.0 + i as f32 * 22.0,
-                    9.0,
-                    color,
-                );
+                let row_y = y + 14.0 + i as f32 * 22.0;
+                draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, row_y - 7.0, 8.0);
+                push_text(cmds, format!("{prefix}{} x{qty}", item.name), pad + 10.0, row_y, 9.0, color);
                 push_text(
                     cmds,
                     item.description.clone(),
-                    pad,
+                    pad + 10.0,
                     y + 24.0 + i as f32 * 22.0,
                     7.0,
                     LIGHTGRAY,
@@ -259,6 +264,10 @@ fn draw_menu_or_result(
             }
         }
         CombatPhase::SelectTarget { action, .. } => {
+            let item_icon = match action {
+                CombatAction::Item(idx) => inventory.items.get(idx).map(|(i, _)| item_kind_icon_rect(&i.kind)),
+                _ => None,
+            };
             let hint = match action {
                 CombatAction::Item(idx) => {
                     let item_name = inventory
@@ -270,7 +279,13 @@ fn draw_menu_or_result(
                 }
                 _ => "Choose a target".to_string(),
             };
-            push_text(cmds, hint, pad, y + 14.0, 9.0, WHITE);
+            let hint_x = if let Some(rect) = item_icon {
+                draw_icon(&assets.tiles, rect, pad, y + 14.0 - 7.0, 8.0);
+                pad + 10.0
+            } else {
+                pad
+            };
+            push_text(cmds, hint, hint_x, y + 14.0, 9.0, WHITE);
             push_text(
                 cmds,
                 "left/right target, Enter confirm, Esc back",
@@ -300,41 +315,45 @@ fn draw_menu_or_result(
                     ty += 10.0;
                 }
                 for item in &loot.items {
-                    push_text(cmds, format!("Found: {}", item.name), pad, ty, 8.0, WHITE);
-                    ty += 10.0;
+                    draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, ty - 6.0, 7.0);
+                    push_text(cmds, format!("Found: {}", item.name), pad + 9.0, ty, 8.0, WHITE);
+                    ty += 11.0;
                 }
                 for weapon in &loot.weapons {
+                    draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 6.0, 7.0);
                     push_text(
                         cmds,
                         format!("Weapon: {} [{}]", weapon.name, weapon.rarity),
-                        pad,
+                        pad + 9.0,
                         ty,
                         8.0,
                         rarity_color(weapon.rarity),
                     );
-                    ty += 10.0;
+                    ty += 11.0;
                 }
                 for armor in &loot.armors {
+                    draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 6.0, 7.0);
                     push_text(
                         cmds,
                         format!("Armor: {} [{}]", armor.name, armor.rarity),
-                        pad,
+                        pad + 9.0,
                         ty,
                         8.0,
                         rarity_color(armor.rarity),
                     );
-                    ty += 10.0;
+                    ty += 11.0;
                 }
                 for ring in &loot.rings {
+                    draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 6.0, 7.0);
                     push_text(
                         cmds,
                         format!("Ring: {} [{}]", ring.name, ring.rarity),
-                        pad,
+                        pad + 9.0,
                         ty,
                         8.0,
                         rarity_color(ring.rarity),
                     );
-                    ty += 10.0;
+                    ty += 11.0;
                 }
             }
             push_text(cmds, "Press Enter to continue.", pad, y + h - 8.0, 8.0, LIGHTGRAY);

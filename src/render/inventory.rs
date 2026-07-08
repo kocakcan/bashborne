@@ -1,11 +1,19 @@
 use macroquad::prelude::*;
 
-use crate::game::character::RingSlot;
+use crate::game::character::{AllocStat, RingSlot};
 use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
 use crate::game::item::Inventory;
 use crate::game::party::Party;
-use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
-use crate::render::common::{hp_color, push_text, rarity_color, scroll_window, TextCmd};
+use crate::render::assets::{
+    armor_icon_rect, item_kind_icon_rect, material_icon_rect, ring_icon_rect, weapon_icon_rect, Assets,
+    CANVAS_HEIGHT, CANVAS_WIDTH,
+};
+use crate::render::common::{draw_icon, hp_color, push_text, rarity_color, scroll_window, stat_color, TextCmd};
+
+/// Icons are drawn at this size, with row text shifted this many px to the
+/// right of where it used to start, to leave room for them.
+const ICON_SIZE: f32 = 8.0;
+const ICON_GAP: f32 = 10.0;
 
 // Leaves room for the persistent status bar chrome drawn at y 0-12 (see
 // `hud::draw_status_bar`) — the same convention `explore::MAP_TOP` and
@@ -30,7 +38,7 @@ fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-pub fn draw(inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
+pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     let content_y0 = TAB_Y + TAB_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
@@ -38,7 +46,7 @@ pub fn draw(inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmd
     draw_rectangle_lines(0.0, content_y0, CANVAS_WIDTH, content_y1 - content_y0, 1.0, WHITE);
 
     match &inv_ui.mode {
-        InventoryMode::Browsing => draw_list(inv_ui, inventory, content_y0, cmds),
+        InventoryMode::Browsing => draw_list(assets, inv_ui, inventory, content_y0, cmds),
         InventoryMode::SelectMember { tab, idx, member_cursor } => {
             draw_member_picker(party, inventory, *tab, *idx, *member_cursor, content_y0, cmds)
         }
@@ -84,8 +92,9 @@ fn draw_tabs(active: InventoryTab, cmds: &mut Vec<TextCmd>) {
     );
 }
 
-fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
     let pad = 4.0;
+    let text_pad = pad + ICON_GAP;
     let visible = 6usize;
     match inv_ui.tab {
         InventoryTab::Items => {
@@ -103,8 +112,9 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 }
                 let color = if selected { YELLOW } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
-                push_text(cmds, format!("{marker}{} x{qty}", item.name), pad, ty, 8.0, color);
-                push_text(cmds, truncate(&item.description, 44), pad + 8.0, ty + 11.0, 7.0, LIGHTGRAY);
+                draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, ty - 7.0, ICON_SIZE);
+                push_text(cmds, format!("{marker}{} x{qty}", item.name), text_pad, ty, 8.0, color);
+                push_text(cmds, truncate(&item.description, 44), text_pad + 4.0, ty + 11.0, 7.0, LIGHTGRAY);
             }
         }
         InventoryTab::Weapons => {
@@ -125,10 +135,11 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 if w.defense_bonus > 0 {
                     stats.push_str(&format!(" DEF+{}", w.defense_bonus));
                 }
+                draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] {stats}", w.display_name(), w.rarity),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(w.rarity),
@@ -137,13 +148,13 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 push_text(
                     cmds,
                     truncate(&format!("{} - {}", w.description, w.source), 44),
-                    pad + 8.0,
+                    text_pad + 4.0,
                     ty + 11.0,
                     7.0,
                     detail_color,
                 );
                 if let Some(passive) = &w.passive {
-                    push_text(cmds, truncate(&passive.description(), 44), pad + 8.0, ty + 20.0, 7.0, YELLOW);
+                    push_text(cmds, truncate(&passive.description(), 44), text_pad + 4.0, ty + 20.0, 7.0, YELLOW);
                 }
             }
         }
@@ -161,10 +172,11 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] DEF+{}", a.name, a.rarity, a.defense_bonus),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(a.rarity),
@@ -173,7 +185,7 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 push_text(
                     cmds,
                     truncate(&format!("{} - {}", a.description, a.source), 44),
-                    pad + 8.0,
+                    text_pad + 4.0,
                     ty + 11.0,
                     7.0,
                     detail_color,
@@ -201,10 +213,11 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 if r.defense_bonus > 0 {
                     bonus.push_str(&format!("DEF+{}", r.defense_bonus));
                 }
+                draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] {bonus}", r.name, r.rarity),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(r.rarity),
@@ -213,7 +226,7 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
                 push_text(
                     cmds,
                     truncate(&format!("{} - {}", r.description, r.source), 44),
-                    pad + 8.0,
+                    text_pad + 4.0,
                     ty + 11.0,
                     7.0,
                     detail_color,
@@ -226,10 +239,11 @@ fn draw_list(inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &m
             } else {
                 let selected = inv_ui.cursor == 0;
                 let color = if selected { YELLOW } else { WHITE };
+                draw_icon(&assets.tiles, material_icon_rect(), pad, y0 + 5.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("Titanite Shard x{}", inventory.upgrade_materials),
-                    pad,
+                    text_pad,
                     y0 + 12.0,
                     8.0,
                     color,
@@ -444,11 +458,19 @@ pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, x0: f32, y0: 
         draw_rectangle(bar_x, base_y + 8.0, bar_w * ratio, 2.0, hp_color(m.hp_ratio()));
         push_text(
             cmds,
-            format!("HP{}/{} MP{}/{}", m.stats.hp, m.stats.max_hp, m.stats.mp, m.stats.max_mp),
+            format!("HP{}/{}", m.stats.hp, m.stats.max_hp),
             bar_x,
             base_y + 15.0,
             6.0,
-            LIGHTGRAY,
+            stat_color(AllocStat::MaxHp),
+        );
+        push_text(
+            cmds,
+            format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
+            bar_x + bar_w / 2.0,
+            base_y + 15.0,
+            6.0,
+            stat_color(AllocStat::MaxMp),
         );
 
         let mut sy = base_y + 21.0;
@@ -484,11 +506,19 @@ pub(super) fn draw_party_gear(party: &Party, mode: &InventoryMode, x0: f32, y0: 
         }
         push_text(
             cmds,
-            format!("ATK {} DEF {}", m.total_attack(), m.total_defense()),
+            format!("ATK {}", m.total_attack()),
             bar_x,
             sy + 2.0,
             6.0,
-            LIGHTGRAY,
+            stat_color(AllocStat::Attack),
+        );
+        push_text(
+            cmds,
+            format!("DEF {}", m.total_defense()),
+            bar_x + bar_w / 2.0,
+            sy + 2.0,
+            6.0,
+            stat_color(AllocStat::Defense),
         );
     }
 }

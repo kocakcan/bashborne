@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 
+use crate::game::character::AllocStat;
 use crate::game::item::Rarity;
 use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
 
@@ -87,6 +88,37 @@ pub fn rarity_color(rarity: Rarity) -> Color {
         Rarity::Rare => SKYBLUE,
         Rarity::Epic => MAGENTA,
         Rarity::Legendary => YELLOW,
+    }
+}
+
+/// Draws a sprite icon (from `tiles` or `characters`) at canvas-space `x, y`,
+/// scaled to `size`x`size` — drawn in the normal per-screen canvas pass
+/// alongside tile/character art, not through `TextCmd`/`flush_text`.
+pub fn draw_icon(texture: &Texture2D, rect: Rect, x: f32, y: f32, size: f32) {
+    draw_texture_ex(
+        texture,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(size, size)),
+            source: Some(rect),
+            ..Default::default()
+        },
+    );
+}
+
+/// Fixed color per allocatable stat — no matching heart/droplet/boot/clover
+/// art exists in the bundled sheets, so stats get a colored label instead of
+/// a sprite icon.
+pub fn stat_color(stat: AllocStat) -> Color {
+    match stat {
+        AllocStat::MaxHp => RED,
+        AllocStat::MaxMp => SKYBLUE,
+        AllocStat::Attack => ORANGE,
+        AllocStat::Defense => GRAY,
+        AllocStat::Speed => GREEN,
+        AllocStat::Luck => PURPLE,
     }
 }
 

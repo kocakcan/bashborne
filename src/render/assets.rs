@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 
+use crate::game::item::ItemKind;
 use crate::game::map::Tile;
 use crate::game::npc::NpcId;
 
@@ -158,5 +159,38 @@ pub fn npc_rect(id: NpcId) -> Rect {
         NpcId::WoundedScout => cell(0, 6),
         NpcId::AshenPilgrim => cell(1, 11),
         NpcId::Blacksmith => cell(1, 9),
+    }
+}
+
+/// Generic weapon icon (in `characters`) — `Weapon` has no sub-type field to
+/// key off of, so every weapon shares one icon regardless of rarity/name.
+pub fn weapon_icon_rect() -> Rect {
+    cell(44, 6)
+}
+
+/// Generic armor icon (in `characters`), same reasoning as `weapon_icon_rect`.
+pub fn armor_icon_rect() -> Rect {
+    cell(34, 1)
+}
+
+/// Generic ring icon (in `tiles`).
+pub fn ring_icon_rect() -> Rect {
+    cell(54, 30)
+}
+
+/// Generic crafting-material icon (in `tiles`), e.g. Titanite Shards.
+pub fn material_icon_rect() -> Rect {
+    cell(46, 30)
+}
+
+/// Consumable icon (in `tiles`), one distinct bottle/token per `ItemKind`
+/// variant so Potion/Ether/Elixir/Revive/CureCurse read apart at a glance.
+pub fn item_kind_icon_rect(kind: &ItemKind) -> Rect {
+    match kind {
+        ItemKind::Potion { .. } => cell(54, 12),
+        ItemKind::Ether { .. } => cell(54, 14),
+        ItemKind::Elixir => cell(56, 11),
+        ItemKind::Revive { .. } => cell(55, 12),
+        ItemKind::CureCurse => cell(53, 9),
     }
 }

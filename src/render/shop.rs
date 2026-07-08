@@ -1,11 +1,14 @@
 use macroquad::prelude::*;
 
+use crate::game::character::AllocStat;
 use crate::game::inventory_ui::InventoryMode;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 use crate::game::shop::{shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopTab, ShopUiState};
-use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
-use crate::render::common::{push_text, rarity_color, scroll_window, TextCmd};
+use crate::render::assets::{
+    armor_icon_rect, item_kind_icon_rect, ring_icon_rect, weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
+};
+use crate::render::common::{draw_icon, push_text, rarity_color, scroll_window, stat_color, TextCmd};
 use crate::render::inventory::draw_party_gear;
 
 const HEADER_Y: f32 = 12.0;
@@ -14,6 +17,8 @@ const FOOTER_H: f32 = 26.0;
 const LEFT_W: f32 = CANVAS_WIDTH * 0.65;
 const RIGHT_X: f32 = LEFT_W;
 const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
+const ICON_SIZE: f32 = 8.0;
+const ICON_GAP: f32 = 10.0;
 
 fn truncate(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
@@ -25,7 +30,7 @@ fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-pub fn draw(shop: &ShopUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
+pub fn draw(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     let content_y0 = HEADER_Y + HEADER_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
@@ -33,8 +38,8 @@ pub fn draw(shop: &ShopUiState, party: &Party, inventory: &Inventory, cmds: &mut
     draw_rectangle_lines(0.0, content_y0, LEFT_W, content_y1 - content_y0, 1.0, WHITE);
 
     match shop.mode {
-        ShopMode::Buy => draw_buy_list(shop, party, inventory, content_y0, cmds),
-        ShopMode::Sell => draw_sell_list(shop, inventory, content_y0, cmds),
+        ShopMode::Buy => draw_buy_list(assets, shop, party, inventory, content_y0, cmds),
+        ShopMode::Sell => draw_sell_list(assets, shop, inventory, content_y0, cmds),
     }
 
     draw_party_gear(party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
@@ -70,8 +75,9 @@ fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
     );
 }
 
-fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
     let pad = 4.0;
+    let text_pad = pad + ICON_GAP;
     let visible = 6usize;
     match shop.tab {
         ShopTab::Items => {
@@ -94,16 +100,17 @@ fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f
                 }
                 let color = if selected { YELLOW } else if !affordable { DARKGRAY } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.tiles, item_kind_icon_rect(&sample.kind), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} {price}g (have x{owned})", sample.name),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     color,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(cmds, truncate(&sample.description, 52), pad + 8.0, ty + 10.0, 7.0, detail_color);
+                push_text(cmds, truncate(&sample.description, 52), text_pad + 4.0, ty + 10.0, 7.0, detail_color);
             }
         }
         ShopTab::Weapons => {
@@ -120,14 +127,14 @@ fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f
                 }
                 let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
-                push_text(
-                    cmds,
-                    format!("{marker}{} [{}] ATK+{} {price}g", sample.name, sample.rarity, sample.attack_bonus),
-                    pad,
-                    ty,
-                    8.0,
-                    color,
-                );
+                draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
+                let name_part = format!("{marker}{} [{}]", sample.name, sample.rarity);
+                push_text(cmds, name_part.clone(), text_pad, ty, 8.0, color);
+                let atk_x = text_pad + name_part.len() as f32 * 5.5;
+                let atk_part = format!(" ATK+{}", sample.attack_bonus);
+                let atk_color = if affordable { stat_color(AllocStat::Attack) } else { DARKGRAY };
+                push_text(cmds, atk_part.clone(), atk_x, ty, 8.0, atk_color);
+                push_text(cmds, format!(" {price}g"), atk_x + atk_part.len() as f32 * 5.5, ty, 8.0, color);
             }
         }
         ShopTab::Armor => {
@@ -144,14 +151,14 @@ fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f
                 }
                 let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
-                push_text(
-                    cmds,
-                    format!("{marker}{} [{}] DEF+{} {price}g", sample.name, sample.rarity, sample.defense_bonus),
-                    pad,
-                    ty,
-                    8.0,
-                    color,
-                );
+                draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
+                let name_part = format!("{marker}{} [{}]", sample.name, sample.rarity);
+                push_text(cmds, name_part.clone(), text_pad, ty, 8.0, color);
+                let def_x = text_pad + name_part.len() as f32 * 5.5;
+                let def_part = format!(" DEF+{}", sample.defense_bonus);
+                let def_color = if affordable { stat_color(AllocStat::Defense) } else { DARKGRAY };
+                push_text(cmds, def_part.clone(), def_x, ty, 8.0, def_color);
+                push_text(cmds, format!(" {price}g"), def_x + def_part.len() as f32 * 5.5, ty, 8.0, color);
             }
         }
         ShopTab::Rings => {
@@ -175,10 +182,11 @@ fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f
                 }
                 let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] {bonus}{price}g", sample.name, sample.rarity),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     color,
@@ -188,8 +196,9 @@ fn draw_buy_list(shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f
     }
 }
 
-fn draw_sell_list(shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
     let pad = 4.0;
+    let text_pad = pad + ICON_GAP;
     let visible = 6usize;
     match shop.tab {
         ShopTab::Items => {
@@ -207,16 +216,17 @@ fn draw_sell_list(shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut
                 }
                 let color = if selected { YELLOW } else { WHITE };
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.tiles, item_kind_icon_rect(&item.kind), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} x{qty} sells for {}g", item.name, item.value / 2),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     color,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                push_text(cmds, truncate(&item.description, 52), pad + 8.0, ty + 10.0, 7.0, detail_color);
+                push_text(cmds, truncate(&item.description, 52), text_pad + 4.0, ty + 10.0, 7.0, detail_color);
             }
         }
         ShopTab::Weapons => {
@@ -233,10 +243,11 @@ fn draw_sell_list(shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] sells for {}g", w.display_name(), w.rarity, w.rarity.base_value() / 2),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(w.rarity),
@@ -257,10 +268,11 @@ fn draw_sell_list(shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] sells for {}g", a.name, a.rarity, a.rarity.base_value() / 2),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(a.rarity),
@@ -281,10 +293,11 @@ fn draw_sell_list(shop: &ShopUiState, inventory: &Inventory, y0: f32, cmds: &mut
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
+                draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
                 push_text(
                     cmds,
                     format!("{marker}{} [{}] sells for {}g", r.name, r.rarity, r.rarity.base_value() / 2),
-                    pad,
+                    text_pad,
                     ty,
                     8.0,
                     rarity_color(r.rarity),

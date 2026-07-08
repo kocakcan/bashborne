@@ -5,16 +5,16 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 2,
-        "xp": 66,
-        "unspent_points": 3,
+        "level": 8,
+        "xp": 2,
+        "unspent_points": 12,
         "stats": {
-          "max_hp": 49,
-          "hp": 42,
-          "max_mp": 11,
-          "mp": 11,
-          "attack": 14,
-          "defense": 10,
+          "max_hp": 154,
+          "hp": 154,
+          "max_mp": 17,
+          "mp": 17,
+          "attack": 26,
+          "defense": 22,
           "speed": 6,
           "luck": 5
         },
@@ -55,18 +55,18 @@
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 2,
-        "xp": 66,
-        "unspent_points": 3,
+        "level": 8,
+        "xp": 2,
+        "unspent_points": 12,
         "stats": {
-          "max_hp": 29,
-          "hp": 21,
-          "max_mp": 35,
-          "mp": 35,
-          "attack": 6,
-          "defense": 5,
-          "speed": 9,
-          "luck": 7
+          "max_hp": 74,
+          "hp": 74,
+          "max_mp": 65,
+          "mp": 65,
+          "attack": 12,
+          "defense": 11,
+          "speed": 15,
+          "luck": 13
         },
         "abilities": [
           {
@@ -85,12 +85,12 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Apprentice's Wand",
-          "rarity": "Common",
-          "attack_bonus": 1,
+          "name": "Sunken Relic Blade",
+          "rarity": "Rare",
+          "attack_bonus": 11,
           "defense_bonus": 0,
-          "description": "A simple wand every mage starts with.",
-          "source": "Starting",
+          "description": "Pulled from somewhere it should never have been found.",
+          "source": "World",
           "upgrade_level": 0,
           "passive": null
         },
@@ -105,18 +105,18 @@
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 2,
-        "xp": 66,
-        "unspent_points": 3,
+        "level": 8,
+        "xp": 2,
+        "unspent_points": 12,
         "stats": {
-          "max_hp": 37,
-          "hp": 37,
-          "max_mp": 28,
-          "mp": 28,
-          "attack": 7,
-          "defense": 8,
+          "max_hp": 112,
+          "hp": 112,
+          "max_mp": 52,
+          "mp": 52,
+          "attack": 13,
+          "defense": 20,
           "speed": 7,
-          "luck": 5
+          "luck": 11
         },
         "abilities": [
           {
@@ -155,18 +155,18 @@
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 2,
-        "xp": 66,
-        "unspent_points": 3,
+        "level": 8,
+        "xp": 2,
+        "unspent_points": 12,
         "stats": {
-          "max_hp": 34,
-          "hp": 34,
-          "max_mp": 16,
-          "mp": 16,
-          "attack": 11,
-          "defense": 6,
-          "speed": 13,
-          "luck": 14
+          "max_hp": 94,
+          "hp": 94,
+          "max_mp": 28,
+          "mp": 28,
+          "attack": 23,
+          "defense": 12,
+          "speed": 25,
+          "luck": 26
         },
         "abilities": [
           {
@@ -185,16 +185,26 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Thief's Dirk",
-          "rarity": "Common",
-          "attack_bonus": 3,
-          "defense_bonus": 0,
-          "description": "Slim, quick, and honest about none of its history.",
-          "source": "Starting",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Knightsbane",
+          "rarity": "Legendary",
+          "attack_bonus": 29,
+          "defense_bonus": 7,
+          "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
+          "source": {
+            "EnemyDrop": "The Barrow Knight"
+          },
+          "upgrade_level": 1,
+          "passive": {
+            "Lifesteal": 0.15
+          }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Barrow-Touched Plate",
+          "rarity": "Epic",
+          "defense_bonus": 15,
+          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -203,7 +213,7 @@
         "is_elite": false
       }
     ],
-    "gold": 125,
+    "gold": 568,
     "effects": []
   },
   "inventory": {
@@ -219,7 +229,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        3
+        6
       ],
       [
         {
@@ -232,28 +242,67 @@
           "value": 20,
           "description": "Bitter and metallic; steadies the mind enough to cast again."
         },
-        2
+        3
       ]
     ],
-    "weapons": [],
-    "armors": [],
+    "weapons": [
+      {
+        "name": "Apprentice's Wand",
+        "rarity": "Common",
+        "attack_bonus": 1,
+        "defense_bonus": 0,
+        "description": "A simple wand every mage starts with.",
+        "source": "Starting",
+        "upgrade_level": 0,
+        "passive": null
+      },
+      {
+        "name": "Warden's Fang",
+        "rarity": "Legendary",
+        "attack_bonus": 24,
+        "defense_bonus": 4,
+        "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
+        "source": {
+          "EnemyDrop": "Wyrmscale Warden"
+        },
+        "upgrade_level": 0,
+        "passive": {
+          "DamageReduction": 0.15
+        }
+      }
+    ],
+    "armors": [
+      {
+        "name": "Dragonscale Aegis",
+        "rarity": "Legendary",
+        "defense_bonus": 24,
+        "description": "Overlapping scales said to have turned aside a dragon's breath.",
+        "source": "World"
+      }
+    ],
     "rings": [],
-    "upgrade_materials": 5
+    "upgrade_materials": 15
   },
-  "current_chapter": "One",
-  "bosses_defeated": [],
+  "current_chapter": "Three",
+  "bosses_defeated": [
+    "Two",
+    "One"
+  ],
   "npc_flags": [
+    "WoundedScout",
     "OldHerbalist"
   ],
   "quest_log": {
     "active": [
       "HerbalistsRequest"
     ],
-    "completed": []
+    "completed": [
+      "ScoutsCommendation"
+    ]
   },
   "player_pos": {
-    "x": 16,
-    "y": 8
+    "x": 4,
+    "y": 2
   },
   "ng_plus": 0
 }

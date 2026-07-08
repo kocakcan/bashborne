@@ -20,11 +20,13 @@ pub enum Key {
 /// digits come from `get_char_pressed()`, which already debounces to one
 /// event per physical keypress.
 pub fn poll_key() -> Option<Key> {
-    use macroquad::input::{is_key_pressed, KeyCode as MqKey};
+    use macroquad::input::{is_key_down, is_key_pressed, KeyCode as MqKey};
+
+    let shift = is_key_down(MqKey::LeftShift) || is_key_down(MqKey::RightShift);
 
     let key = if is_key_pressed(MqKey::Up) || is_key_pressed(MqKey::W) {
         Some(Key::Up)
-    } else if is_key_pressed(MqKey::Down) || is_key_pressed(MqKey::S) {
+    } else if is_key_pressed(MqKey::Down) || (is_key_pressed(MqKey::S) && !shift) {
         Some(Key::Down)
     } else if is_key_pressed(MqKey::Left) || is_key_pressed(MqKey::A) {
         Some(Key::Left)
