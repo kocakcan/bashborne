@@ -27,9 +27,6 @@ pub struct ExploreState {
     pub player_pos: Position,
     pub log: Vec<String>,
     pub steps_in_grass: u32,
-    /// True while `q` is waiting for the player to confirm quitting without
-    /// an autosave.
-    pub confirm_quit: bool,
     /// Lines of scrollback from the bottom of `log` currently displayed.
     pub log_scroll: usize,
 }
@@ -49,7 +46,6 @@ impl ExploreState {
                 def.name
             )],
             steps_in_grass: 0,
-            confirm_quit: false,
             log_scroll: 0,
         }
     }

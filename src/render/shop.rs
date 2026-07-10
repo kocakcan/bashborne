@@ -57,7 +57,7 @@ fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
     push_text(cmds, format!("Gold: {}", party.gold), CANVAS_WIDTH - 70.0, HEADER_Y + 9.0, 9.0, GOLD);
     push_text(
         cmds,
-        "left-right Buy/Sell, Tab cycles tabs, Esc leave",
+        "left-right Buy/Sell, Tab cycles tabs, x sells all Common, Esc leave",
         4.0,
         HEADER_Y + HEADER_H - 2.0,
         7.0,

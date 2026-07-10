@@ -32,15 +32,23 @@ pub fn draw(assets: &Assets, world: &World) {
     match &world.state {
         GameState::MainMenu(menu) => main_menu::draw(font, menu, &mut text),
         GameState::Explore(explore) => explore::draw(assets, explore, &world.party, &mut text),
-        GameState::Combat(combat) => {
-            combat::draw(assets, font, combat, &world.party, &world.inventory, &mut text)
-        }
+        GameState::Combat(combat) => combat::draw(
+            assets,
+            font,
+            combat,
+            &world.party,
+            &world.inventory,
+            world.anim_timer,
+            &mut text,
+        ),
         GameState::Event(ev) => event::draw(ev, &mut text),
         GameState::Inventory(inv_ui) => {
             inventory::draw(assets, inv_ui, &world.party, &world.inventory, &mut text)
         }
         GameState::Shop(shop_ui) => shop::draw(assets, shop_ui, &world.party, &world.inventory, &mut text),
-        GameState::QuestLog(ql_ui) => quest_log::draw(ql_ui, &world.quest_log, &mut text),
+        GameState::QuestLog(ql_ui) => {
+            quest_log::draw(ql_ui, &world.quest_log, &world.inventory, &mut text)
+        }
         GameState::LevelUp(lu_ui) => levelup::draw(lu_ui, &world.party, &mut text),
         GameState::Blacksmith(bs_ui) => blacksmith::draw(
             assets,
@@ -56,6 +64,9 @@ pub fn draw(assets: &Assets, world: &World) {
     hud::draw_status_bar(world, font, &mut text);
     if world.show_help {
         hud::draw_help_overlay(&mut text);
+    }
+    if world.confirm_quit {
+        hud::draw_confirm_quit(&mut text);
     }
 
     set_default_camera();

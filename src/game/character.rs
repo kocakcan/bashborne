@@ -116,17 +116,30 @@ impl fmt::Display for AllocStat {
 /// Stat points banked per level-up, to be spent via `Character::allocate_point`.
 pub const POINTS_PER_LEVEL: u32 = 3;
 
-/// How one allocated point behaves for one stat: the full-value gain, the
-/// soft cap past which the gain is halved (rounded up), and the hard cap at
-/// which allocation is refused outright. Caps compare against the *base*
-/// stat (`stats.attack`, not `total_attack()`), so gear never eats headroom;
-/// automatic `level_growth` also ignores caps entirely — they only govern
-/// hand-spent points.
+/// The highest level a party member can reach via `Character::gain_xp`.
+/// Must sit at or above 25 so `growth_multiplier`'s taper (full through
+/// level 10, floored at 0.5x by level 25) actually reaches its floor before
+/// play stops, rather than capping mid-taper. 40 leaves headroom past that
+/// floor — well above the highest level the game's own difficulty curve
+/// ever references (boss NG+ scaling tops out at a party average of 34) —
+/// for hand-allocated-point progression to keep meaning something after
+/// automatic growth bottoms out. Monster/boss scaling (`scale_to_level`) is
+/// a separate, already-bounded path and is intentionally not capped here.
+pub const MAX_LEVEL: u32 = 40;
+
+/// How one allocated point behaves for one stat: the full-value gain, and
+/// the soft cap past which the gain is halved (rounded up, floored at +1 —
+/// see `AllocPreview::Diminished`). There is no hard cap: every stat can
+/// always absorb another banked point, just at a diminishing rate past the
+/// soft cap, so a class's point budget can never strand points it can't
+/// spend (see the removed `hard_cap`'s history for why that was a bug).
+/// The soft cap compares against the *base* stat (`stats.attack`, not
+/// `total_attack()`), so gear never eats headroom; automatic `level_growth`
+/// ignores it entirely — it only governs hand-spent points.
 #[derive(Debug, Clone, Copy)]
 pub struct AllocRule {
     pub gain: i32,
     pub soft_cap: i32,
-    pub hard_cap: i32,
 }
 
 /// Per-class allocation payoff, one `AllocRule` per spendable stat. This is
@@ -156,65 +169,62 @@ impl AllocProfile {
 }
 
 /// Shorthand for the tables below.
-const fn rule(gain: i32, soft_cap: i32, hard_cap: i32) -> AllocRule {
-    AllocRule {
-        gain,
-        soft_cap,
-        hard_cap,
-    }
+const fn rule(gain: i32, soft_cap: i32) -> AllocRule {
+    AllocRule { gain, soft_cap }
 }
 
-/// Each class's allocation table. Hard caps are tuned to always clear the
-/// level-14 automatic-growth trajectory (asserted by a test below), so
-/// leveling alone can never lock a stat out of further investment.
+/// Each class's allocation table — this is where class identity in
+/// point-spending lives (the Warrior is the premier HP investment, the Mage
+/// and Rogue get the best attack-per-point), via `gain` and `soft_cap` only.
+/// There's deliberately no hard cap (see `AllocRule`'s doc comment).
 pub fn alloc_profile(class: Class) -> AllocProfile {
     match class {
         // Off-tank: the best HP-per-point in the party *and* a real attack
         // gain, at the price of mediocre MP/speed/luck payoff.
         Class::Warrior => AllocProfile {
-            max_hp: rule(7, 170, 220),
-            max_mp: rule(2, 30, 40),
-            attack: rule(2, 45, 60),
-            defense: rule(2, 40, 50),
-            speed: rule(1, 15, 20),
-            luck: rule(1, 15, 20),
+            max_hp: rule(7, 170),
+            max_mp: rule(2, 30),
+            attack: rule(2, 45),
+            defense: rule(2, 40),
+            speed: rule(1, 15),
+            luck: rule(1, 15),
         },
         // Glass cannon: top-tier attack and MP payoff, the frailest HP/defense.
         Class::Mage => AllocProfile {
-            max_hp: rule(3, 80, 100),
-            max_mp: rule(4, 110, 140),
-            attack: rule(3, 40, 55),
-            defense: rule(1, 22, 30),
-            speed: rule(1, 25, 32),
-            luck: rule(1, 25, 32),
+            max_hp: rule(3, 80),
+            max_mp: rule(4, 110),
+            attack: rule(3, 40),
+            defense: rule(1, 22),
+            speed: rule(1, 25),
+            luck: rule(1, 25),
         },
         // Support: balanced, durable-leaning, with no standout damage payoff.
         Class::Cleric => AllocProfile {
-            max_hp: rule(5, 120, 150),
-            max_mp: rule(3, 90, 115),
-            attack: rule(2, 35, 45),
-            defense: rule(2, 38, 48),
-            speed: rule(1, 16, 22),
-            luck: rule(1, 20, 26),
+            max_hp: rule(5, 120),
+            max_mp: rule(3, 90),
+            attack: rule(2, 35),
+            defense: rule(2, 38),
+            speed: rule(1, 16),
+            luck: rule(1, 20),
         },
         // Striker: the highest attack ceiling plus double-value speed/luck.
         Class::Rogue => AllocProfile {
-            max_hp: rule(4, 100, 125),
-            max_mp: rule(2, 45, 60),
-            attack: rule(3, 48, 62),
-            defense: rule(1, 24, 32),
-            speed: rule(2, 42, 52),
-            luck: rule(2, 34, 44),
+            max_hp: rule(4, 100),
+            max_mp: rule(2, 45),
+            attack: rule(3, 48),
+            defense: rule(1, 24),
+            speed: rule(2, 42),
+            luck: rule(2, 34),
         },
-        // Monsters never allocate; keep the old flat, uncapped table so
-        // nothing changes if one ever does.
+        // Monsters never allocate; keep the old flat, effectively-uncapped
+        // table so nothing changes if one ever does.
         Class::Monster => AllocProfile {
-            max_hp: rule(5, i32::MAX, i32::MAX),
-            max_mp: rule(3, i32::MAX, i32::MAX),
-            attack: rule(2, i32::MAX, i32::MAX),
-            defense: rule(2, i32::MAX, i32::MAX),
-            speed: rule(1, i32::MAX, i32::MAX),
-            luck: rule(1, i32::MAX, i32::MAX),
+            max_hp: rule(5, i32::MAX),
+            max_mp: rule(3, i32::MAX),
+            attack: rule(2, i32::MAX),
+            defense: rule(2, i32::MAX),
+            speed: rule(1, i32::MAX),
+            luck: rule(1, i32::MAX),
         },
     }
 }
@@ -227,8 +237,6 @@ pub enum AllocPreview {
     Full(i32),
     /// At/past the soft cap: gain halved (rounded up, so never zero).
     Diminished(i32),
-    /// At/past the hard cap: allocation refused, the point is kept.
-    Capped,
 }
 
 /// XP required to advance from `level` to `level + 1`.
@@ -399,18 +407,27 @@ impl Character {
 
     /// Adds `amount` XP, applying as many level-ups as it covers (a single
     /// large award — e.g. a boss kill — can cross several thresholds at
-    /// once). Returns the number of levels gained, 0 if none. Any level gained
+    /// once), stopping at `MAX_LEVEL`. Returns the number of levels gained,
+    /// 0 if none (including when already at the cap). Any level gained
     /// fully restores HP and MP, so leveling up always feels like a reward
     /// rather than leaving the party mid-fight at whatever HP it was at.
     pub fn gain_xp(&mut self, amount: u32) -> u32 {
+        if self.level >= MAX_LEVEL {
+            return 0;
+        }
         self.xp += amount;
         let mut levels = 0;
-        while self.xp >= xp_to_next_level(self.level) {
+        while self.level < MAX_LEVEL && self.xp >= xp_to_next_level(self.level) {
             self.xp -= xp_to_next_level(self.level);
             self.level += 1;
             self.unspent_points += POINTS_PER_LEVEL;
             self.apply_level_growth();
             levels += 1;
+        }
+        if self.level >= MAX_LEVEL {
+            // Nothing ever spends banked XP again once capped — keeping it
+            // around would just make the XP display lie.
+            self.xp = 0;
         }
         if levels > 0 {
             self.stats.hp = self.stats.max_hp;
@@ -507,24 +524,22 @@ impl Character {
     pub fn alloc_preview(&self, stat: AllocStat) -> AllocPreview {
         let rule = alloc_profile(self.class).rule(stat);
         let current = self.base_stat(stat);
-        if current >= rule.hard_cap {
-            AllocPreview::Capped
-        } else if current >= rule.soft_cap {
+        if current >= rule.soft_cap {
             AllocPreview::Diminished((rule.gain + 1) / 2)
         } else {
             AllocPreview::Full(rule.gain)
         }
     }
 
-    /// Spends one banked point on `stat`, if any are available and the stat
-    /// isn't hard-capped. Returns whether a point was spent — a refusal
-    /// (no points, or capped) leaves `unspent_points` untouched.
+    /// Spends one banked point on `stat`, if any are banked. Returns
+    /// whether a point was spent — the only refusal is having zero
+    /// `unspent_points`; every stat can always absorb another point, just at
+    /// diminishing returns past its soft cap (see `AllocRule`).
     pub fn allocate_point(&mut self, stat: AllocStat) -> bool {
         if self.unspent_points == 0 {
             return false;
         }
         let gain = match self.alloc_preview(stat) {
-            AllocPreview::Capped => return false,
             AllocPreview::Full(n) | AllocPreview::Diminished(n) => n,
         };
         self.unspent_points -= 1;
@@ -1531,6 +1546,24 @@ mod tests {
     }
 
     #[test]
+    fn gain_xp_stops_at_max_level() {
+        let mut hero = warrior("Bram");
+        hero.scale_to_level(MAX_LEVEL - 1);
+
+        let levels = hero.gain_xp(1_000_000);
+        assert_eq!(hero.level, MAX_LEVEL);
+        assert_eq!(hero.xp, 0);
+        assert_eq!(levels, 1);
+
+        // Already capped: a further award grants nothing and doesn't
+        // silently accumulate banked xp either.
+        let levels_again = hero.gain_xp(1_000_000);
+        assert_eq!(levels_again, 0);
+        assert_eq!(hero.level, MAX_LEVEL);
+        assert_eq!(hero.xp, 0);
+    }
+
+    #[test]
     fn gaining_a_level_heals_hp_and_mp_to_full() {
         let mut hero = warrior("Bram");
         hero.stats.hp = 1;
@@ -1603,35 +1636,24 @@ mod tests {
     }
 
     #[test]
-    fn the_hard_cap_refuses_the_point_and_keeps_it() {
-        let mut hero = rogue("Wren");
-        let rule = alloc_profile(Class::Rogue).rule(AllocStat::Attack);
-        hero.stats.attack = rule.hard_cap;
-        hero.unspent_points = 2;
-        assert_eq!(hero.alloc_preview(AllocStat::Attack), AllocPreview::Capped);
-        assert!(!hero.allocate_point(AllocStat::Attack));
-        assert_eq!(hero.stats.attack, rule.hard_cap);
-        assert_eq!(hero.unspent_points, 2, "a refused point must not be spent");
-        // The kept point is still spendable elsewhere.
-        assert!(hero.allocate_point(AllocStat::Speed));
-        assert_eq!(hero.unspent_points, 1);
-    }
-
-    #[test]
-    fn every_hard_cap_clears_the_level_14_auto_growth_trajectory() {
-        // Automatic level growth ignores caps, but if it could carry a base
-        // stat past its hard cap on its own, leveling would silently lock
-        // that stat out of allocation. Guard the tuning against that.
-        for hero in [warrior("B"), mage("S"), cleric("I"), rogue("W")] {
-            let mut grown = hero.clone();
-            grown.scale_to_level(14);
-            let profile = alloc_profile(hero.class);
-            for stat in ALLOC_STATS {
-                assert!(
-                    grown.base_stat(stat) < profile.rule(stat).hard_cap,
-                    "{:?} {stat} reaches its hard cap by level 14 via growth alone",
-                    hero.class
-                );
+    fn allocate_point_never_refuses_while_points_are_banked() {
+        // No hard cap exists anymore — dumping hundreds of points into one
+        // stat, for every playable class, must never hit a refusal until
+        // the banked points themselves run out. This is the guarantee that
+        // replaces the old hard-cap tuning: it can't go stale the next time
+        // MAX_LEVEL or POINTS_PER_LEVEL changes.
+        for mut hero in [warrior("B"), mage("S"), cleric("I"), rogue("W")] {
+            for &stat in &ALLOC_STATS {
+                hero.unspent_points = 500;
+                for _ in 0..500 {
+                    assert!(
+                        hero.allocate_point(stat),
+                        "{:?}'s {stat} refused a point despite {} banked",
+                        hero.class,
+                        hero.unspent_points + 1
+                    );
+                }
+                assert_eq!(hero.unspent_points, 0);
             }
         }
     }

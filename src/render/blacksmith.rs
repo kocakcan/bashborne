@@ -108,17 +108,31 @@ fn draw_weapon_list(bs: &BlacksmithUiState, party: &Party, inventory: &Inventory
 
 fn draw_footer(message: Option<&str>, shards_available: bool, y0: f32, cmds: &mut Vec<TextCmd>) {
     draw_rectangle_lines(0.0, y0, CANVAS_WIDTH, CANVAS_HEIGHT - y0, 1.0, WHITE);
-    let default_msg;
-    let text = match message {
-        Some(m) => m,
+    match message {
+        Some(m) => {
+            push_text(cmds, m, 4.0, y0 + 12.0, 7.0, WHITE);
+            // The shard-buy hint used to only appear as part of the default
+            // message, so it vanished for good the moment the player did
+            // anything (which sets `message`) — keep it visible alongside
+            // whatever transient message is currently showing instead.
+            if shards_available {
+                push_text(
+                    cmds,
+                    format!("Press B to buy a Titanite Shard for {SHARD_PRICE}g."),
+                    4.0,
+                    y0 + 22.0,
+                    7.0,
+                    GRAY,
+                );
+            }
+        }
         None => {
-            default_msg = if shards_available {
+            let text = if shards_available {
                 format!("Upgrading raises ATK/DEF using gold and shards. Press B to buy a shard for {SHARD_PRICE}g.")
             } else {
                 "Upgrading raises ATK (and DEF where applicable) using gold and Titanite Shards.".to_string()
             };
-            &default_msg
+            push_text(cmds, text, 4.0, y0 + 12.0, 7.0, WHITE);
         }
-    };
-    push_text(cmds, text, 4.0, y0 + 12.0, 7.0, WHITE);
+    }
 }

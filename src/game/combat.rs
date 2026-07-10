@@ -363,6 +363,37 @@ pub fn targets_party(action: CombatAction, actor_idx: usize, party: &Party) -> b
     }
 }
 
+/// A best-effort description of what the last-resolved turn did, purely for
+/// `render/combat.rs`'s benefit (attack lunge, hit-flash, defeat fade). It's
+/// inferred from HP deltas after the fact rather than threaded through every
+/// individual action/ability/boss-move branch, so adding it doesn't touch
+/// `resolve_player_action`/`resolve_enemy_action`'s existing logic at all —
+/// nothing here feeds back into game state or turn resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionAnimKind {
+    /// A damaging hit that didn't finish the target off.
+    Attack,
+    /// A damaging hit that finished the target off.
+    Defeat,
+    /// A restorative effect (currently only player heal abilities).
+    Heal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionAnimEvent {
+    pub actor: ActorRef,
+    /// `None` for enemy moves that didn't damage anyone this turn (a status
+    /// curse, a defensive stance, a steal) — still worth a beat on the
+    /// actor, just no target to react.
+    pub target: Option<ActorRef>,
+    pub kind: ActionAnimKind,
+}
+
+/// How long `CombatPhase::Resolving` holds the screen after a turn resolves
+/// (set by `app.rs`'s `begin_resolving_hold`), giving `render::combat` time
+/// to play the attack/hit/defeat beat before the real outcome is shown.
+pub const RESOLVING_HOLD_SECONDS: f32 = 0.35;
+
 pub enum CombatPhase {
     // A player-controlled actor is choosing what to do.
     SelectAction {
@@ -385,8 +416,9 @@ pub enum CombatPhase {
         action: CombatAction,
         target_idx: usize,
     },
-    // Reserved: not currently used, but useful once actions get animation delays.
-    #[allow(dead_code)]
+    // Briefly held by `app.rs` between a turn resolving and its real
+    // outcome being shown, so an attack/hit/defeat animation has time to
+    // play — see `CombatState::pending_phase`.
     Resolving,
     Victory,
     Defeat,
@@ -422,6 +454,19 @@ pub struct CombatState {
     /// just means "no NG+," which is also correct for tests that construct
     /// `CombatState` directly.
     pub ng_plus: u32,
+    /// Set fresh by every `resolve_current_turn` call — see `ActionAnimEvent`.
+    pub last_action_anim: Option<ActionAnimEvent>,
+    /// `app.rs`-only bookkeeping for briefly holding `phase` at `Resolving`
+    /// so an action's animation has time to play before the real outcome
+    /// (back to `SelectAction`, or `Victory`/`Defeat`) is shown. Neither
+    /// this field nor `resolving_timer` is ever touched by this module's
+    /// own transitions — `resolve_current_turn`/`advance_turn` behave
+    /// exactly as before, so nothing here affects the ~46 existing tests
+    /// that assert `phase` immediately after calling `resolve_current_turn`
+    /// directly (bypassing `app.rs`, which is the only place that reads or
+    /// writes these two fields).
+    pub pending_phase: Option<CombatPhase>,
+    pub resolving_timer: f32,
 }
 
 impl CombatState {
@@ -474,6 +519,9 @@ impl CombatState {
             return_pos: None,
             log_scroll: 0,
             ng_plus: 0,
+            last_action_anim: None,
+            pending_phase: None,
+            resolving_timer: 0.0,
         }
     }
 
@@ -532,19 +580,135 @@ impl CombatState {
     /// Called once per "tick" from the app loop after a player confirms a target,
     /// or immediately for enemy turns.
     pub fn resolve_current_turn(&mut self, party: &mut Party, rng: &mut impl Rng) {
-        match self.current_actor() {
+        let actor = self.current_actor();
+        let player_action = match self.phase {
+            CombatPhase::SelectTarget {
+                action, target_idx, ..
+            } => Some((action, target_idx)),
+            _ => None,
+        };
+        let pre_party_hp: Vec<i32> = party.members.iter().map(|m| m.stats.hp).collect();
+        let pre_enemy_hp: Vec<i32> = self.enemies.iter().map(|e| e.stats.hp).collect();
+
+        match actor {
             ActorRef::Player(pi) => {
                 // Only resolves once phase == SelectTarget for this actor; app.rs guarantees that.
-                if let CombatPhase::SelectTarget {
-                    action, target_idx, ..
-                } = self.phase
-                {
+                if let Some((action, target_idx)) = player_action {
                     self.resolve_player_action(pi, action, target_idx, party, rng);
                 }
             }
             ActorRef::Enemy(ei) => self.resolve_enemy_action(ei, party, rng),
         }
+
+        self.last_action_anim =
+            Self::infer_action_anim(actor, player_action, &pre_party_hp, &pre_enemy_hp, party, &self.enemies);
+
         self.advance_turn(party, rng);
+    }
+
+    /// The index of whichever slot in `pre_hp` dropped the most compared to
+    /// `post_hp`, if any dropped at all. Used to guess who an attack landed
+    /// on after the fact (see `infer_action_anim`) instead of threading a
+    /// target-of-record through every action/ability/boss-move branch.
+    fn best_hit_index(pre_hp: &[i32], post_hp: impl Iterator<Item = i32>) -> Option<usize> {
+        let mut best: Option<(usize, i32)> = None;
+        for (i, (&pre, post)) in pre_hp.iter().zip(post_hp).enumerate() {
+            let drop = pre - post;
+            if drop > 0 && best.is_none_or(|(_, best_drop)| drop > best_drop) {
+                best = Some((i, drop));
+            }
+        }
+        best.map(|(i, _)| i)
+    }
+
+    fn infer_action_anim(
+        actor: ActorRef,
+        player_action: Option<(CombatAction, usize)>,
+        pre_party_hp: &[i32],
+        pre_enemy_hp: &[i32],
+        party: &Party,
+        enemies: &[Character],
+    ) -> Option<ActionAnimEvent> {
+        match actor {
+            ActorRef::Player(pi) => {
+                let (action, target_idx) = player_action?;
+                match action {
+                    CombatAction::Flee | CombatAction::Item(_) => None,
+                    CombatAction::Attack => {
+                        let enemy = enemies.get(target_idx)?;
+                        let kind = if enemy.is_alive() {
+                            ActionAnimKind::Attack
+                        } else {
+                            ActionAnimKind::Defeat
+                        };
+                        Some(ActionAnimEvent {
+                            actor,
+                            target: Some(ActorRef::Enemy(target_idx)),
+                            kind,
+                        })
+                    }
+                    CombatAction::Ability(idx) => {
+                        let is_heal = party
+                            .members
+                            .get(pi)
+                            .is_some_and(|m| m.ability_is_heal(idx));
+                        if is_heal {
+                            Some(ActionAnimEvent {
+                                actor,
+                                target: Some(ActorRef::Player(target_idx)),
+                                kind: ActionAnimKind::Heal,
+                            })
+                        } else {
+                            // targets_all_enemies abilities can hit several at once;
+                            // highlight whichever took the biggest hit.
+                            let hit = Self::best_hit_index(
+                                pre_enemy_hp,
+                                enemies.iter().map(|e| e.stats.hp),
+                            )
+                            .unwrap_or(target_idx);
+                            let kind = enemies
+                                .get(hit)
+                                .map(|e| {
+                                    if e.is_alive() {
+                                        ActionAnimKind::Attack
+                                    } else {
+                                        ActionAnimKind::Defeat
+                                    }
+                                })
+                                .unwrap_or(ActionAnimKind::Attack);
+                            Some(ActionAnimEvent {
+                                actor,
+                                target: Some(ActorRef::Enemy(hit)),
+                                kind,
+                            })
+                        }
+                    }
+                }
+            }
+            ActorRef::Enemy(_) => {
+                match Self::best_hit_index(pre_party_hp, party.members.iter().map(|m| m.stats.hp)) {
+                    Some(i) => {
+                        let kind = if party.members[i].is_alive() {
+                            ActionAnimKind::Attack
+                        } else {
+                            ActionAnimKind::Defeat
+                        };
+                        Some(ActionAnimEvent {
+                            actor,
+                            target: Some(ActorRef::Player(i)),
+                            kind,
+                        })
+                    }
+                    // A non-damaging move (curse, defensive stance, steal) —
+                    // still worth a beat on the actor, just no reaction target.
+                    None => Some(ActionAnimEvent {
+                        actor,
+                        target: None,
+                        kind: ActionAnimKind::Attack,
+                    }),
+                }
+            }
+        }
     }
 
     fn resolve_player_action(

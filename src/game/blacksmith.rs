@@ -19,9 +19,11 @@ pub enum WeaponRef {
 }
 
 /// Every weapon currently available to upgrade: every spare weapon in the
-/// bag, followed by every party member's equipped weapon (if any).
-/// Rebuilt fresh on every render/key-handle call rather than cached,
-/// matching the shop's fixed-stock convention of never storing derived state.
+/// bag, followed by every party member's equipped weapon (if any) — minus
+/// any weapon already at `MAX_UPGRADE_LEVEL`, since there's nothing left to
+/// buy for it. Rebuilt fresh on every render/key-handle call rather than
+/// cached, matching the shop's fixed-stock convention of never storing
+/// derived state.
 pub fn weapon_refs(inventory: &Inventory, party: &Party) -> Vec<WeaponRef> {
     let mut refs: Vec<WeaponRef> = (0..inventory.weapons.len()).map(WeaponRef::Bag).collect();
     for (i, m) in party.members.iter().enumerate() {
@@ -29,6 +31,9 @@ pub fn weapon_refs(inventory: &Inventory, party: &Party) -> Vec<WeaponRef> {
             refs.push(WeaponRef::Equipped(i));
         }
     }
+    refs.retain(|&r| {
+        weapon_for(r, inventory, party).is_some_and(|w| w.upgrade_level < MAX_UPGRADE_LEVEL)
+    });
     refs
 }
 
@@ -173,6 +178,24 @@ mod tests {
 
         let refs = weapon_refs(&inventory, &party);
         assert_eq!(refs, vec![WeaponRef::Bag(0), WeaponRef::Equipped(0)]);
+    }
+
+    #[test]
+    fn weapon_refs_excludes_maxed_weapons() {
+        use crate::game::character::warrior;
+        use crate::game::item::iron_sword;
+
+        let mut inventory = Inventory::starting();
+        let mut maxed = iron_sword();
+        maxed.upgrade_level = MAX_UPGRADE_LEVEL;
+        inventory.add_weapon(maxed);
+        inventory.add_weapon(iron_sword());
+        let party = Party::new(vec![warrior("Bram")]);
+
+        let refs = weapon_refs(&inventory, &party);
+        // The maxed bag weapon (index 0) is excluded; the spare (index 1)
+        // and Bram's un-upgraded starting weapon remain.
+        assert_eq!(refs, vec![WeaponRef::Bag(1), WeaponRef::Equipped(0)]);
     }
 
     #[test]

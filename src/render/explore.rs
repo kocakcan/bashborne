@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::game::character::xp_to_next_level;
+use crate::game::character::{xp_to_next_level, MAX_LEVEL};
 use crate::game::map::Position;
 use crate::game::party::Party;
 use crate::game::state::ExploreState;
@@ -57,14 +57,10 @@ pub fn draw(assets: &Assets, explore: &ExploreState, party: &Party, cmds: &mut V
         },
     );
 
-    draw_bottom_strip(explore, party, offset_y + map_px_h, cmds);
-
-    if explore.confirm_quit {
-        draw_confirm_quit(cmds);
-    }
+    draw_bottom_strip(&assets.font, explore, party, offset_y + map_px_h, cmds);
 }
 
-fn draw_bottom_strip(explore: &ExploreState, party: &Party, strip_y: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_bottom_strip(font: &Font, explore: &ExploreState, party: &Party, strip_y: f32, cmds: &mut Vec<TextCmd>) {
     draw_rectangle(
         0.0,
         strip_y,
@@ -105,13 +101,14 @@ fn draw_bottom_strip(explore: &ExploreState, party: &Party, strip_y: f32, cmds: 
             8.0,
             SKYBLUE,
         );
+        let capped = m.level >= MAX_LEVEL;
         let next = xp_to_next_level(m.level);
-        let xp_ratio = (m.xp as f32 / next as f32).clamp(0.0, 1.0);
+        let xp_ratio = if capped { 1.0 } else { (m.xp as f32 / next as f32).clamp(0.0, 1.0) };
         draw_rectangle(x, y + 30.0, bar_w, 3.0, DARKGRAY);
         draw_rectangle(x, y + 30.0, bar_w * xp_ratio, 3.0, GREEN);
         push_text(
             cmds,
-            format!("XP {}/{}", m.xp, next),
+            if capped { "MAX".to_string() } else { format!("XP {}/{}", m.xp, next) },
             x,
             y + 40.0,
             7.0,
@@ -121,30 +118,40 @@ fn draw_bottom_strip(explore: &ExploreState, party: &Party, strip_y: f32, cmds: 
 
     let log_y = strip_y + 54.0;
     let visible = 3;
-    let start = explore.log.len().saturating_sub(visible);
-    for (i, line) in explore.log[start..].iter().enumerate() {
+    let end = explore.log.len().saturating_sub(explore.log_scroll);
+    let start = end.saturating_sub(visible);
+    for (i, line) in explore.log[start..end].iter().enumerate() {
         push_text(cmds, line.clone(), 4.0, log_y + i as f32 * 12.0, 9.0, WHITE);
+    }
+
+    // Active blessings/curses were previously only visible during combat
+    // (`combat::draw_effects_strip`) and invisible while exploring, so a
+    // player could easily forget an effect was even active. One line at the
+    // bottom of the strip, same tag format, skipped entirely when idle.
+    if !party.effects.is_empty() {
+        let ty = CANVAS_HEIGHT - 4.0;
+        let mut tx = 4.0;
+        let label = "Effects:";
+        push_text(cmds, label, tx, ty, 7.0, LIGHTGRAY);
+        tx += measure_text(label, Some(font), 7, 1.0).width + 4.0;
+        for (i, effect) in party.effects.iter().enumerate() {
+            let tag = format!(
+                "{} {:+} {} ({}){}",
+                effect.name,
+                effect.delta,
+                effect.target,
+                effect.encounters_remaining,
+                if i + 1 < party.effects.len() { "," } else { "" }
+            );
+            let color = if effect.delta >= 0 { GREEN } else { RED };
+            let d = measure_text(&tag, Some(font), 7, 1.0);
+            if tx + d.width > CANVAS_WIDTH - 4.0 {
+                push_text(cmds, format!("+{} more", party.effects.len() - i), tx, ty, 7.0, GRAY);
+                break;
+            }
+            push_text(cmds, tag.clone(), tx, ty, 7.0, color);
+            tx += d.width + 4.0;
+        }
     }
 }
 
-fn draw_confirm_quit(cmds: &mut Vec<TextCmd>) {
-    draw_rectangle(
-        90.0,
-        90.0,
-        CANVAS_WIDTH - 180.0,
-        90.0,
-        Color::new(0.05, 0.05, 0.08, 0.97),
-    );
-    draw_rectangle_lines(90.0, 90.0, CANVAS_WIDTH - 180.0, 90.0, 1.0, YELLOW);
-    push_text(cmds, "Quit without saving?", 100.0, 110.0, 12.0, YELLOW);
-    push_text(
-        cmds,
-        "Progress since your last save",
-        100.0,
-        128.0,
-        9.0,
-        LIGHTGRAY,
-    );
-    push_text(cmds, "will be lost.", 100.0, 140.0, 9.0, LIGHTGRAY);
-    push_text(cmds, "Enter/y - quit    Esc/n - stay", 100.0, 160.0, 9.0, WHITE);
-}

@@ -61,6 +61,11 @@ pub struct ShopUiState {
     pub message: Option<String>,
     /// Where to place the player back on the map once the shop is closed.
     pub return_pos: Position,
+    /// Set when a Rare+ sell is armed and waiting on a second Enter to
+    /// confirm — see `World::apply_shop_sell`. Any other key (navigation,
+    /// mode/tab switch) clears it rather than letting a stale confirmation
+    /// silently apply to a different item.
+    pub pending_sell: Option<(ShopTab, usize)>,
 }
 
 impl ShopUiState {
@@ -71,6 +76,7 @@ impl ShopUiState {
             cursor: 0,
             message: None,
             return_pos,
+            pending_sell: None,
         }
     }
 }

@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS};
+use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS, MAX_LEVEL};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
@@ -30,9 +30,14 @@ fn draw_header(ui: &LevelUpUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
             9.0,
             WHITE,
         );
+        let xp_text = if m.level >= MAX_LEVEL {
+            format!("MAX LEVEL   Unspent points: {}", m.unspent_points)
+        } else {
+            format!("XP {}/{}   Unspent points: {}", m.xp, xp_to_next_level(m.level), m.unspent_points)
+        };
         push_text(
             cmds,
-            format!("XP {}/{}   Unspent points: {}", m.xp, xp_to_next_level(m.level), m.unspent_points),
+            xp_text,
             4.0,
             HEADER_Y + HEADER_H - 2.0,
             7.0,
@@ -54,20 +59,13 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
         let increment = match preview {
             AllocPreview::Full(n) => format!("+{n}/pt"),
             AllocPreview::Diminished(n) => format!("+{n}/pt, soft cap"),
-            AllocPreview::Capped => "MAX".to_string(),
         };
         let selected = i == ui.stat_cursor;
         let ty = y0 + 12.0 + i as f32 * 14.0;
         if selected {
             draw_rectangle(0.0, ty - 8.0, CANVAS_WIDTH, 13.0, Color::new(1.0, 1.0, 1.0, 0.12));
         }
-        let color = if selected {
-            YELLOW
-        } else if matches!(preview, AllocPreview::Capped) {
-            DARKGRAY
-        } else {
-            stat_color(stat)
-        };
+        let color = if selected { YELLOW } else { stat_color(stat) };
         let marker = if selected { "> " } else { "  " };
         push_text(
             cmds,
@@ -82,6 +80,6 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
 
 fn draw_footer(message: Option<&str>, y0: f32, cmds: &mut Vec<TextCmd>) {
     draw_rectangle_lines(0.0, y0, CANVAS_WIDTH, CANVAS_HEIGHT - y0, 1.0, WHITE);
-    let text = message.unwrap_or("up/down pick member, left/right pick stat, Enter to spend a point, Esc to leave");
+    let text = message.unwrap_or("up/down pick member, left/right pick stat, Enter to spend a point, f to spend all, Esc to leave");
     push_text(cmds, text, 4.0, y0 + 12.0, 7.0, WHITE);
 }

@@ -580,25 +580,25 @@ pub(super) fn draw_party_gear(
             icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
             stat_icon_size,
         );
-        push_text(
-            cmds,
-            format!("ATK {}", m.total_attack()),
-            bar_x + stat_icon_size + 2.0,
-            sy + 2.0,
-            6.0,
-            stat_color(AllocStat::Attack),
-        );
+        let atk_text = format!("ATK {}", m.total_attack());
+        push_text(cmds, atk_text.clone(), bar_x + stat_icon_size + 2.0, sy + 2.0, 6.0, stat_color(AllocStat::Attack));
+        // DEF is placed relative to the ATK text's actual rendered width
+        // rather than a fixed bar_w/2.0 half-column split, so it neither
+        // collides with a wide ATK value nor leaves an oversized gap after
+        // a narrow one.
+        let atk_w = measure_text(&atk_text, Some(&assets.font), 6, 1.0).width;
+        let def_x = bar_x + stat_icon_size + 2.0 + atk_w + 6.0;
         draw_icon(
             &assets.characters,
             armor_icon_rect(),
-            bar_x + bar_w / 2.0,
+            def_x,
             icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
             stat_icon_size,
         );
         push_text(
             cmds,
             format!("DEF {}", m.total_defense()),
-            bar_x + bar_w / 2.0 + stat_icon_size + 2.0,
+            def_x + stat_icon_size + 2.0,
             sy + 2.0,
             6.0,
             stat_color(AllocStat::Defense),

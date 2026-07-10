@@ -8,28 +8,40 @@ use crate::game::blacksmith::{
 };
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
-use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState};
+use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState, RESOLVING_HOLD_SECONDS};
 use crate::game::inventory_ui::{
     EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
 };
-use crate::game::item::{Armor, Inventory, ItemKind, Ring, Weapon};
+use crate::game::item::{Armor, Inventory, ItemKind, Rarity, Ring, Weapon};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Position, Tile};
 use crate::game::npc::{npc_def, NpcId};
 use crate::game::party::Party;
 use crate::game::shop::{
-    shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode, ShopTab,
-    ShopUiState,
+    sell_price, shop_armor_stock, shop_item_stock, shop_ring_stock, shop_weapon_stock, ShopMode,
+    ShopTab, ShopUiState,
 };
 use crate::game::state::{
     roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry, MainMenuState,
 };
 
-/// Number of idle-animation frames every sprite (player, NPC, monster) has.
-pub const ANIM_FRAMES: usize = 2;
-/// Real seconds between animation-frame flips — about twice a second, the
-/// same cadence the old ~100ms-poll-driven `anim_tick` produced.
-const ANIM_FRAME_SECONDS: f32 = 0.4;
+/// `World.anim_timer` wraps at this many seconds so it doesn't grow without
+/// bound over a very long session — large enough that no in-flight sine-wave
+/// animation (see `render::combat`) ever notices the wrap.
+const ANIM_TIMER_WRAP: f32 = 10_000.0;
+
+/// If the turn that was just resolved produced an animation event, parks
+/// `combat.phase` at `Resolving` and stashes the real outcome in
+/// `pending_phase` until `World::tick` restores it — see
+/// `CombatState::pending_phase`'s doc comment for why this lives here
+/// rather than inside `game::combat`.
+fn begin_resolving_hold(combat: &mut CombatState) {
+    if combat.last_action_anim.is_some() {
+        let real_phase = std::mem::replace(&mut combat.phase, CombatPhase::Resolving);
+        combat.pending_phase = Some(real_phase);
+        combat.resolving_timer = RESOLVING_HOLD_SECONDS;
+    }
+}
 
 pub struct World {
     pub party: Party,
@@ -51,13 +63,18 @@ pub struct World {
     /// `start_new_game_plus` after beating the final boss, capped at 7.
     /// Multiplies every enemy's stats via `Character::apply_ng_plus`.
     pub ng_plus: u32,
-    /// Accumulates real elapsed seconds; flips `anim_frame_idx` every
-    /// `ANIM_FRAME_SECONDS`, driving the combat/overworld sprite animation.
+    /// Accumulates real elapsed seconds, wrapping at `ANIM_TIMER_WRAP` — a
+    /// plain monotonic clock `render::combat` samples to drive the idle-bob
+    /// sine wave on combat sprites.
     pub anim_timer: f32,
-    pub anim_frame_idx: usize,
     /// Whether the `?` keybind reference popup is currently shown, overlaid
     /// on top of whatever screen is active.
     pub show_help: bool,
+    /// True while `q` is waiting for the player to confirm quitting without
+    /// an autosave. Lives on `World` (not `ExploreState`) so quitting works
+    /// the same everywhere `current_player_pos` returns `Some` — Explore and
+    /// every sub-screen that carries a `return_pos` — not just Explore.
+    pub confirm_quit: bool,
 }
 
 impl World {
@@ -80,8 +97,8 @@ impl World {
             quest_log: crate::game::quest::QuestLog::new(),
             ng_plus: 0,
             anim_timer: 0.0,
-            anim_frame_idx: 0,
             show_help: false,
+            confirm_quit: false,
         }
     }
 
@@ -127,8 +144,48 @@ impl World {
             quest_log: data.quest_log,
             ng_plus: data.ng_plus,
             anim_timer: 0.0,
-            anim_frame_idx: 0,
             show_help: false,
+            confirm_quit: false,
+        }
+    }
+
+    /// Where the player is standing right now, if there's a meaningful
+    /// answer — `Some` while exploring or in any sub-screen reachable from
+    /// Explore (all five carry their own `return_pos`), `None` on the main
+    /// menu, in combat, mid-event, or on the game-over screen. Used to scope
+    /// `q`/`S` (quit/save) to exactly the states where "go back to the map"
+    /// makes sense.
+    pub fn current_player_pos(&self) -> Option<Position> {
+        match &self.state {
+            GameState::Explore(explore) => Some(explore.player_pos),
+            GameState::Inventory(ui) => Some(ui.return_pos),
+            GameState::Shop(ui) => Some(ui.return_pos),
+            GameState::QuestLog(ui) => Some(ui.return_pos),
+            GameState::LevelUp(ui) => Some(ui.return_pos),
+            GameState::Blacksmith(ui) => Some(ui.return_pos),
+            GameState::MainMenu(_)
+            | GameState::Combat(_)
+            | GameState::Event(_)
+            | GameState::GameOver { .. } => None,
+        }
+    }
+
+    /// Surfaces a one-off status message (currently only the save result) on
+    /// whichever screen is active, using that screen's own `message`/log
+    /// field. `QuestLog` has no such field (it's a read-only browser with no
+    /// existing message slot) so the save there is silent but still happens.
+    fn push_status_message(&mut self, message: String) {
+        match &mut self.state {
+            GameState::Explore(explore) => explore.push_log(message),
+            GameState::Inventory(ui) => ui.message = Some(message),
+            GameState::Shop(ui) => ui.message = Some(message),
+            GameState::LevelUp(ui) => ui.message = Some(message),
+            GameState::Blacksmith(ui) => ui.message = Some(message),
+            GameState::QuestLog(_)
+            | GameState::MainMenu(_)
+            | GameState::Combat(_)
+            | GameState::Event(_)
+            | GameState::GameOver { .. } => {}
         }
     }
 
@@ -152,15 +209,21 @@ impl World {
         self.state = GameState::Explore(explore);
     }
 
-    /// Which sprite animation frame the combat screen should show right now.
-    pub fn anim_frame(&self) -> usize {
-        self.anim_frame_idx
-    }
-
     pub fn handle_key(&mut self, key: Key) {
         if self.show_help {
             if matches!(key, Key::Char('?') | Key::Esc) {
                 self.show_help = false;
+            }
+            return;
+        }
+        // The quit confirmation is modal: nothing else reacts until the
+        // player commits or backs out, mirroring `confirm_overwrite` on the
+        // main menu.
+        if self.confirm_quit {
+            match key {
+                Key::Enter | Key::Char('y') => self.should_quit = true,
+                Key::Esc | Key::Char('n') => self.confirm_quit = false,
+                _ => {}
             }
             return;
         }
@@ -172,6 +235,27 @@ impl World {
         {
             self.show_help = true;
             return;
+        }
+        // Quit and save are handled once, here, rather than per-screen, so
+        // they work identically from Explore and every sub-screen that
+        // carries a `return_pos` (Inventory/Shop/QuestLog/LevelUp/
+        // Blacksmith) — not just Explore. `current_player_pos` returns
+        // `None` on MainMenu/Combat/Event/GameOver, where neither makes
+        // sense (MainMenu has its own unconfirmed `q`, handled below).
+        if key == Key::Char('q') && self.current_player_pos().is_some() {
+            self.confirm_quit = true;
+            return;
+        }
+        if key == Key::Char('S') {
+            if let Some(pos) = self.current_player_pos() {
+                let data = self.to_save(pos);
+                let message = match crate::game::save::write(&data) {
+                    Ok(()) => "Game saved.".to_string(),
+                    Err(e) => format!("Couldn't save the game: {e}"),
+                };
+                self.push_status_message(message);
+                return;
+            }
         }
         match &mut self.state {
             GameState::MainMenu(_) => self.handle_main_menu_key(key),
@@ -251,31 +335,7 @@ impl World {
     }
 
     fn handle_explore_key(&mut self, key: Key) {
-        // The quit confirmation is modal: nothing else reacts until the
-        // player commits or backs out, mirroring `confirm_overwrite` on the
-        // main menu.
-        let confirm_quit = match &self.state {
-            GameState::Explore(explore) => explore.confirm_quit,
-            _ => return,
-        };
-        if confirm_quit {
-            match key {
-                Key::Enter | Key::Char('y') => self.should_quit = true,
-                Key::Esc | Key::Char('n') => {
-                    let GameState::Explore(explore) = &mut self.state else {
-                        return;
-                    };
-                    explore.confirm_quit = false;
-                }
-                _ => {}
-            }
-            return;
-        }
-        if key == Key::Char('q') {
-            let GameState::Explore(explore) = &mut self.state else {
-                return;
-            };
-            explore.confirm_quit = true;
+        if !matches!(self.state, GameState::Explore(_)) {
             return;
         }
         if key == Key::PageUp {
@@ -290,21 +350,6 @@ impl World {
                 return;
             };
             explore.log_scroll = explore.log_scroll.saturating_sub(10);
-            return;
-        }
-        if key == Key::Char('S') {
-            let GameState::Explore(explore) = &self.state else {
-                return;
-            };
-            let data = self.to_save(explore.player_pos);
-            let message = match crate::game::save::write(&data) {
-                Ok(()) => "Game saved.".to_string(),
-                Err(e) => format!("Couldn't save the game: {e}"),
-            };
-            let GameState::Explore(explore) = &mut self.state else {
-                return;
-            };
-            explore.push_log(message);
             return;
         }
         if key == Key::Char('i') {
@@ -706,12 +751,21 @@ impl World {
                         };
                     }
                     Key::Enter => {
+                        let Some(ability) = self.party.members[pi].abilities.get(cursor).cloned()
+                        else {
+                            return;
+                        };
+                        if self.party.members[pi].stats.mp < ability.mp_cost {
+                            let name = self.party.members[pi].name.clone();
+                            combat.push_log(format!(
+                                "{name} doesn't have enough MP for {}.",
+                                ability.name
+                            ));
+                            combat.phase = CombatPhase::SelectAction { actor };
+                            return;
+                        }
                         let is_heal = self.party.members[pi].ability_is_heal(cursor);
-                        let targets_all = self.party.members[pi]
-                            .abilities
-                            .get(cursor)
-                            .map(|a| a.targets_all_enemies)
-                            .unwrap_or(false);
+                        let targets_all = ability.targets_all_enemies;
                         let alive = combat.alive_enemy_indices();
                         let target_idx = if is_heal {
                             pi
@@ -876,6 +930,7 @@ impl World {
         }
 
         combat.resolve_current_turn(&mut self.party, &mut self.rng);
+        begin_resolving_hold(combat);
     }
 
     fn handle_inventory_key(&mut self, key: Key) {
@@ -1410,6 +1465,7 @@ impl World {
         let mode = shop_ref.mode;
         let tab = shop_ref.tab;
         let cursor = shop_ref.cursor;
+        let pending_sell = shop_ref.pending_sell;
 
         match key {
             Key::Esc => {
@@ -1427,6 +1483,7 @@ impl World {
                 };
                 shop.mode = shop.mode.toggled();
                 shop.cursor = 0;
+                shop.pending_sell = None;
             }
             Key::Tab => {
                 let GameState::Shop(shop) = &mut self.state else {
@@ -1434,6 +1491,7 @@ impl World {
                 };
                 shop.tab = shop.tab.next();
                 shop.cursor = 0;
+                shop.pending_sell = None;
             }
             Key::Up | Key::Char('w') => {
                 let len = self.shop_list_len(mode, tab);
@@ -1442,6 +1500,7 @@ impl World {
                         return;
                     };
                     shop.cursor = (cursor + len - 1) % len;
+                    shop.pending_sell = None;
                 }
             }
             Key::Down | Key::Char('s') => {
@@ -1451,13 +1510,151 @@ impl World {
                         return;
                     };
                     shop.cursor = (cursor + 1) % len;
+                    shop.pending_sell = None;
                 }
             }
             Key::Enter => match mode {
                 ShopMode::Buy => self.apply_shop_buy(tab, cursor),
-                ShopMode::Sell => self.apply_shop_sell(tab, cursor),
+                ShopMode::Sell => {
+                    if pending_sell == Some((tab, cursor)) || !self.needs_sell_confirm(tab, cursor)
+                    {
+                        self.apply_shop_sell(tab, cursor);
+                    } else {
+                        let message = self.sell_confirm_message(tab, cursor);
+                        if let GameState::Shop(shop) = &mut self.state {
+                            shop.pending_sell = Some((tab, cursor));
+                            shop.message = Some(message);
+                        }
+                    }
+                }
             },
+            Key::Char('x') if mode == ShopMode::Sell => self.apply_shop_sell_all_common(),
             _ => {}
+        }
+    }
+
+    /// Whether selling `tab`/`idx` in the current bag needs a second Enter
+    /// to confirm — gated on Rare+ gear only, since Common/Uncommon pieces
+    /// and consumables (which have no rarity at all) are cheap and plentiful
+    /// enough that a confirm step would just be friction.
+    fn needs_sell_confirm(&self, tab: ShopTab, idx: usize) -> bool {
+        match tab {
+            ShopTab::Items => false,
+            ShopTab::Weapons => self
+                .inventory
+                .weapons
+                .get(idx)
+                .is_some_and(|w| w.rarity >= Rarity::Rare),
+            ShopTab::Armor => self
+                .inventory
+                .armors
+                .get(idx)
+                .is_some_and(|a| a.rarity >= Rarity::Rare),
+            ShopTab::Rings => self
+                .inventory
+                .rings
+                .get(idx)
+                .is_some_and(|r| r.rarity >= Rarity::Rare),
+        }
+    }
+
+    fn sell_confirm_message(&self, tab: ShopTab, idx: usize) -> String {
+        match tab {
+            ShopTab::Items => String::new(),
+            ShopTab::Weapons => self
+                .inventory
+                .weapons
+                .get(idx)
+                .map(|w| {
+                    format!(
+                        "Sell {} [{}] for {}g? Press Enter again to confirm.",
+                        w.display_name(),
+                        w.rarity,
+                        sell_price(w.rarity)
+                    )
+                })
+                .unwrap_or_default(),
+            ShopTab::Armor => self
+                .inventory
+                .armors
+                .get(idx)
+                .map(|a| {
+                    format!(
+                        "Sell {} [{}] for {}g? Press Enter again to confirm.",
+                        a.name,
+                        a.rarity,
+                        sell_price(a.rarity)
+                    )
+                })
+                .unwrap_or_default(),
+            ShopTab::Rings => self
+                .inventory
+                .rings
+                .get(idx)
+                .map(|r| {
+                    format!(
+                        "Sell {} [{}] for {}g? Press Enter again to confirm.",
+                        r.name,
+                        r.rarity,
+                        sell_price(r.rarity)
+                    )
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Sells every Common-rarity spare weapon/armor/ring in one go — the
+    /// smallest useful slice of bulk gear management: Common is the tier
+    /// players accumulate fastest and care about least individually, and it
+    /// never needs `needs_sell_confirm`'s confirmation step.
+    fn apply_shop_sell_all_common(&mut self) {
+        let mut gold_gained = 0u32;
+        let mut count = 0u32;
+        self.inventory.weapons.retain(|w| {
+            if w.rarity == Rarity::Common {
+                gold_gained += sell_price(w.rarity);
+                count += 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.inventory.armors.retain(|a| {
+            if a.rarity == Rarity::Common {
+                gold_gained += sell_price(a.rarity);
+                count += 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.inventory.rings.retain(|r| {
+            if r.rarity == Rarity::Common {
+                gold_gained += sell_price(r.rarity);
+                count += 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.party.gold += gold_gained;
+        let items_len = self.inventory.items.len();
+        let weapons_len = self.inventory.weapons.len();
+        let armors_len = self.inventory.armors.len();
+        let rings_len = self.inventory.rings.len();
+        if let GameState::Shop(shop) = &mut self.state {
+            shop.message = Some(if count == 0 {
+                "No spare Common gear to sell.".to_string()
+            } else {
+                format!("Sold {count} Common item(s) for {gold_gained} gold.")
+            });
+            shop.pending_sell = None;
+            shop.cursor = match shop.tab {
+                ShopTab::Items => shop.cursor.min(items_len.saturating_sub(1)),
+                ShopTab::Weapons => shop.cursor.min(weapons_len.saturating_sub(1)),
+                ShopTab::Armor => shop.cursor.min(armors_len.saturating_sub(1)),
+                ShopTab::Rings => shop.cursor.min(rings_len.saturating_sub(1)),
+            };
         }
     }
 
@@ -1590,6 +1787,7 @@ impl World {
             if let Some(msg) = message {
                 shop.message = Some(msg);
             }
+            shop.pending_sell = None;
             shop.cursor = match tab {
                 ShopTab::Items => shop.cursor.min(items_len.saturating_sub(1)),
                 ShopTab::Weapons => shop.cursor.min(weapons_len.saturating_sub(1)),
@@ -1649,6 +1847,7 @@ impl World {
                 ui.stat_cursor = (stat_cursor + 1) % len;
             }
             Key::Enter => self.apply_levelup_allocation(member_cursor, stat_cursor),
+            Key::Char('f') => self.apply_levelup_fill(member_cursor, stat_cursor),
             _ => {}
         }
     }
@@ -1657,22 +1856,41 @@ impl World {
         let Some(stat) = ALLOC_STATS.get(stat_idx).copied() else {
             return;
         };
-        let message = match self.party.members.get_mut(member_idx) {
-            Some(member) => {
-                if member.allocate_point(stat) {
-                    Some(format!(
-                        "{} spends a point on {stat}. ({} left)",
-                        member.name, member.unspent_points
-                    ))
-                } else if member.unspent_points == 0 {
-                    Some("No points left to spend.".to_string())
-                } else {
-                    // The only other way allocate_point refuses: a hard cap.
-                    Some(format!("{}'s {stat} can grow no further.", member.name))
-                }
+        let message = self.party.members.get_mut(member_idx).map(|member| {
+            if member.allocate_point(stat) {
+                format!(
+                    "{} spends a point on {stat}. ({} left)",
+                    member.name, member.unspent_points
+                )
+            } else {
+                "No points left to spend.".to_string()
             }
-            None => None,
+        });
+        if let GameState::LevelUp(ui) = &mut self.state {
+            if let Some(msg) = message {
+                ui.message = Some(msg);
+            }
+        }
+    }
+
+    /// Spends every banked point on `stat` in one go. Since `allocate_point`
+    /// can no longer be refused for any reason but zero points banked, this
+    /// loop is guaranteed to end with `unspent_points == 0`.
+    fn apply_levelup_fill(&mut self, member_idx: usize, stat_idx: usize) {
+        let Some(stat) = ALLOC_STATS.get(stat_idx).copied() else {
+            return;
         };
+        let message = self.party.members.get_mut(member_idx).map(|member| {
+            let mut spent = 0u32;
+            while member.allocate_point(stat) {
+                spent += 1;
+            }
+            if spent == 0 {
+                "No points left to spend.".to_string()
+            } else {
+                format!("{} spends {spent} point(s) on {stat}.", member.name)
+            }
+        });
         if let GameState::LevelUp(ui) = &mut self.state {
             if let Some(msg) = message {
                 ui.message = Some(msg);
@@ -1764,26 +1982,42 @@ impl World {
                 }
             }
         };
+        // A weapon that just hit MAX_UPGRADE_LEVEL drops out of the next
+        // weapon_refs() call, which can leave the cursor pointing past the
+        // now-shorter list — clamp it back into range.
+        let max_idx = weapon_refs(&self.inventory, &self.party)
+            .len()
+            .saturating_sub(1);
         if let GameState::Blacksmith(bs) = &mut self.state {
+            bs.cursor = bs.cursor.min(max_idx);
             bs.message = Some(message);
         }
     }
 
     /// Called once per rendered frame; advances enemy turns automatically
-    /// since they don't wait on keyboard input, and steps the
-    /// sprite-animation clock by the frame's real elapsed time.
+    /// since they don't wait on keyboard input, steps the sprite-animation
+    /// clock by the frame's real elapsed time, and counts down a resolving
+    /// turn's animation hold (see `CombatState::resolving_timer`).
     pub fn tick(&mut self, dt: f32) {
         self.anim_timer += dt;
-        while self.anim_timer >= ANIM_FRAME_SECONDS {
-            self.anim_timer -= ANIM_FRAME_SECONDS;
-            self.anim_frame_idx = (self.anim_frame_idx + 1) % ANIM_FRAMES;
+        if self.anim_timer > ANIM_TIMER_WRAP {
+            self.anim_timer -= ANIM_TIMER_WRAP;
         }
         if let GameState::Combat(combat) = &mut self.state {
-            if let CombatPhase::SelectAction {
+            if combat.resolving_timer > 0.0 {
+                combat.resolving_timer -= dt;
+                if combat.resolving_timer <= 0.0 {
+                    combat.resolving_timer = 0.0;
+                    if let Some(phase) = combat.pending_phase.take() {
+                        combat.phase = phase;
+                    }
+                }
+            } else if let CombatPhase::SelectAction {
                 actor: ActorRef::Enemy(_),
             } = combat.phase
             {
                 combat.resolve_current_turn(&mut self.party, &mut self.rng);
+                begin_resolving_hold(combat);
             }
         }
     }
@@ -2483,6 +2717,49 @@ mod tests {
     }
 
     #[test]
+    fn cursor_clamps_after_the_last_listed_weapon_reaches_max_upgrade_level() {
+        use crate::game::character::warrior;
+        use crate::game::item::{iron_sword, MAX_UPGRADE_LEVEL};
+
+        let mut world = World::new();
+        world.party = Party::new(vec![warrior("Bram")]); // single member, single equipped weapon
+        world.inventory.add_weapon(iron_sword()); // Bag(0), left untouched
+        world.party.members[0]
+            .equipped_weapon
+            .as_mut()
+            .unwrap()
+            .upgrade_level = MAX_UPGRADE_LEVEL - 1;
+        world.party.gold = 10_000;
+        world.inventory.upgrade_materials = 100;
+        world.state =
+            GameState::Blacksmith(crate::game::blacksmith::BlacksmithUiState::new(Position {
+                x: 0,
+                y: 0,
+            }));
+        // refs = [Bag(0), Equipped(0)]; select the equipped weapon (last row).
+        if let GameState::Blacksmith(bs) = &mut world.state {
+            bs.cursor = 1;
+        }
+
+        world.handle_key(Key::Enter);
+
+        assert_eq!(
+            world.party.members[0]
+                .equipped_weapon
+                .as_ref()
+                .unwrap()
+                .upgrade_level,
+            MAX_UPGRADE_LEVEL
+        );
+        // Equipped(0) just dropped out of the list, shrinking it to just
+        // Bag(0) — the stale cursor=1 must be clamped back into range.
+        let GameState::Blacksmith(bs) = &world.state else {
+            panic!("still in blacksmith state");
+        };
+        assert_eq!(bs.cursor, 0);
+    }
+
+    #[test]
     fn equipping_armor_from_the_bag_works_from_the_armor_tab() {
         let mut world = World::new();
         world.inventory.add_armor(padded_vest());
@@ -2871,16 +3148,10 @@ mod tests {
         let mut world = World::new();
         world.handle_key(Key::Char('q'));
         assert!(!world.should_quit, "should ask first, not quit outright");
-        let GameState::Explore(explore) = &world.state else {
-            panic!("expected to still be exploring");
-        };
-        assert!(explore.confirm_quit);
+        assert!(world.confirm_quit);
 
         world.handle_key(Key::Esc); // back out
-        let GameState::Explore(explore) = &world.state else {
-            panic!("expected to still be exploring");
-        };
-        assert!(!explore.confirm_quit);
+        assert!(!world.confirm_quit);
         assert!(!world.should_quit);
 
         world.handle_key(Key::Char('q'));
