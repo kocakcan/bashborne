@@ -1,11 +1,26 @@
 use macroquad::prelude::*;
 
 use crate::game::character::{xp_to_next_level, MAX_LEVEL};
-use crate::game::map::Position;
+use crate::game::map::{Direction, Position};
 use crate::game::party::Party;
-use crate::game::state::ExploreState;
-use crate::render::assets::{npc_rect, player_rect, tile_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH};
-use crate::render::common::{hp_color, push_text, TextCmd};
+use crate::game::state::{ExploreState, STEP_ANIM_SECONDS};
+use crate::render::assets::{npc_rect, player_walk_rect, tile_rect, Assets, WalkFrame, CANVAS_HEIGHT, CANVAS_WIDTH};
+use crate::game::character::AllocStat;
+use crate::render::common::{draw_bar, hp_color, push_text, stat_color, TextCmd};
+
+/// Derives the current walk-cycle frame from how long it's been since the
+/// last successful step: at rest once `step_elapsed` catches up to
+/// `STEP_ANIM_SECONDS`, otherwise a quick two-beat leg shuffle (left half of
+/// the window, then right) for the step that's still playing out.
+fn walk_frame(step_elapsed: f32) -> WalkFrame {
+    if step_elapsed >= STEP_ANIM_SECONDS {
+        WalkFrame::Rest
+    } else if step_elapsed < STEP_ANIM_SECONDS / 2.0 {
+        WalkFrame::StepLeft
+    } else {
+        WalkFrame::StepRight
+    }
+}
 
 const TILE: f32 = 16.0;
 const MAP_TOP: f32 = 12.0;
@@ -46,13 +61,15 @@ pub fn draw(assets: &Assets, explore: &ExploreState, party: &Party, cmds: &mut V
         );
     }
 
+    let frame = walk_frame(explore.step_elapsed);
     draw_texture_ex(
-        &assets.characters,
+        &assets.walk_frames,
         offset_x + explore.player_pos.x as f32 * TILE,
         offset_y + explore.player_pos.y as f32 * TILE,
         WHITE,
         DrawTextureParams {
-            source: Some(player_rect()),
+            source: Some(player_walk_rect(frame)),
+            flip_x: explore.facing == Direction::Left,
             ..Default::default()
         },
     );
@@ -82,37 +99,45 @@ fn draw_bottom_strip(font: &Font, explore: &ExploreState, party: &Party, strip_y
         };
         push_text(cmds, name_text, x, y + 8.0, 8.0, name_color);
         let bar_w = member_w - 8.0;
-        let ratio = m.hp_ratio().clamp(0.0, 1.0) as f32;
-        draw_rectangle(x, y + 12.0, bar_w, 4.0, DARKGRAY);
-        draw_rectangle(x, y + 12.0, bar_w * ratio, 4.0, hp_color(m.hp_ratio()));
-        push_text(
+        draw_bar(
             cmds,
-            format!("{}/{}", m.stats.hp, m.stats.max_hp),
+            font,
             x,
-            y + 24.0,
-            8.0,
-            LIGHTGRAY,
+            y + 11.0,
+            bar_w,
+            6.0,
+            m.hp_ratio(),
+            hp_color(m.hp_ratio()),
+            DARKGRAY,
+            Some((&format!("{}/{}", m.stats.hp, m.stats.max_hp), 6.0, WHITE)),
         );
-        push_text(
+        draw_bar(
             cmds,
-            format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
-            x + bar_w * 0.55,
-            y + 24.0,
-            8.0,
-            SKYBLUE,
+            font,
+            x,
+            y + 18.0,
+            bar_w,
+            6.0,
+            m.mp_ratio(),
+            stat_color(AllocStat::MaxMp),
+            DARKGRAY,
+            Some((&format!("{}/{}", m.stats.mp, m.stats.max_mp), 6.0, WHITE)),
         );
         let capped = m.level >= MAX_LEVEL;
         let next = xp_to_next_level(m.level);
-        let xp_ratio = if capped { 1.0 } else { (m.xp as f32 / next as f32).clamp(0.0, 1.0) };
-        draw_rectangle(x, y + 30.0, bar_w, 3.0, DARKGRAY);
-        draw_rectangle(x, y + 30.0, bar_w * xp_ratio, 3.0, GREEN);
-        push_text(
+        let xp_ratio = if capped { 1.0 } else { m.xp as f64 / next as f64 };
+        let xp_label = if capped { "MAX".to_string() } else { format!("XP {}/{}", m.xp, next) };
+        draw_bar(
             cmds,
-            if capped { "MAX".to_string() } else { format!("XP {}/{}", m.xp, next) },
+            font,
             x,
-            y + 40.0,
-            7.0,
-            LIGHTGRAY,
+            y + 25.0,
+            bar_w,
+            6.0,
+            xp_ratio,
+            ORANGE,
+            DARKGRAY,
+            Some((&xp_label, 6.0, WHITE)),
         );
     }
 

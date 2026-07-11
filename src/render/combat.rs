@@ -3,7 +3,7 @@ use macroquad::prelude::*;
 use crate::game::character::{AbilityKind, AllocStat, Class};
 use crate::game::combat::{
     targets_party, ActionAnimKind, ActorRef, CombatAction, CombatPhase, CombatState,
-    RESOLVING_HOLD_SECONDS,
+    FLOATING_NUMBER_TTL, RESOLVING_HOLD_SECONDS,
 };
 use crate::game::item::Inventory;
 use crate::game::party::Party;
@@ -12,7 +12,8 @@ use crate::render::assets::{
     weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 use crate::render::common::{
-    draw_icon, draw_icon_tinted, hp_color, icon_y_for_text, push_text, rarity_color, stat_color, TextCmd,
+    draw_bar, draw_icon, draw_icon_tinted, hp_color, icon_y_for_text, push_text, rarity_color, stat_color,
+    TextCmd,
 };
 
 const ACTION_LABELS: [&str; 4] = ["Attack", "Ability", "Item", "Flee"];
@@ -129,6 +130,38 @@ fn flash_tint(base: Color, flash: f32, alpha_mult: f32) -> Color {
         base.b + (1.0 - base.b) * flash,
         base.a * alpha_mult,
     )
+}
+
+/// League-of-Legends-style numbers rising and fading over `who`'s icon —
+/// pulled from `CombatState::floating_numbers` (populated generically by
+/// `CombatState::spawn_floating_numbers` from HP diffs, so this covers every
+/// damage/heal source without a per-move draw call). `cx`/`top_y` anchor to
+/// roughly the top-center of the actor's icon; simultaneous hits (AoE) are
+/// spread horizontally so they don't fully overlap.
+fn draw_floating_numbers(font: &Font, combat: &CombatState, who: ActorRef, cx: f32, top_y: f32, cmds: &mut Vec<TextCmd>) {
+    let matches: Vec<_> = combat.floating_numbers.iter().filter(|n| n.target == who).collect();
+    let count = matches.len();
+    for (j, num) in matches.into_iter().enumerate() {
+        let progress = (num.age / FLOATING_NUMBER_TTL).clamp(0.0, 1.0);
+        let rise = progress * 16.0;
+        let alpha = 1.0 - progress;
+        let jitter = (j as f32 - (count as f32 - 1.0) / 2.0) * 10.0;
+        let size: f32 = 9.0;
+        let (text, base_color) = if num.is_heal {
+            (format!("+{}", num.amount), GREEN)
+        } else {
+            (format!("-{}", num.amount), ORANGE)
+        };
+        let d = measure_text(&text, Some(font), size as u16, 1.0);
+        push_text(
+            cmds,
+            text,
+            cx + jitter - d.width / 2.0,
+            top_y - rise,
+            size,
+            Color::new(base_color.r, base_color.g, base_color.b, alpha),
+        );
+    }
 }
 
 const EFFECTS_STRIP_H: f32 = 12.0;
@@ -294,6 +327,7 @@ fn draw_enemies(
             let hp_text = format!("{}/{}", enemy.stats.hp, enemy.stats.max_hp);
             let hd = measure_text(&hp_text, Some(font), 8, 1.0);
             push_text(cmds, hp_text, cx - hd.width / 2.0, y + 82.0, 8.0, LIGHTGRAY);
+            draw_floating_numbers(font, combat, ActorRef::Enemy(i), cx, y + 8.0, cmds);
         } else {
             let name = format!("{} (defeated)", enemy.display_name());
             let nd = measure_text(&name, Some(font), 8, 1.0);
@@ -308,6 +342,9 @@ fn draw_enemies(
 const PARTY_ICON_SIZE: f32 = 11.0;
 const PARTY_ICON_X: f32 = 4.0;
 const PARTY_NAME_X: f32 = PARTY_ICON_X + PARTY_ICON_SIZE + 2.0;
+/// Per-member row height — tall enough for a stacked HP bar and MP bar
+/// (each with a centered cur/total label) below the name/icon.
+const PARTY_ROW_H: f32 = 16.0;
 
 /// Draws the party's HP/MP panel during combat, including — for the first
 /// time — a sprite per member. There's no per-class art in
@@ -338,7 +375,7 @@ fn draw_party(assets: &Assets, combat: &CombatState, party: &Party, y: f32, w: f
     };
 
     for (i, m) in party.members.iter().enumerate() {
-        let row_y = y + 6.0 + i as f32 * 15.0;
+        let row_y = y + 6.0 + i as f32 * PARTY_ROW_H;
         let marker = if party_target == Some(i) {
             ">"
         } else if acting_player == Some(i) {
@@ -364,28 +401,42 @@ fn draw_party(assets: &Assets, combat: &CombatState, party: &Party, y: f32, w: f
         push_text(cmds, format!("{marker}{:<8}", m.name), PARTY_NAME_X, row_y + 8.0, 9.0, color);
         let bar_x = 70.0;
         let bar_w = w - bar_x - 4.0;
-        let ratio = m.hp_ratio().clamp(0.0, 1.0) as f32;
-        draw_rectangle(bar_x, row_y + 2.0, bar_w, 4.0, DARKGRAY);
-        draw_rectangle(
-            bar_x,
-            row_y + 2.0,
-            bar_w * ratio,
-            4.0,
-            if m.is_alive() { hp_color(m.hp_ratio()) } else { GRAY },
-        );
-        let (hp_color_, mp_color_) = if m.is_alive() {
-            (stat_color(AllocStat::MaxHp), stat_color(AllocStat::MaxMp))
+        let (hp_fill, mp_fill) = if m.is_alive() {
+            (hp_color(m.hp_ratio()), stat_color(AllocStat::MaxMp))
         } else {
             (GRAY, GRAY)
         };
-        push_text(cmds, format!("{}/{}", m.stats.hp, m.stats.max_hp), bar_x, row_y + 13.0, 7.0, hp_color_);
-        push_text(
+        draw_bar(
             cmds,
-            format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
-            bar_x + bar_w * 0.55,
-            row_y + 13.0,
-            7.0,
-            mp_color_,
+            &assets.font,
+            bar_x,
+            row_y,
+            bar_w,
+            6.0,
+            m.hp_ratio(),
+            hp_fill,
+            DARKGRAY,
+            Some((&format!("{}/{}", m.stats.hp, m.stats.max_hp), 6.0, WHITE)),
+        );
+        draw_bar(
+            cmds,
+            &assets.font,
+            bar_x,
+            row_y + 7.0,
+            bar_w,
+            6.0,
+            m.mp_ratio(),
+            mp_fill,
+            DARKGRAY,
+            Some((&format!("{}/{}", m.stats.mp, m.stats.max_mp), 6.0, WHITE)),
+        );
+        draw_floating_numbers(
+            &assets.font,
+            combat,
+            ActorRef::Player(i),
+            PARTY_ICON_X + PARTY_ICON_SIZE / 2.0,
+            row_y,
+            cmds,
         );
     }
 }

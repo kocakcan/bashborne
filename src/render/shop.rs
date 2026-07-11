@@ -9,8 +9,11 @@ use crate::game::shop::{shop_armor_stock, shop_item_stock, shop_ring_stock, shop
 use crate::render::assets::{
     armor_icon_rect, item_kind_icon_rect, ring_icon_rect, weapon_icon_rect, Assets, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
-use crate::render::common::{draw_icon, push_text, rarity_color, scroll_window, stat_color, TextCmd};
-use crate::render::inventory::{draw_party_gear, wrap_lines};
+use crate::render::common::{
+    draw_gear_col_dividers, draw_gear_row_divider, draw_icon, push_gear_row, push_gear_table_header, push_text,
+    rarity_color, scroll_window, stat_color, TextCmd, GEAR_DESC_COL_W,
+};
+use crate::render::inventory::{draw_party_gear, wrap_lines, wrap_lines_px, GearPreview};
 
 const HEADER_Y: f32 = 12.0;
 const HEADER_H: f32 = 18.0;
@@ -40,7 +43,18 @@ pub fn draw(
         ShopMode::Sell => draw_sell_list(assets, shop, inventory, content_y0, cmds),
     }
 
-    draw_party_gear(assets, party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
+    let preview = buy_gear_preview(shop, chapter);
+    draw_party_gear(
+        assets,
+        party,
+        &InventoryMode::Browsing,
+        preview.as_ref(),
+        RIGHT_X,
+        content_y0,
+        RIGHT_W,
+        content_y1,
+        cmds,
+    );
     draw_footer(shop.message.as_deref(), chapter, content_y1, CANVAS_HEIGHT, cmds);
 }
 
@@ -70,6 +84,30 @@ fn draw_header(shop: &ShopUiState, cmds: &mut Vec<TextCmd>) {
         7.0,
         GRAY,
     );
+}
+
+/// Gear preview (see `GearPreview`) for whatever's under the cursor in the
+/// Buy list — only meaningful in Buy mode on the Weapons/Armor/Rings tabs,
+/// same idea as `inventory::browsing_gear_preview` but keyed off shop stock
+/// instead of the bag.
+fn buy_gear_preview(shop: &ShopUiState, chapter: ChapterId) -> Option<GearPreview> {
+    if shop.mode != ShopMode::Buy {
+        return None;
+    }
+    match shop.tab {
+        ShopTab::Weapons => shop_weapon_stock(chapter).get(shop.cursor).map(|(factory, _)| {
+            let w = factory();
+            GearPreview::Weapon { attack_bonus: w.attack_bonus, defense_bonus: w.defense_bonus }
+        }),
+        ShopTab::Armor => shop_armor_stock(chapter)
+            .get(shop.cursor)
+            .map(|(factory, _)| GearPreview::Armor { defense_bonus: factory().defense_bonus }),
+        ShopTab::Rings => shop_ring_stock(chapter).get(shop.cursor).map(|(factory, _)| {
+            let r = factory();
+            GearPreview::Ring { attack_bonus: r.attack_bonus, defense_bonus: r.defense_bonus, slot: None }
+        }),
+        ShopTab::Items => None,
+    }
 }
 
 fn draw_buy_list(
@@ -123,27 +161,35 @@ fn draw_buy_list(
         ShopTab::Weapons => {
             let stock = shop_weapon_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
-                let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
+                let name_color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                let name_part = format!("{marker}{} [{}]", sample.name, sample.rarity);
-                push_text(cmds, name_part.clone(), text_pad, ty, 8.0, color);
-                let atk_x = text_pad + name_part.len() as f32 * 5.5;
-                let atk_part = format!(" ATK+{}", sample.attack_bonus);
-                let atk_color = if affordable { stat_color(AllocStat::Attack) } else { DARKGRAY };
-                push_text(cmds, atk_part.clone(), atk_x, ty, 8.0, atk_color);
-                push_text(cmds, format!(" {price}g"), atk_x + atk_part.len() as f32 * 5.5, ty, 8.0, color);
+                push_gear_row(
+                    cmds,
+                    text_pad,
+                    ty,
+                    8.0,
+                    format!("{marker}{} [{}]", sample.name, sample.rarity),
+                    name_color,
+                    Some((sample.attack_bonus, stat_cell_color(affordable, sample.attack_bonus, stat_color(AllocStat::Attack)))),
+                    Some((sample.defense_bonus, stat_cell_color(affordable, sample.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{price}g"), name_color)),
+                );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &sample.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -151,27 +197,39 @@ fn draw_buy_list(
         ShopTab::Armor => {
             let stock = shop_armor_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
-                let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
+                let name_color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                let name_part = format!("{marker}{} [{}]", sample.name, sample.rarity);
-                push_text(cmds, name_part.clone(), text_pad, ty, 8.0, color);
-                let def_x = text_pad + name_part.len() as f32 * 5.5;
-                let def_part = format!(" DEF+{}", sample.defense_bonus);
-                let def_color = if affordable { stat_color(AllocStat::Defense) } else { DARKGRAY };
-                push_text(cmds, def_part.clone(), def_x, ty, 8.0, def_color);
-                push_text(cmds, format!(" {price}g"), def_x + def_part.len() as f32 * 5.5, ty, 8.0, color);
+                // Armor never grants attack (no `attack_bonus` field on
+                // `Armor`), so the ATK cell is always a dimmed "ATK+0" —
+                // still drawn, not skipped, so the column stays populated
+                // like a real table cell across every tab.
+                push_gear_row(
+                    cmds,
+                    text_pad,
+                    ty,
+                    8.0,
+                    format!("{marker}{} [{}]", sample.name, sample.rarity),
+                    name_color,
+                    Some((0, DARKGRAY)),
+                    Some((sample.defense_bonus, stat_cell_color(affordable, sample.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{price}g"), name_color)),
+                );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &sample.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -179,39 +237,63 @@ fn draw_buy_list(
         ShopTab::Rings => {
             let stock = shop_ring_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
-                let mut bonus = String::new();
-                if sample.attack_bonus > 0 {
-                    bonus.push_str(&format!("ATK+{} ", sample.attack_bonus));
-                }
-                if sample.defense_bonus > 0 {
-                    bonus.push_str(&format!("DEF+{} ", sample.defense_bonus));
-                }
-                let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
+                let name_color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                push_text(
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] {bonus}{price}g", sample.name, sample.rarity),
                     text_pad,
                     ty,
                     8.0,
-                    color,
+                    format!("{marker}{} [{}]", sample.name, sample.rarity),
+                    name_color,
+                    Some((sample.attack_bonus, stat_cell_color(affordable, sample.attack_bonus, stat_color(AllocStat::Attack)))),
+                    Some((sample.defense_bonus, stat_cell_color(affordable, sample.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{price}g"), name_color)),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &sample.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
         }
+    }
+}
+
+/// Draws the header row + header/body divider + continuous column
+/// gridlines for a gear tab (Weapons/Armor/Rings) — text-flushed cells
+/// always render on top of these canvas-space lines (`flush_text` runs in
+/// its own later pass over the whole blitted canvas), so a full-height
+/// divider can safely run behind a wrapped description that overflows its
+/// row without visually cutting through the letters.
+fn draw_gear_table(cmds: &mut Vec<TextCmd>, text_pad: f32, y0: f32, show_price: bool) {
+    push_gear_table_header(cmds, text_pad, y0 + 8.0, show_price);
+    draw_gear_row_divider(0.0, LEFT_W, y0 + 12.0);
+    draw_gear_col_dividers(text_pad, y0 + 12.0, CANVAS_HEIGHT - FOOTER_H, show_price);
+}
+
+/// ATK/DEF cell color for a buy-list row — dimmed gray when the value is
+/// zero (so the cell still reads as "present" rather than a hole in the
+/// table) or when the party can't afford the item, matching the row's own
+/// name/price dimming.
+fn stat_cell_color(affordable: bool, value: i32, base: Color) -> Color {
+    if !affordable || value == 0 {
+        DARKGRAY
+    } else {
+        base
     }
 }
 
@@ -256,25 +338,33 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                 return;
             }
             let range = scroll_window(inventory.weapons.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let w = &inventory.weapons[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                push_text(
+                let name_color = rarity_color(w.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] sells for {}g", w.display_name(), w.rarity, w.rarity.base_value() / 2),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(w.rarity),
+                    format!("{marker}{} [{}]", w.display_name(), w.rarity),
+                    name_color,
+                    Some((w.attack_bonus, stat_cell_color(true, w.attack_bonus, stat_color(AllocStat::Attack)))),
+                    Some((w.defense_bonus, stat_cell_color(true, w.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{}g", w.rarity.base_value() / 2), name_color)),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&w.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &w.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -285,25 +375,33 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                 return;
             }
             let range = scroll_window(inventory.armors.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let a = &inventory.armors[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                push_text(
+                let name_color = rarity_color(a.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] sells for {}g", a.name, a.rarity, a.rarity.base_value() / 2),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(a.rarity),
+                    format!("{marker}{} [{}]", a.name, a.rarity),
+                    name_color,
+                    Some((0, DARKGRAY)),
+                    Some((a.defense_bonus, stat_cell_color(true, a.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{}g", a.rarity.base_value() / 2), name_color)),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&a.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &a.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -314,25 +412,33 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                 return;
             }
             let range = scroll_window(inventory.rings.len(), shop.cursor, visible);
+            draw_gear_table(cmds, text_pad, y0, true);
             for (row, i) in range.enumerate() {
                 let r = &inventory.rings[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 28.0;
+                let ty = y0 + 22.0 + row as f32 * 28.0;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
-                push_text(
+                let name_color = rarity_color(r.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] sells for {}g", r.name, r.rarity, r.rarity.base_value() / 2),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(r.rarity),
+                    format!("{marker}{} [{}]", r.name, r.rarity),
+                    name_color,
+                    Some((r.attack_bonus, stat_cell_color(true, r.attack_bonus, stat_color(AllocStat::Attack)))),
+                    Some((r.defense_bonus, stat_cell_color(true, r.defense_bonus, stat_color(AllocStat::Defense)))),
+                    Some((format!("{}g", r.rarity.base_value() / 2), name_color)),
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&r.description, 52, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &r.description, GEAR_DESC_COL_W - 4.0, 7.0, 2).iter().enumerate() {
                     push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }

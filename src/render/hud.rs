@@ -4,7 +4,7 @@ use crate::app::World;
 use crate::game::chapter::chapter_def;
 use crate::game::state::GameState;
 use crate::render::assets::CANVAS_WIDTH;
-use crate::render::common::{push_text, TextCmd};
+use crate::render::common::{draw_screen_rect, draw_screen_rect_lines, push_text, TextCmd};
 
 const HUD_FONT: f32 = 10.0;
 
@@ -86,37 +86,80 @@ const HELP_RIGHT: [&str; 21] = [
     "TallGrass random encounters",
 ];
 
+const HELP_BOX_X: f32 = 40.0;
+const HELP_BOX_Y: f32 = 20.0;
+const HELP_BOX_W: f32 = CANVAS_WIDTH - 80.0;
+const HELP_BOX_H: f32 = 230.0;
+
 pub fn draw_help_overlay(cmds: &mut Vec<TextCmd>) {
-    const BOX_X: f32 = 40.0;
-    const BOX_Y: f32 = 20.0;
-    const BOX_W: f32 = CANVAS_WIDTH - 80.0;
-    const BOX_H: f32 = 230.0;
-    draw_rectangle(BOX_X, BOX_Y, BOX_W, BOX_H, Color::new(0.05, 0.05, 0.08, 0.95));
-    draw_rectangle_lines(BOX_X, BOX_Y, BOX_W, BOX_H, 1.0, WHITE);
+    draw_rectangle(
+        HELP_BOX_X,
+        HELP_BOX_Y,
+        HELP_BOX_W,
+        HELP_BOX_H,
+        Color::new(0.05, 0.05, 0.08, 0.95),
+    );
+    draw_rectangle_lines(HELP_BOX_X, HELP_BOX_Y, HELP_BOX_W, HELP_BOX_H, 1.0, WHITE);
 
     for (i, line) in HELP_LEFT.iter().enumerate() {
-        push_text(cmds, *line, BOX_X + 8.0, BOX_Y + 14.0 + i as f32 * 13.0, HUD_FONT, WHITE);
+        push_text(
+            cmds,
+            *line,
+            HELP_BOX_X + 8.0,
+            HELP_BOX_Y + 14.0 + i as f32 * 13.0,
+            HUD_FONT,
+            WHITE,
+        );
     }
-    let right_x = BOX_X + 210.0;
+    let right_x = HELP_BOX_X + 210.0;
     for (i, line) in HELP_RIGHT.iter().enumerate() {
-        push_text(cmds, *line, right_x, BOX_Y + 14.0 + i as f32 * 10.0, 8.0, WHITE);
+        push_text(cmds, *line, right_x, HELP_BOX_Y + 14.0 + i as f32 * 10.0, 8.0, WHITE);
     }
-    push_text(cmds, "? / Esc to close", BOX_X + 8.0, BOX_Y + BOX_H - 6.0, HUD_FONT, LIGHTGRAY);
+    push_text(
+        cmds,
+        "? / Esc to close",
+        HELP_BOX_X + 8.0,
+        HELP_BOX_Y + HELP_BOX_H - 6.0,
+        HUD_FONT,
+        LIGHTGRAY,
+    );
+}
+
+/// Redraws the help overlay's opaque panel directly in real screen space
+/// (post-canvas-blit) so it can sit between the base text flush and the
+/// overlay's own text flush — see `render::mod::draw`. Without this, the
+/// panel only exists baked into the canvas beneath a single later,
+/// undifferentiated text pass, so it can occlude canvas art but never the
+/// underlying screen's text, which bleeds through the overlay's own text.
+pub fn redraw_help_overlay_panel() {
+    draw_screen_rect(
+        HELP_BOX_X,
+        HELP_BOX_Y,
+        HELP_BOX_W,
+        HELP_BOX_H,
+        Color::new(0.05, 0.05, 0.08, 0.95),
+    );
+    draw_screen_rect_lines(HELP_BOX_X, HELP_BOX_Y, HELP_BOX_W, HELP_BOX_H, 1.0, WHITE);
 }
 
 /// Modal "quit without saving?" prompt — reachable from Explore and every
 /// sub-screen that carries a `return_pos` (see `World::current_player_pos`),
 /// not just Explore, so `q` works consistently no matter what the player has
 /// open.
+const QUIT_BOX_X: f32 = 90.0;
+const QUIT_BOX_Y: f32 = 90.0;
+const QUIT_BOX_W: f32 = CANVAS_WIDTH - 180.0;
+const QUIT_BOX_H: f32 = 90.0;
+
 pub fn draw_confirm_quit(cmds: &mut Vec<TextCmd>) {
     draw_rectangle(
-        90.0,
-        90.0,
-        CANVAS_WIDTH - 180.0,
-        90.0,
+        QUIT_BOX_X,
+        QUIT_BOX_Y,
+        QUIT_BOX_W,
+        QUIT_BOX_H,
         Color::new(0.05, 0.05, 0.08, 0.97),
     );
-    draw_rectangle_lines(90.0, 90.0, CANVAS_WIDTH - 180.0, 90.0, 1.0, YELLOW);
+    draw_rectangle_lines(QUIT_BOX_X, QUIT_BOX_Y, QUIT_BOX_W, QUIT_BOX_H, 1.0, YELLOW);
     push_text(cmds, "Quit without saving?", 100.0, 110.0, 12.0, YELLOW);
     push_text(
         cmds,
@@ -128,4 +171,17 @@ pub fn draw_confirm_quit(cmds: &mut Vec<TextCmd>) {
     );
     push_text(cmds, "will be lost.", 100.0, 140.0, 9.0, LIGHTGRAY);
     push_text(cmds, "Enter/y - quit    Esc/n - stay", 100.0, 160.0, 9.0, WHITE);
+}
+
+/// Screen-space repaint of the confirm-quit panel, see
+/// `redraw_help_overlay_panel`.
+pub fn redraw_confirm_quit_panel() {
+    draw_screen_rect(
+        QUIT_BOX_X,
+        QUIT_BOX_Y,
+        QUIT_BOX_W,
+        QUIT_BOX_H,
+        Color::new(0.05, 0.05, 0.08, 0.97),
+    );
+    draw_screen_rect_lines(QUIT_BOX_X, QUIT_BOX_Y, QUIT_BOX_W, QUIT_BOX_H, 1.0, YELLOW);
 }

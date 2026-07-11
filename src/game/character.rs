@@ -410,6 +410,10 @@ impl Character {
         self.stats.hp as f64 / self.stats.max_hp as f64
     }
 
+    pub fn mp_ratio(&self) -> f64 {
+        self.stats.mp as f64 / self.stats.max_mp as f64
+    }
+
     /// Adds `amount` XP, applying as many level-ups as it covers (a single
     /// large award — e.g. a boss kill — can cross several thresholds at
     /// once), stopping at `MAX_LEVEL`. Returns the number of levels gained,

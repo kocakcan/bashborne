@@ -71,17 +71,36 @@ pub fn draw(assets: &Assets, world: &World) {
     }
 
     hud::draw_status_bar(world, font, &mut text);
+
+    // Modal overlays' text is queued separately from the underlying
+    // screen's, and flushed in its own pass after the overlay's opaque
+    // panel is redrawn directly in screen space (see
+    // `hud::redraw_help_overlay_panel`) — otherwise both layers' text ends
+    // up in one shared, unordered flush after the canvas (with the panel
+    // only baked into it as a static bitmap) is already blitted, so the
+    // panel can occlude canvas art but never occludes text, and the
+    // underlying screen's text bleeds through the overlay's.
+    let mut overlay_text = Vec::new();
     if world.show_help {
-        hud::draw_help_overlay(&mut text);
+        hud::draw_help_overlay(&mut overlay_text);
     }
     if world.confirm_quit {
-        hud::draw_confirm_quit(&mut text);
+        hud::draw_confirm_quit(&mut overlay_text);
     }
 
     set_default_camera();
     clear_background(BLACK);
     blit_canvas_to_window(assets);
     flush_text(font, &assets.text_material, &text);
+
+    if world.show_help {
+        hud::redraw_help_overlay_panel();
+        flush_text(font, &assets.text_material, &overlay_text);
+    }
+    if world.confirm_quit {
+        hud::redraw_confirm_quit_panel();
+        flush_text(font, &assets.text_material, &overlay_text);
+    }
 }
 
 fn draw_game_over(font: &Font, victory: bool, cmds: &mut Vec<TextCmd>) {

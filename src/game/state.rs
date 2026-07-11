@@ -13,7 +13,7 @@ use crate::game::item::{
     worn_leather_jerkin, Armor, Item, Ring, Weapon,
 };
 use crate::game::levelup::LevelUpUiState;
-use crate::game::map::{Map, Position};
+use crate::game::map::{Direction, Map, Position};
 use crate::game::npc::NpcId;
 use crate::game::quest_ui::QuestLogUiState;
 use crate::game::save::{SaveData, SAVE_SLOTS};
@@ -24,6 +24,10 @@ use crate::game::status::{roll_blessing, roll_curse, StatusEffect};
 /// growing unbounded while still holding plenty of scrollback.
 const MAX_LOG_LINES: usize = 200;
 
+/// How long the walk-shuffle animation plays after a successful step
+/// (seconds) — see `ExploreState::step_elapsed` and `render/explore.rs`.
+pub const STEP_ANIM_SECONDS: f32 = 0.18;
+
 pub struct ExploreState {
     pub map: Map,
     pub player_pos: Position,
@@ -31,6 +35,15 @@ pub struct ExploreState {
     pub steps_in_grass: u32,
     /// Lines of scrollback from the bottom of `log` currently displayed.
     pub log_scroll: usize,
+    /// Which way the player is currently facing — set on every movement key
+    /// press (even a bump into a wall), read by `render/explore.rs` to flip
+    /// the walk-cycle sprite horizontally.
+    pub facing: Direction,
+    /// Seconds elapsed since the last successful step; `World::tick` counts
+    /// this up (capped at `STEP_ANIM_SECONDS`) while exploring, and
+    /// `render/explore.rs` derives the current `WalkFrame` from it. Starts
+    /// at `STEP_ANIM_SECONDS` so a fresh spawn renders at rest, not mid-step.
+    pub step_elapsed: f32,
 }
 
 impl ExploreState {
@@ -49,6 +62,8 @@ impl ExploreState {
             )],
             steps_in_grass: 0,
             log_scroll: 0,
+            facing: Direction::default(),
+            step_elapsed: STEP_ANIM_SECONDS,
         }
     }
 

@@ -14,6 +14,14 @@ fn window_conf() -> Conf {
         window_title: "Bashborne".to_owned(),
         window_width: 1440,
         window_height: 810,
+        // Without this, macOS/Retina-class displays get a framebuffer
+        // rendered at logical (not physical) pixel size and then upscaled
+        // by the window compositor — every `TextCmd` and canvas-blit pixel
+        // ends up soft/blurry no matter how the font itself is rasterized.
+        // `render::common::canvas_transform` already derives its integer
+        // blit scale from `screen_width()/screen_height()`, which reflects
+        // this DPI scaling automatically, so no other code needs to change.
+        high_dpi: true,
         ..Default::default()
     }
 }

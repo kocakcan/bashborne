@@ -10,13 +10,15 @@ use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{
     cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS,
 };
-use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState, RESOLVING_HOLD_SECONDS};
+use crate::game::combat::{
+    ActorRef, CombatAction, CombatPhase, CombatState, FLOATING_NUMBER_TTL, RESOLVING_HOLD_SECONDS,
+};
 use crate::game::inventory_ui::{
     EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
 };
 use crate::game::item::{Armor, Inventory, ItemKind, Rarity, Ring, Weapon};
 use crate::game::levelup::LevelUpUiState;
-use crate::game::map::{Position, Tile};
+use crate::game::map::{Direction, Position, Tile};
 use crate::game::npc::{npc_def, NpcId};
 use crate::game::party::Party;
 use crate::game::shop::{
@@ -25,7 +27,7 @@ use crate::game::shop::{
 };
 use crate::game::state::{
     roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuState,
-    DIFFICULTY_OPTIONS, MAIN_MENU_ROWS,
+    DIFFICULTY_OPTIONS, MAIN_MENU_ROWS, STEP_ANIM_SECONDS,
 };
 
 /// `World.anim_timer` wraps at this many seconds so it doesn't grow without
@@ -517,13 +519,14 @@ impl World {
             return;
         };
         let delta = match key {
-            Key::Up | Key::Char('w') => Some((0, -1)),
-            Key::Down | Key::Char('s') => Some((0, 1)),
-            Key::Left | Key::Char('a') => Some((-1, 0)),
-            Key::Right | Key::Char('d') => Some((1, 0)),
+            Key::Up | Key::Char('w') => Some((0, -1, Direction::Up)),
+            Key::Down | Key::Char('s') => Some((0, 1, Direction::Down)),
+            Key::Left | Key::Char('a') => Some((-1, 0, Direction::Left)),
+            Key::Right | Key::Char('d') => Some((1, 0, Direction::Right)),
             _ => None,
         };
-        let Some((dx, dy)) = delta else { return };
+        let Some((dx, dy, dir)) = delta else { return };
+        explore.facing = dir;
         let next = Position {
             x: explore.player_pos.x + dx,
             y: explore.player_pos.y + dy,
@@ -532,6 +535,7 @@ impl World {
             return;
         }
         explore.player_pos = next;
+        explore.step_elapsed = 0.0;
         let tile = explore.map.tile_at(next);
         if tile == Tile::TallGrass {
             explore.steps_in_grass += 1;
@@ -2188,7 +2192,16 @@ impl World {
         if self.anim_timer > ANIM_TIMER_WRAP {
             self.anim_timer -= ANIM_TIMER_WRAP;
         }
+        if let GameState::Explore(explore) = &mut self.state {
+            if explore.step_elapsed < STEP_ANIM_SECONDS {
+                explore.step_elapsed = (explore.step_elapsed + dt).min(STEP_ANIM_SECONDS);
+            }
+        }
         if let GameState::Combat(combat) = &mut self.state {
+            for n in &mut combat.floating_numbers {
+                n.age += dt;
+            }
+            combat.floating_numbers.retain(|n| n.age < FLOATING_NUMBER_TTL);
             if combat.resolving_timer > 0.0 {
                 combat.resolving_timer -= dt;
                 if combat.resolving_timer <= 0.0 {

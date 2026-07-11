@@ -15,6 +15,19 @@ pub struct Position {
     pub y: i32,
 }
 
+/// Which way the player is facing on the overworld map — drives the walk
+/// animation's horizontal flip in `render/explore.rs`. Not persisted in
+/// `SaveData`; a reloaded game just faces `Down` by default, same as a
+/// fresh spawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Direction {
+    Up,
+    #[default]
+    Down,
+    Left,
+    Right,
+}
+
 pub struct Map {
     pub width: i32,
     pub height: i32,

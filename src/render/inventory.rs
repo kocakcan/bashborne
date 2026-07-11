@@ -1,17 +1,18 @@
 use macroquad::prelude::*;
 
-use crate::game::character::{AllocStat, RingSlot};
+use crate::game::character::{AllocStat, Character, RingSlot};
 use crate::game::inventory_ui::{
     move_preview, EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
 };
-use crate::game::item::Inventory;
+use crate::game::item::{Inventory, Rarity, Ring};
 use crate::game::party::Party;
 use crate::render::assets::{
     armor_icon_rect, item_kind_icon_rect, material_icon_rect, ring_icon_rect, weapon_icon_rect, Assets,
     CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 use crate::render::common::{
-    draw_icon, hp_color, icon_y_for_text, push_text, rarity_color, scroll_window, stat_color, TextCmd,
+    draw_gear_col_dividers, draw_gear_row_divider, draw_icon, hp_color, icon_y_for_text, push_gear_row,
+    push_gear_table_header, push_text, rarity_color, scroll_window, stat_color, TextCmd, GEAR_DESC_COL_W,
 };
 
 /// Icons are drawn at this size, with row text shifted this many px to the
@@ -21,9 +22,11 @@ const ICON_GAP: f32 = 10.0;
 /// Vertical space reserved per list row — wide enough for a name line plus a
 /// 2-line word-wrapped description underneath without crowding the next row.
 const ROW_STRIDE: f32 = 34.0;
-/// Weapons additionally show a passive-effect line below the description, so
-/// they need more vertical room than the other tabs' rows.
-const WEAPON_ROW_STRIDE: f32 = 42.0;
+/// Weapons additionally show a passive-effect line below the description
+/// (up to 2 wrapped lines, same as the description itself, since Legendary
+/// passive text at the Item column's width regularly wraps), so they need
+/// more vertical room than the other tabs' rows.
+const WEAPON_ROW_STRIDE: f32 = 49.0;
 
 // Leaves room for the persistent status bar chrome drawn at y 0-12 (see
 // `hud::draw_status_bar`) — the same convention `explore::MAP_TOP` and
@@ -74,6 +77,49 @@ pub(super) fn wrap_lines(s: &str, max_chars: usize, max_lines: usize) -> Vec<Str
     lines
 }
 
+/// Same job as `wrap_lines`, but measures actual glyph width with the real
+/// font instead of counting characters — needed for descriptions sitting
+/// inside the gear table's "Item" column, which is a fixed pixel width
+/// (`GEAR_DESC_COL_W`) regardless of the font's average character width, so
+/// a char-count wrap either overflows into the ATK gridline or wraps too
+/// early depending on how wide the current line's letters happen to be.
+pub(super) fn wrap_lines_px(font: &Font, s: &str, max_width: f32, size: f32, max_lines: usize) -> Vec<String> {
+    let words: Vec<&str> = s.split_whitespace().collect();
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut idx = 0;
+    while idx < words.len() {
+        let word = words[idx];
+        let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
+        let width = measure_text(&candidate, Some(font), size as u16, 1.0).width;
+        if !current.is_empty() && width > max_width {
+            lines.push(std::mem::take(&mut current));
+            if lines.len() == max_lines {
+                break;
+            }
+            continue;
+        }
+        current = candidate;
+        idx += 1;
+    }
+    let all_consumed = idx == words.len();
+    if lines.len() < max_lines && !current.is_empty() {
+        lines.push(current);
+    } else if !all_consumed {
+        if let Some(last) = lines.last_mut() {
+            let mut truncated = last.clone();
+            while !truncated.is_empty()
+                && measure_text(&format!("{truncated}..."), Some(font), size as u16, 1.0).width > max_width
+            {
+                truncated.pop();
+            }
+            truncated.push_str("...");
+            *last = truncated;
+        }
+    }
+    lines
+}
+
 pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     let content_y0 = TAB_Y + TAB_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
@@ -81,25 +127,98 @@ pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory
     draw_tabs(inv_ui.tab, cmds);
     draw_rectangle_lines(0.0, content_y0, CANVAS_WIDTH, content_y1 - content_y0, 1.0, WHITE);
 
+    // Every mode that asks the player to pick a party member for a piece of
+    // gear shows the same right-side ATK/DEF delta preview — hovering a bag
+    // item, giving one to a member, or moving an already-equipped piece to
+    // another member all funnel into the one `GearPreview` shown by
+    // `draw_party_gear`, rather than each mode drawing its own ad-hoc
+    // before/after text under the candidate list.
+    let preview = match &inv_ui.mode {
+        InventoryMode::Browsing => gear_preview_for(inv_ui.tab, inv_ui.cursor, inventory),
+        InventoryMode::SelectMember { tab, idx, .. } => gear_preview_for(*tab, *idx, inventory),
+        InventoryMode::PartyGearTarget { from_member, slot, .. } => move_target_preview(party, *from_member, *slot),
+        _ => None,
+    };
+
     match &inv_ui.mode {
         InventoryMode::Browsing => draw_list(assets, inv_ui, inventory, content_y0, cmds),
         InventoryMode::SelectMember { tab, idx, member_cursor } => {
             draw_member_picker(party, inventory, *tab, *idx, *member_cursor, content_y0, cmds)
         }
         InventoryMode::SelectRingSlot { idx, member_idx, slot_cursor } => {
-            draw_ring_slot_picker(party, inventory, *idx, *member_idx, *slot_cursor, content_y0, cmds)
+            draw_ring_slot_picker(&assets.font, party, inventory, *idx, *member_idx, *slot_cursor, content_y0, cmds)
         }
         InventoryMode::PartyGear { .. } => draw_party_gear_hint(content_y0, cmds),
         InventoryMode::PartyGearAction { action_cursor, .. } => {
             draw_party_gear_action_menu(*action_cursor, content_y0, cmds)
         }
         InventoryMode::PartyGearTarget { from_member, slot, to_cursor } => {
-            draw_party_gear_target_picker(assets, party, *from_member, *slot, *to_cursor, content_y0, cmds)
+            draw_party_gear_target_picker(party, *from_member, *slot, *to_cursor, content_y0, cmds)
         }
     }
 
-    draw_party_gear(assets, party, &inv_ui.mode, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
+    draw_party_gear(
+        assets,
+        party,
+        &inv_ui.mode,
+        preview.as_ref(),
+        RIGHT_X,
+        content_y0,
+        RIGHT_W,
+        content_y1,
+        cmds,
+    );
     draw_footer(inv_ui.message.as_deref(), content_y1, CANVAS_HEIGHT, cmds);
+}
+
+/// Builds the gear-comparison preview (see `GearPreview`) for a weapon/
+/// armor/ring sitting at `idx` in the bag — shared by the Browsing bag list
+/// (hovering an item, keyed off the live cursor) and the Give-to-member
+/// picker (keyed off the item already chosen when that mode was entered).
+pub(super) fn gear_preview_for(tab: InventoryTab, idx: usize, inventory: &Inventory) -> Option<GearPreview> {
+    match tab {
+        InventoryTab::Weapons => inventory.weapons.get(idx).map(|w| GearPreview::Weapon {
+            attack_bonus: w.attack_bonus,
+            defense_bonus: w.defense_bonus,
+        }),
+        InventoryTab::Armor => inventory.armors.get(idx).map(|a| GearPreview::Armor { defense_bonus: a.defense_bonus }),
+        InventoryTab::Rings => inventory.rings.get(idx).map(|r| GearPreview::Ring {
+            attack_bonus: r.attack_bonus,
+            defense_bonus: r.defense_bonus,
+            slot: None,
+        }),
+        InventoryTab::Items | InventoryTab::Materials => None,
+    }
+}
+
+/// Builds the same uniform `GearPreview` for the piece currently being
+/// relocated in the "Move to..." target picker, so each candidate's
+/// ATK/DEF delta shows up on the right in exactly the same format as
+/// hovering a bag item — instead of the picker drawing its own before/after
+/// numbers under every name. Unlike `gear_preview_for`, a ring here is
+/// pinned to the exact slot being moved (`move_gear_between_members` always
+/// swaps like-for-like, R1-to-R1 or R2-to-R2), not whichever of the
+/// receiver's two rings happens to be weaker.
+fn move_target_preview(party: &Party, from_member: usize, slot: EquipSlot) -> Option<GearPreview> {
+    let from = party.members.get(from_member)?;
+    match slot {
+        EquipSlot::Weapon => from.equipped_weapon.as_ref().map(|w| GearPreview::Weapon {
+            attack_bonus: w.attack_bonus,
+            defense_bonus: w.defense_bonus,
+        }),
+        EquipSlot::Armor => from.equipped_armor.as_ref().map(|a| GearPreview::Armor { defense_bonus: a.defense_bonus }),
+        EquipSlot::Ring(rs) => {
+            let idx = match rs {
+                RingSlot::First => 0,
+                RingSlot::Second => 1,
+            };
+            from.equipped_rings[idx].as_ref().map(|r| GearPreview::Ring {
+                attack_bonus: r.attack_bonus,
+                defense_bonus: r.defense_bonus,
+                slot: Some(rs),
+            })
+        }
+    }
 }
 
 fn draw_tabs(active: InventoryTab, cmds: &mut Vec<TextCmd>) {
@@ -128,10 +247,25 @@ fn draw_tabs(active: InventoryTab, cmds: &mut Vec<TextCmd>) {
     );
 }
 
+/// Header row + header/body divider + continuous column gridlines for a gear
+/// tab (Weapons/Armor/Rings) — see `shop::draw_gear_table`, same idea, just
+/// keyed off this screen's own `LEFT_W`/`FOOTER_H` (the bag list has no
+/// price column, so callers pass `show_price: false`).
+fn draw_gear_table(cmds: &mut Vec<TextCmd>, text_pad: f32, y0: f32, show_price: bool) {
+    push_gear_table_header(cmds, text_pad, y0 + 8.0, show_price);
+    draw_gear_row_divider(0.0, LEFT_W, y0 + 12.0);
+    draw_gear_col_dividers(text_pad, y0 + 12.0, CANVAS_HEIGHT - FOOTER_H, show_price);
+}
+
 fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
     let pad = 4.0;
     let text_pad = pad + ICON_GAP;
     let visible = 6usize;
+    // Weapons/Armor/Rings now carry a header row above the list (see
+    // `draw_gear_table`), which eats into the same fixed panel height —
+    // one fewer row fits than the header-less Items/Materials tabs without
+    // the last row's description spilling past the panel border.
+    let gear_visible = 5usize;
     match inv_ui.tab {
         InventoryTab::Items => {
             if inventory.items.is_empty() {
@@ -170,20 +304,20 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
             // passive line), so fewer of them fit in the same panel height
             // than the other tabs' `visible` — without this, the last row
             // spills past the panel border into the footer's tip text.
-            let weapon_visible = 5usize;
+            let weapon_visible = 4usize;
             let range = scroll_window(inventory.weapons.len(), inv_ui.cursor, weapon_visible);
+            draw_gear_table(cmds, text_pad, y0, false);
             for (row, i) in range.enumerate() {
                 let w = &inventory.weapons[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * WEAPON_ROW_STRIDE;
+                let ty = y0 + 22.0 + row as f32 * WEAPON_ROW_STRIDE;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
-                let mut stats = format!("ATK+{}", w.attack_bonus);
-                if w.defense_bonus > 0 {
-                    stats.push_str(&format!(" DEF+{}", w.defense_bonus));
-                }
                 draw_icon(
                     &assets.characters,
                     weapon_icon_rect(),
@@ -191,23 +325,30 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     icon_y_for_text(ty, 8.0, ICON_SIZE),
                     ICON_SIZE,
                 );
-                push_text(
+                let name_color = rarity_color(w.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] {stats}", w.display_name(), w.rarity),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(w.rarity),
+                    format!("{marker}{} [{}]", w.display_name(), w.rarity),
+                    name_color,
+                    Some((w.attack_bonus, if w.attack_bonus == 0 { DARKGRAY } else { stat_color(AllocStat::Attack) })),
+                    Some((w.defense_bonus, if w.defense_bonus == 0 { DARKGRAY } else { stat_color(AllocStat::Defense) })),
+                    None::<(String, Color)>,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                let desc_lines = wrap_lines(&format!("{} - {}", w.description, w.source), 44, 2);
+                let desc_lines = wrap_lines_px(&assets.font, &format!("{} - {}", w.description, w.source), GEAR_DESC_COL_W, 7.0, 2);
                 let mut ly = ty + 11.0;
                 for line in &desc_lines {
                     push_text(cmds, line, text_pad, ly, 7.0, detail_color);
                     ly += 7.0;
                 }
                 if let Some(passive) = &w.passive {
-                    push_text(cmds, passive.description(), text_pad, ly, 7.0, YELLOW);
+                    for line in wrap_lines_px(&assets.font, &passive.description(), GEAR_DESC_COL_W, 7.0, 2) {
+                        push_text(cmds, line, text_pad, ly, 7.0, YELLOW);
+                        ly += 7.0;
+                    }
                 }
             }
         }
@@ -216,11 +357,15 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                 push_text(cmds, "No spare armor.", pad, y0 + 12.0, 8.0, GRAY);
                 return;
             }
-            let range = scroll_window(inventory.armors.len(), inv_ui.cursor, visible);
+            let range = scroll_window(inventory.armors.len(), inv_ui.cursor, gear_visible);
+            draw_gear_table(cmds, text_pad, y0, false);
             for (row, i) in range.enumerate() {
                 let a = &inventory.armors[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
+                let ty = y0 + 22.0 + row as f32 * ROW_STRIDE;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
@@ -232,16 +377,23 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     icon_y_for_text(ty, 8.0, ICON_SIZE),
                     ICON_SIZE,
                 );
-                push_text(
+                let name_color = rarity_color(a.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] DEF+{}", a.name, a.rarity, a.defense_bonus),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(a.rarity),
+                    format!("{marker}{} [{}]", a.name, a.rarity),
+                    name_color,
+                    Some((0, DARKGRAY)),
+                    Some((a.defense_bonus, if a.defense_bonus == 0 { DARKGRAY } else { stat_color(AllocStat::Defense) })),
+                    None::<(String, Color)>,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&format!("{} - {}", a.description, a.source), 44, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &format!("{} - {}", a.description, a.source), GEAR_DESC_COL_W, 7.0, 2)
+                    .iter()
+                    .enumerate()
+                {
                     push_text(cmds, line, text_pad, ty + 11.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -251,22 +403,19 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                 push_text(cmds, "No spare rings.", pad, y0 + 12.0, 8.0, GRAY);
                 return;
             }
-            let range = scroll_window(inventory.rings.len(), inv_ui.cursor, visible);
+            let range = scroll_window(inventory.rings.len(), inv_ui.cursor, gear_visible);
+            draw_gear_table(cmds, text_pad, y0, false);
             for (row, i) in range.enumerate() {
                 let r = &inventory.rings[i];
                 let selected = i == inv_ui.cursor;
-                let ty = y0 + 10.0 + row as f32 * ROW_STRIDE;
+                let ty = y0 + 22.0 + row as f32 * ROW_STRIDE;
+                if row > 0 {
+                    draw_gear_row_divider(0.0, LEFT_W, ty - 9.0);
+                }
                 if selected {
                     draw_rectangle(0.0, ty - 8.0, LEFT_W, 28.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
-                let mut bonus = String::new();
-                if r.attack_bonus > 0 {
-                    bonus.push_str(&format!("ATK+{} ", r.attack_bonus));
-                }
-                if r.defense_bonus > 0 {
-                    bonus.push_str(&format!("DEF+{}", r.defense_bonus));
-                }
                 draw_icon(
                     &assets.tiles,
                     ring_icon_rect(),
@@ -274,16 +423,23 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
                     icon_y_for_text(ty, 8.0, ICON_SIZE),
                     ICON_SIZE,
                 );
-                push_text(
+                let name_color = rarity_color(r.rarity);
+                push_gear_row(
                     cmds,
-                    format!("{marker}{} [{}] {bonus}", r.name, r.rarity),
                     text_pad,
                     ty,
                     8.0,
-                    rarity_color(r.rarity),
+                    format!("{marker}{} [{}]", r.name, r.rarity),
+                    name_color,
+                    Some((r.attack_bonus, if r.attack_bonus == 0 { DARKGRAY } else { stat_color(AllocStat::Attack) })),
+                    Some((r.defense_bonus, if r.defense_bonus == 0 { DARKGRAY } else { stat_color(AllocStat::Defense) })),
+                    None::<(String, Color)>,
                 );
                 let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
-                for (li, line) in wrap_lines(&format!("{} - {}", r.description, r.source), 44, 2).iter().enumerate() {
+                for (li, line) in wrap_lines_px(&assets.font, &format!("{} - {}", r.description, r.source), GEAR_DESC_COL_W, 7.0, 2)
+                    .iter()
+                    .enumerate()
+                {
                     push_text(cmds, line, text_pad, ty + 11.0 + li as f32 * 7.0, 7.0, detail_color);
                 }
             }
@@ -314,6 +470,73 @@ fn draw_list(assets: &Assets, inv_ui: &InventoryUiState, inventory: &Inventory, 
     }
 }
 
+/// The item currently under the cursor in a buy/bag list, carrying just
+/// enough of its stat bonuses to preview how it'd change each party member's
+/// ATK/DEF if equipped — shared by the Shop buy screen and the Inventory
+/// bag list so hovering a weapon/armor/ring (before actually equipping or
+/// buying it) can show whether it's an upgrade.
+pub enum GearPreview {
+    Weapon { attack_bonus: i32, defense_bonus: i32 },
+    Armor { defense_bonus: i32 },
+    /// `slot: None` means "not bound to R1 or R2 yet" (a bag/shop ring
+    /// hasn't been equipped anywhere), so the delta compares against
+    /// whichever of the member's two rings is weaker. `Some(slot)` pins the
+    /// comparison to that exact slot instead, used when the piece being
+    /// previewed is already equipped in a specific slot (the "Move to..."
+    /// target picker), since that flow always swaps like-for-like.
+    Ring { attack_bonus: i32, defense_bonus: i32, slot: Option<RingSlot> },
+}
+
+/// ATK/DEF delta `m` would see if the previewed item replaced whatever's
+/// currently in the slot it belongs to.
+fn gear_preview_delta(m: &Character, preview: &GearPreview) -> (i32, i32) {
+    match *preview {
+        GearPreview::Weapon { attack_bonus, defense_bonus } => {
+            let cur_atk = m.equipped_weapon.as_ref().map(|w| w.attack_bonus).unwrap_or(0);
+            let cur_def = m.equipped_weapon.as_ref().map(|w| w.defense_bonus).unwrap_or(0);
+            (attack_bonus - cur_atk, defense_bonus - cur_def)
+        }
+        GearPreview::Armor { defense_bonus } => {
+            let cur_def = m.equipped_armor.as_ref().map(|a| a.defense_bonus).unwrap_or(0);
+            (0, defense_bonus - cur_def)
+        }
+        GearPreview::Ring { attack_bonus, defense_bonus, slot } => {
+            let replace = match slot {
+                Some(RingSlot::First) => 0,
+                Some(RingSlot::Second) => 1,
+                None => {
+                    let slot_value = |i: usize| {
+                        m.equipped_rings[i].as_ref().map(|r| r.attack_bonus + r.defense_bonus).unwrap_or(0)
+                    };
+                    if slot_value(0) <= slot_value(1) {
+                        0
+                    } else {
+                        1
+                    }
+                }
+            };
+            let cur_atk = m.equipped_rings[replace].as_ref().map(|r| r.attack_bonus).unwrap_or(0);
+            let cur_def = m.equipped_rings[replace].as_ref().map(|r| r.defense_bonus).unwrap_or(0);
+            (attack_bonus - cur_atk, defense_bonus - cur_def)
+        }
+    }
+}
+
+/// Compact "(+N)"/"(-N)" delta suffix drawn right after a stat number,
+/// colored red/green — returns the rendered width so the caller can lay out
+/// whatever comes next (e.g. the DEF icon after an ATK delta) without
+/// overlapping it.
+fn push_delta_suffix(cmds: &mut Vec<TextCmd>, font: &Font, delta: i32, x: f32, y: f32) -> f32 {
+    if delta == 0 {
+        return 0.0;
+    }
+    let sign = if delta > 0 { "+" } else { "" };
+    let text = format!("({sign}{delta})");
+    let w = measure_text(&text, Some(font), 6, 1.0).width;
+    push_text(cmds, text, x, y, 6.0, delta_color(delta));
+    w
+}
+
 fn delta_color(diff: i32) -> Color {
     if diff > 0 {
         GREEN
@@ -324,17 +547,14 @@ fn delta_color(diff: i32) -> Color {
     }
 }
 
-fn push_delta_line(cmds: &mut Vec<TextCmd>, label: &str, current: i32, new: i32, x: f32, y: f32) {
-    let diff = new - current;
-    let sign = if diff > 0 { format!("+{diff}") } else { diff.to_string() };
-    push_text(
-        cmds,
-        format!("{label} {current} -> {new} ({sign})"),
-        x,
-        y,
-        7.0,
-        delta_color(diff),
-    );
+/// Comparable "how good is this ring" key for deciding which of a member's
+/// two ring slots is weaker — `None` (an empty slot) sorts below every
+/// `Some`, so an empty slot naturally reads as the weaker one when the other
+/// slot is occupied. Same rarity-then-stat-total tiebreak already used ad
+/// hoc by `gear_preview_delta`'s `slot_value` closure, promoted to a named
+/// helper so `draw_ring_slot_picker` can reuse it.
+fn ring_power(ring: Option<&Ring>) -> Option<(Rarity, i32)> {
+    ring.map(|r| (r.rarity, r.attack_bonus + r.defense_bonus))
 }
 
 fn draw_member_picker(
@@ -357,60 +577,32 @@ fn draw_member_picker(
 
     push_text(cmds, format!("Give {target_name} to..."), 4.0, y0 + 10.0, 8.0, WHITE);
 
+    // Each candidate is just a name + what they currently have — the ATK/DEF
+    // delta itself lives only on the right-side party panel (via the
+    // `gear_preview_for` preview computed in `draw`), the same uniform
+    // (+N)/(-N) indicator shown when hovering an item in the bag list.
     let mut ty = y0 + 24.0;
     for (i, m) in party.members.iter().enumerate() {
         let selected = i == member_cursor;
         let color = if selected { YELLOW } else { WHITE };
         let marker = if selected { "> " } else { "  " };
-        match tab {
-            InventoryTab::Weapons => {
-                let (cur_atk, cur_def, current) = m
-                    .equipped_weapon
-                    .as_ref()
-                    .map(|w| (w.attack_bonus, w.defense_bonus, w.display_name()))
-                    .unwrap_or((0, 0, "unarmed".to_string()));
-                let (new_atk, new_def) =
-                    inventory.weapons.get(idx).map(|w| (w.attack_bonus, w.defense_bonus)).unwrap_or((0, 0));
-                push_text(cmds, format!("{marker}{} (has: {current})", m.name), 4.0, ty, 8.0, color);
-                push_delta_line(cmds, "ATK", cur_atk, new_atk, 12.0, ty + 10.0);
-                ty += if cur_def != 0 || new_def != 0 {
-                    push_delta_line(cmds, "DEF", cur_def, new_def, 12.0, ty + 19.0);
-                    28.0
-                } else {
-                    18.0
-                };
-            }
-            InventoryTab::Armor => {
-                let current = m.equipped_armor.as_ref().map(|a| a.name.as_str()).unwrap_or("no armor");
-                let cur_def = m.equipped_armor.as_ref().map(|a| a.defense_bonus).unwrap_or(0);
-                let new_def = inventory.armors.get(idx).map(|a| a.defense_bonus).unwrap_or(0);
-                push_text(cmds, format!("{marker}{} (has: {current})", m.name), 4.0, ty, 8.0, color);
-                push_delta_line(cmds, "DEF", cur_def, new_def, 12.0, ty + 10.0);
-                ty += 18.0;
-            }
-            InventoryTab::Rings => {
-                let (new_atk, new_def) =
-                    inventory.rings.get(idx).map(|r| (r.attack_bonus, r.defense_bonus)).unwrap_or((0, 0));
-                push_text(cmds, format!("{marker}{}", m.name), 4.0, ty, 8.0, color);
-                let mut ly = ty + 10.0;
-                for (slot_label, ring) in [("R1", &m.equipped_rings[0]), ("R2", &m.equipped_rings[1])] {
-                    let (cur_atk, cur_def) = ring.as_ref().map(|r| (r.attack_bonus, r.defense_bonus)).unwrap_or((0, 0));
-                    push_delta_line(cmds, &format!("{slot_label} ATK"), cur_atk, new_atk, 12.0, ly);
-                    ly += 9.0;
-                    push_delta_line(cmds, &format!("{slot_label} DEF"), cur_def, new_def, 12.0, ly);
-                    ly += 9.0;
-                }
-                ty = ly;
-            }
-            InventoryTab::Items | InventoryTab::Materials => {
-                push_text(cmds, format!("{marker}{}", m.name), 4.0, ty, 8.0, color);
-                ty += 12.0;
-            }
-        }
+        let current = match tab {
+            InventoryTab::Weapons => m.equipped_weapon.as_ref().map(|w| w.display_name()),
+            InventoryTab::Armor => m.equipped_armor.as_ref().map(|a| a.name.clone()),
+            InventoryTab::Rings => None,
+            InventoryTab::Items | InventoryTab::Materials => None,
+        };
+        let label = match current {
+            Some(current) => format!("{marker}{} (has: {current})", m.name),
+            None => format!("{marker}{}", m.name),
+        };
+        push_text(cmds, label, 4.0, ty, 8.0, color);
+        ty += 12.0;
     }
 }
 
 fn draw_ring_slot_picker(
+    font: &Font,
     party: &Party,
     inventory: &Inventory,
     idx: usize,
@@ -424,23 +616,52 @@ fn draw_ring_slot_picker(
     let member_name = member.map(|m| m.name.as_str()).unwrap_or("???");
     push_text(cmds, format!("Give {ring_name} to {member_name}'s..."), 4.0, y0 + 10.0, 8.0, WHITE);
 
+    let slot_rings: [Option<&Ring>; 2] = [
+        member.and_then(|m| m.equipped_rings[0].as_ref()),
+        member.and_then(|m| m.equipped_rings[1].as_ref()),
+    ];
+    let powers = [ring_power(slot_rings[0]), ring_power(slot_rings[1])];
+    let weaker_slot = if slot_rings[0].is_some() || slot_rings[1].is_some() {
+        if powers[0] < powers[1] {
+            Some(0)
+        } else if powers[1] < powers[0] {
+            Some(1)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let labels = ["First ring slot", "Second ring slot"];
     for (i, label) in labels.iter().enumerate() {
-        let current = member
-            .and_then(|m| m.equipped_rings[i].as_ref())
-            .map(|r| r.name.as_str())
-            .unwrap_or("empty");
         let selected = i == slot_cursor;
-        let color = if selected { YELLOW } else { WHITE };
         let marker = if selected { "> " } else { "  " };
-        push_text(
-            cmds,
-            format!("{marker}{label} (has: {current})"),
-            4.0,
-            y0 + 24.0 + i as f32 * 12.0,
-            8.0,
-            color,
-        );
+        let mut x = 4.0;
+        let y = y0 + 24.0 + i as f32 * 12.0;
+        let prefix_color = if selected { YELLOW } else { WHITE };
+        let prefix = format!("{marker}{label} (has: ");
+        push_text(cmds, prefix.clone(), x, y, 8.0, prefix_color);
+        x += measure_text(&prefix, Some(font), 8, 1.0).width;
+
+        let name_text = slot_rings[i].map(|r| r.name.as_str()).unwrap_or("empty");
+        let name_color = if selected {
+            YELLOW
+        } else if let Some(ring) = slot_rings[i] {
+            rarity_color(ring.rarity)
+        } else {
+            WHITE
+        };
+        push_text(cmds, name_text, x, y, 8.0, name_color);
+        x += measure_text(name_text, Some(font), 8, 1.0).width;
+
+        let suffix_color = if selected { YELLOW } else { WHITE };
+        push_text(cmds, ")", x, y, 8.0, suffix_color);
+        x += measure_text(")", Some(font), 8, 1.0).width;
+
+        if weaker_slot == Some(i) {
+            push_text(cmds, " (weaker)", x, y, 8.0, RED);
+        }
     }
 }
 
@@ -468,16 +689,7 @@ fn draw_party_gear_action_menu(action_cursor: usize, y0: f32, cmds: &mut Vec<Tex
     }
 }
 
-/// Like `push_delta_line`, but numbers only — the stat is identified by the
-/// pixel icon drawn just to the left instead of a text label.
-fn push_delta_numbers(cmds: &mut Vec<TextCmd>, current: i32, new: i32, x: f32, y: f32) {
-    let diff = new - current;
-    let sign = if diff > 0 { format!("+{diff}") } else { diff.to_string() };
-    push_text(cmds, format!("{current} -> {new} ({sign})"), x, y, 7.0, delta_color(diff));
-}
-
 fn draw_party_gear_target_picker(
-    assets: &Assets,
     party: &Party,
     from_member: usize,
     slot: EquipSlot,
@@ -497,6 +709,10 @@ fn draw_party_gear_target_picker(
         push_text(cmds, line, 4.0, y0 + 10.0 + li as f32 * 9.0, 8.0, WHITE);
     }
 
+    // Each candidate is just a name + what they currently have in the target
+    // slot — the ATK/DEF delta lives only on the right-side party panel (via
+    // `move_target_preview`), the same uniform (+N)/(-N) indicator shown
+    // when hovering an item in the bag list.
     let mut ty = y0 + 15.0 + header_lines.len() as f32 * 9.0;
     for (i, m) in party.members.iter().enumerate() {
         if i == from_member {
@@ -513,27 +729,7 @@ fn draw_party_gear_target_picker(
         }
         .unwrap_or_else(|| "empty".to_string());
         push_text(cmds, format!("{marker}{} (has: {current})", m.name), 4.0, ty, 8.0, color);
-
-        if let Some(p) = move_preview(party, from_member, i, slot) {
-            // Armor never grants attack; weapons only show DEF when the move
-            // would actually change it (mirrors draw_member_picker).
-            let show_atk = !matches!(slot, EquipSlot::Armor);
-            let show_def = !matches!(slot, EquipSlot::Weapon) || p.def.0 != p.def.1;
-            let dy = ty + 10.0;
-            let mut x = 12.0;
-            if show_atk {
-                draw_icon(&assets.characters, weapon_icon_rect(), x, icon_y_for_text(dy, 7.0, ICON_SIZE), ICON_SIZE);
-                push_delta_numbers(cmds, p.atk.0, p.atk.1, x + ICON_SIZE + 2.0, dy);
-                x += 88.0;
-            }
-            if show_def {
-                draw_icon(&assets.characters, armor_icon_rect(), x, icon_y_for_text(dy, 7.0, ICON_SIZE), ICON_SIZE);
-                push_delta_numbers(cmds, p.def.0, p.def.1, x + ICON_SIZE + 2.0, dy);
-            }
-            ty += 22.0;
-        } else {
-            ty += 12.0;
-        }
+        ty += 12.0;
     }
 }
 
@@ -555,6 +751,7 @@ pub(super) fn draw_party_gear(
     assets: &Assets,
     party: &Party,
     mode: &InventoryMode,
+    preview: Option<&GearPreview>,
     x0: f32,
     y0: f32,
     w: f32,
@@ -577,19 +774,28 @@ pub(super) fn draw_party_gear(
         _ => None,
     };
 
+    // Equip-slot rows below reserve a leading character for the ">"/"<"
+    // cursor marker (blank when neither applies), which pushes their text
+    // one glyph right of `bar_x`. The name/HP/MP header and the ATK/DEF
+    // footer have no marker of their own, so without matching that same
+    // indent here, every row in a member's block reads at a different left
+    // edge — `text_x` is the shared column all of them line up on instead.
+    let indent = measure_text(" ", Some(&assets.font), 6, 1.0).width;
+
     let member_h = (y1 - (y0 + 12.0)) / party.members.len().max(1) as f32;
     for (mi, m) in party.members.iter().enumerate() {
         let base_y = y0 + 12.0 + mi as f32 * member_h;
         let bar_x = x0 + 3.0;
         let bar_w = w - 6.0;
-        push_text(cmds, m.name.clone(), bar_x, base_y + 6.0, 7.0, WHITE);
+        let text_x = bar_x + indent;
+        push_text(cmds, m.name.clone(), text_x, base_y + 6.0, 7.0, WHITE);
         let ratio = m.hp_ratio().clamp(0.0, 1.0) as f32;
         draw_rectangle(bar_x, base_y + 8.0, bar_w, 2.0, DARKGRAY);
         draw_rectangle(bar_x, base_y + 8.0, bar_w * ratio, 2.0, hp_color(m.hp_ratio()));
         push_text(
             cmds,
             format!("HP{}/{}", m.stats.hp, m.stats.max_hp),
-            bar_x,
+            text_x,
             base_y + 15.0,
             6.0,
             stat_color(AllocStat::MaxHp),
@@ -597,7 +803,7 @@ pub(super) fn draw_party_gear(
         push_text(
             cmds,
             format!("MP{}/{}", m.stats.mp, m.stats.max_mp),
-            bar_x + bar_w / 2.0,
+            text_x + bar_w / 2.0,
             base_y + 15.0,
             6.0,
             stat_color(AllocStat::MaxMp),
@@ -643,22 +849,26 @@ pub(super) fn draw_party_gear(
             push_text(cmds, format!("{marker}{}:{name}", slot_label(slot)), bar_x, sy, 6.0, name_color);
             sy += 6.0;
         }
+        let (delta_atk, delta_def) = preview.map(|p| gear_preview_delta(m, p)).unwrap_or((0, 0));
         let stat_icon_size = 8.0;
         draw_icon(
             &assets.characters,
             weapon_icon_rect(),
-            bar_x,
+            text_x,
             icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
             stat_icon_size,
         );
         let atk_text = format!("ATK {}", m.total_attack());
-        push_text(cmds, atk_text.clone(), bar_x + stat_icon_size + 2.0, sy + 2.0, 6.0, stat_color(AllocStat::Attack));
-        // DEF is placed relative to the ATK text's actual rendered width
-        // rather than a fixed bar_w/2.0 half-column split, so it neither
-        // collides with a wide ATK value nor leaves an oversized gap after
-        // a narrow one.
+        let atk_x = text_x + stat_icon_size + 2.0;
+        push_text(cmds, atk_text.clone(), atk_x, sy + 2.0, 6.0, stat_color(AllocStat::Attack));
+        // DEF is placed relative to the ATK text's (plus any delta suffix's)
+        // actual rendered width rather than a fixed bar_w/2.0 half-column
+        // split, so it neither collides with a wide ATK value nor leaves an
+        // oversized gap after a narrow one.
         let atk_w = measure_text(&atk_text, Some(&assets.font), 6, 1.0).width;
-        let def_x = bar_x + stat_icon_size + 2.0 + atk_w + 6.0;
+        let delta_atk_w = push_delta_suffix(cmds, &assets.font, delta_atk, atk_x + atk_w + 2.0, sy + 2.0);
+        let extra = if delta_atk_w > 0.0 { delta_atk_w + 2.0 } else { 0.0 };
+        let def_x = atk_x + atk_w + extra + 6.0;
         draw_icon(
             &assets.characters,
             armor_icon_rect(),
@@ -666,14 +876,11 @@ pub(super) fn draw_party_gear(
             icon_y_for_text(sy + 2.0, 6.0, stat_icon_size),
             stat_icon_size,
         );
-        push_text(
-            cmds,
-            format!("DEF {}", m.total_defense()),
-            def_x + stat_icon_size + 2.0,
-            sy + 2.0,
-            6.0,
-            stat_color(AllocStat::Defense),
-        );
+        let def_text = format!("DEF {}", m.total_defense());
+        let def_text_x = def_x + stat_icon_size + 2.0;
+        push_text(cmds, def_text.clone(), def_text_x, sy + 2.0, 6.0, stat_color(AllocStat::Defense));
+        let def_w = measure_text(&def_text, Some(&assets.font), 6, 1.0).width;
+        push_delta_suffix(cmds, &assets.font, delta_def, def_text_x + def_w + 2.0, sy + 2.0);
     }
 }
 

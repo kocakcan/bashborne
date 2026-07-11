@@ -456,6 +456,27 @@ pub struct ActionAnimEvent {
 /// to play the attack/hit/defeat beat before the real outcome is shown.
 pub const RESOLVING_HOLD_SECONDS: f32 = 0.35;
 
+/// How long a floating damage/heal number stays alive (seconds) before
+/// `World::tick` prunes it — see `CombatState::floating_numbers`.
+pub const FLOATING_NUMBER_TTL: f32 = 0.9;
+
+/// A League-of-Legends-style number that pops off an actor's portrait when
+/// its HP changes — purely cosmetic, like `ActionAnimEvent`, and populated
+/// the same way: `resolve_current_turn` diffs every actor's HP before/after
+/// the turn resolves rather than threading a "spawn a number here" call
+/// through every individual damage/heal branch, so it automatically covers
+/// every current and future HP-changing move (player attacks/abilities,
+/// enemy signature moves, boss scripted moves and self-heals) with no risk
+/// of a call site being missed.
+#[derive(Debug, Clone, Copy)]
+pub struct FloatingNumber {
+    pub target: ActorRef,
+    /// Always positive magnitude; `is_heal` says which direction it was.
+    pub amount: i32,
+    pub is_heal: bool,
+    pub age: f32,
+}
+
 pub enum CombatPhase {
     // A player-controlled actor is choosing what to do.
     SelectAction {
@@ -529,6 +550,11 @@ pub struct CombatState {
     /// writes these two fields).
     pub pending_phase: Option<CombatPhase>,
     pub resolving_timer: f32,
+    /// Numbers currently rising/fading over actors' portraits — see
+    /// `FloatingNumber`. Aged and pruned by `World::tick` (`app.rs`), not by
+    /// this module, mirroring `resolving_timer`'s split between game logic
+    /// (here) and per-frame timing (`app.rs`).
+    pub floating_numbers: Vec<FloatingNumber>,
 }
 
 impl CombatState {
@@ -584,6 +610,7 @@ impl CombatState {
             last_action_anim: None,
             pending_phase: None,
             resolving_timer: 0.0,
+            floating_numbers: Vec::new(),
         }
     }
 
@@ -664,8 +691,41 @@ impl CombatState {
 
         self.last_action_anim =
             Self::infer_action_anim(actor, player_action, &pre_party_hp, &pre_enemy_hp, party, &self.enemies);
+        self.spawn_floating_numbers(&pre_party_hp, &pre_enemy_hp, party);
 
         self.advance_turn(party, rng);
+    }
+
+    /// Diffs every actor's HP from before this turn resolved to after, and
+    /// spawns a floating number for each one that changed — damage for a
+    /// drop, healing for a rise. Generic over every damage/heal source
+    /// (player attacks/abilities, enemy signature moves, boss scripted
+    /// moves and self-heals) since it reads the outcome rather than being
+    /// called from inside each branch, so nothing new here can be missed by
+    /// a future move that changes HP.
+    fn spawn_floating_numbers(&mut self, pre_party_hp: &[i32], pre_enemy_hp: &[i32], party: &Party) {
+        for (i, (&pre, m)) in pre_party_hp.iter().zip(party.members.iter()).enumerate() {
+            let diff = m.stats.hp - pre;
+            if diff != 0 {
+                self.floating_numbers.push(FloatingNumber {
+                    target: ActorRef::Player(i),
+                    amount: diff.abs(),
+                    is_heal: diff > 0,
+                    age: 0.0,
+                });
+            }
+        }
+        for (i, (&pre, e)) in pre_enemy_hp.iter().zip(self.enemies.iter()).enumerate() {
+            let diff = e.stats.hp - pre;
+            if diff != 0 {
+                self.floating_numbers.push(FloatingNumber {
+                    target: ActorRef::Enemy(i),
+                    amount: diff.abs(),
+                    is_heal: diff > 0,
+                    age: 0.0,
+                });
+            }
+        }
     }
 
     /// The index of whichever slot in `pre_hp` dropped the most compared to

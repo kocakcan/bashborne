@@ -5,16 +5,16 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 12,
-        "xp": 127,
+        "level": 40,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 221,
-          "hp": 221,
-          "max_mp": 21,
-          "mp": 21,
-          "attack": 48,
-          "defense": 46,
+          "max_hp": 681,
+          "hp": 506,
+          "max_mp": 49,
+          "mp": 49,
+          "attack": 81,
+          "defense": 79,
           "speed": 6,
           "luck": 8
         },
@@ -42,14 +42,18 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Sunken Relic Blade",
-          "rarity": "Rare",
-          "attack_bonus": 11,
-          "defense_bonus": 0,
-          "description": "Pulled from somewhere it should never have been found.",
-          "source": "World",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Sovereign's Reckoning",
+          "rarity": "Legendary",
+          "attack_bonus": 52,
+          "defense_bonus": 20,
+          "description": "What's left of a throne, reforged into something that only takes.",
+          "source": {
+            "EnemyDrop": "The Ashen Sovereign"
+          },
+          "upgrade_level": 5,
+          "passive": {
+            "ArmorPierce": 0.5
+          }
         },
         "equipped_armor": {
           "name": "Dragonscale Aegis",
@@ -59,8 +63,26 @@
           "source": "World"
         },
         "equipped_rings": [
-          null,
-          null
+          {
+            "name": "Sovereign's Signet",
+            "rarity": "Legendary",
+            "attack_bonus": 7,
+            "defense_bonus": 5,
+            "description": "The seal of a throne of ash. It still expects obedience.",
+            "source": {
+              "EnemyDrop": "The Ashen Sovereign"
+            }
+          },
+          {
+            "name": "Sovereign's Signet",
+            "rarity": "Legendary",
+            "attack_bonus": 7,
+            "defense_bonus": 5,
+            "description": "The seal of a throne of ash. It still expects obedience.",
+            "source": {
+              "EnemyDrop": "The Ashen Sovereign"
+            }
+          }
         ],
         "boss_kind": null,
         "is_elite": false,
@@ -69,18 +91,18 @@
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 12,
-        "xp": 127,
+        "level": 40,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 98,
-          "hp": 98,
-          "max_mp": 85,
-          "mp": 85,
-          "attack": 43,
-          "defense": 23,
-          "speed": 19,
-          "luck": 20
+          "max_hp": 325,
+          "hp": 228,
+          "max_mp": 177,
+          "mp": 159,
+          "attack": 71,
+          "defense": 51,
+          "speed": 47,
+          "luck": 48
         },
         "abilities": [
           {
@@ -106,25 +128,45 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Coinwrought Blade",
-          "rarity": "Epic",
-          "attack_bonus": 15,
-          "defense_bonus": 1,
-          "description": "Forged wherever the gold ran thickest. It doesn't care whose war it ends.",
-          "source": "World",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Sovereign's Reckoning",
+          "rarity": "Legendary",
+          "attack_bonus": 52,
+          "defense_bonus": 20,
+          "description": "What's left of a throne, reforged into something that only takes.",
+          "source": {
+            "EnemyDrop": "The Ashen Sovereign"
+          },
+          "upgrade_level": 5,
+          "passive": {
+            "ArmorPierce": 0.5
+          }
         },
         "equipped_armor": {
-          "name": "Ranger's Cloak",
-          "rarity": "Uncommon",
-          "defense_bonus": 5,
-          "description": "Woven to shed rain, blades, and notice alike.",
+          "name": "Dragonscale Aegis",
+          "rarity": "Legendary",
+          "defense_bonus": 24,
+          "description": "Overlapping scales said to have turned aside a dragon's breath.",
           "source": "World"
         },
         "equipped_rings": [
-          null,
-          null
+          {
+            "name": "Sovereign's Signet",
+            "rarity": "Legendary",
+            "attack_bonus": 7,
+            "defense_bonus": 5,
+            "description": "The seal of a throne of ash. It still expects obedience.",
+            "source": {
+              "EnemyDrop": "The Ashen Sovereign"
+            }
+          },
+          {
+            "name": "Band of the Barrow",
+            "rarity": "Legendary",
+            "attack_bonus": 6,
+            "defense_bonus": 6,
+            "description": "Buried alongside the Knight himself. It has not gone cold.",
+            "source": "World"
+          }
         ],
         "boss_kind": null,
         "is_elite": false,
@@ -133,18 +175,18 @@
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 12,
-        "xp": 127,
+        "level": 40,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 152,
-          "hp": 152,
-          "max_mp": 68,
-          "mp": 68,
-          "attack": 35,
-          "defense": 44,
+          "max_hp": 496,
+          "hp": 496,
+          "max_mp": 134,
+          "mp": 134,
+          "attack": 63,
+          "defense": 77,
           "speed": 7,
-          "luck": 18
+          "luck": 46
         },
         "abilities": [
           {
@@ -172,21 +214,41 @@
         "equipped_weapon": {
           "name": "Warden's Fang",
           "rarity": "Legendary",
-          "attack_bonus": 24,
-          "defense_bonus": 4,
+          "attack_bonus": 34,
+          "defense_bonus": 10,
           "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
           "source": {
             "EnemyDrop": "Wyrmscale Warden"
           },
-          "upgrade_level": 0,
+          "upgrade_level": 2,
           "passive": {
             "DamageReduction": 0.15
           }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Barrow-Touched Plate",
+          "rarity": "Epic",
+          "defense_bonus": 15,
+          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
+          "source": "World"
+        },
         "equipped_rings": [
-          null,
-          null
+          {
+            "name": "Merchant's Blessing",
+            "rarity": "Epic",
+            "attack_bonus": 3,
+            "defense_bonus": 6,
+            "description": "A trade charm, worn smooth by a hundred desperate haggles.",
+            "source": "World"
+          },
+          {
+            "name": "Merchant's Blessing",
+            "rarity": "Epic",
+            "attack_bonus": 3,
+            "defense_bonus": 6,
+            "description": "A trade charm, worn smooth by a hundred desperate haggles.",
+            "source": "World"
+          }
         ],
         "boss_kind": null,
         "is_elite": false,
@@ -195,18 +257,18 @@
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 12,
-        "xp": 127,
+        "level": 40,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 126,
-          "hp": 126,
-          "max_mp": 36,
-          "mp": 36,
-          "attack": 55,
-          "defense": 25,
-          "speed": 33,
-          "luck": 40
+          "max_hp": 360,
+          "hp": 359,
+          "max_mp": 69,
+          "mp": 60,
+          "attack": 88,
+          "defense": 53,
+          "speed": 66,
+          "luck": 73
         },
         "abilities": [
           {
@@ -234,22 +296,22 @@
         "equipped_weapon": {
           "name": "Knightsbane",
           "rarity": "Legendary",
-          "attack_bonus": 34,
-          "defense_bonus": 10,
+          "attack_bonus": 49,
+          "defense_bonus": 19,
           "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
           "source": {
             "EnemyDrop": "The Barrow Knight"
           },
-          "upgrade_level": 2,
+          "upgrade_level": 5,
           "passive": {
             "Lifesteal": 0.15
           }
         },
         "equipped_armor": {
-          "name": "Barrow-Touched Plate",
-          "rarity": "Epic",
-          "defense_bonus": 15,
-          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
+          "name": "Dragonscale Aegis",
+          "rarity": "Legendary",
+          "defense_bonus": 24,
+          "description": "Overlapping scales said to have turned aside a dragon's breath.",
           "source": "World"
         },
         "equipped_rings": [
@@ -261,15 +323,28 @@
             "description": "Buried alongside the Knight himself. It has not gone cold.",
             "source": "World"
           },
-          null
+          {
+            "name": "Band of the Barrow",
+            "rarity": "Legendary",
+            "attack_bonus": 6,
+            "defense_bonus": 6,
+            "description": "Buried alongside the Knight himself. It has not gone cold.",
+            "source": "World"
+          }
         ],
         "boss_kind": null,
         "is_elite": false,
         "elite_signature_used": false
       }
     ],
-    "gold": 997,
+    "gold": 58,
     "effects": [
+      {
+        "name": "Warrior's Blessing",
+        "target": "Attack",
+        "delta": 5,
+        "encounters_remaining": 1
+      },
       {
         "name": "Curse of Frailty",
         "target": "Defense",
@@ -277,14 +352,14 @@
         "encounters_remaining": 1
       },
       {
-        "name": "Blessing of Swiftness",
-        "target": "Speed",
-        "delta": 4,
+        "name": "Curse of Ruin",
+        "target": "Attack",
+        "delta": -7,
         "encounters_remaining": 1
       },
       {
-        "name": "Warrior's Blessing",
-        "target": "Attack",
+        "name": "Blessing of Iron Skin",
+        "target": "Defense",
         "delta": 5,
         "encounters_remaining": 1
       }
@@ -303,7 +378,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        9
+        33
       ],
       [
         {
@@ -316,7 +391,7 @@
           "value": 20,
           "description": "Bitter and metallic; steadies the mind enough to cast again."
         },
-        5
+        15
       ],
       [
         {
@@ -325,163 +400,55 @@
           "value": 90,
           "description": "A regal cure-all, brewed for a king who never earned it."
         },
-        2
+        9
       ]
     ],
-    "weapons": [
-      {
-        "name": "Worn Shortsword",
-        "rarity": "Common",
-        "attack_bonus": 2,
-        "defense_bonus": 0,
-        "description": "A nicked, well-used blade. Better than fists.",
-        "source": "Starting",
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Acolyte's Mace",
-        "rarity": "Common",
-        "attack_bonus": 2,
-        "defense_bonus": 1,
-        "description": "Blunt and humble, blessed only lightly.",
-        "source": "Starting",
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Goblin Shiv",
-        "rarity": "Common",
-        "attack_bonus": 4,
-        "defense_bonus": 0,
-        "description": "Crude but wickedly sharp.",
-        "source": {
-          "EnemyDrop": "Goblin"
-        },
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Traveler's Spear",
-        "rarity": "Uncommon",
-        "attack_bonus": 6,
-        "defense_bonus": 1,
-        "description": "Light, well-balanced, and easy to keep an enemy at range.",
-        "source": "World",
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Forsaken Longsword",
-        "rarity": "Rare",
-        "attack_bonus": 10,
-        "defense_bonus": 1,
-        "description": "Its crest was filed off long before its wielder fell.",
-        "source": {
-          "EnemyDrop": "Forsaken Knight"
-        },
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Sentinel's Greathammer",
-        "rarity": "Epic",
-        "attack_bonus": 14,
-        "defense_bonus": 3,
-        "description": "A pillar with a grip. The barrow shook when it fell.",
-        "source": {
-          "EnemyDrop": "Barrow Sentinel"
-        },
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Fell Censer",
-        "rarity": "Rare",
-        "attack_bonus": 9,
-        "defense_bonus": 1,
-        "description": "Swings heavy; the smoke it sheds still prays.",
-        "source": {
-          "EnemyDrop": "Fell Acolyte"
-        },
-        "upgrade_level": 0,
-        "passive": null
-      },
-      {
-        "name": "Sovereign's Reckoning",
-        "rarity": "Legendary",
-        "attack_bonus": 27,
-        "defense_bonus": 5,
-        "description": "What's left of a throne, reforged into something that only takes.",
-        "source": {
-          "EnemyDrop": "The Ashen Sovereign"
-        },
-        "upgrade_level": 0,
-        "passive": {
-          "ArmorPierce": 0.5
-        }
-      }
-    ],
-    "armors": [
-      {
-        "name": "Warded Chainmail",
-        "rarity": "Rare",
-        "defense_bonus": 9,
-        "description": "Cold to the touch, etched with wards against the restless dead.",
-        "source": {
-          "EnemyDrop": "Wraith"
-        }
-      }
-    ],
-    "rings": [
-      {
-        "name": "Mimic's Coil",
-        "rarity": "Epic",
-        "attack_bonus": 4,
-        "defense_bonus": 4,
-        "description": "Still faintly shifting, as if unsure what shape to hold.",
-        "source": {
-          "EnemyDrop": "Mimic"
-        }
-      },
-      {
-        "name": "Ring of Favor",
-        "rarity": "Rare",
-        "attack_bonus": 3,
-        "defense_bonus": 3,
-        "description": "A goddess's favor, or a very good forgery of it.",
-        "source": "World"
-      },
-      {
-        "name": "Sovereign's Signet",
-        "rarity": "Legendary",
-        "attack_bonus": 7,
-        "defense_bonus": 5,
-        "description": "The seal of a throne of ash. It still expects obedience.",
-        "source": {
-          "EnemyDrop": "The Ashen Sovereign"
-        }
-      }
-    ],
-    "upgrade_materials": 35
+    "weapons": [],
+    "armors": [],
+    "rings": [],
+    "upgrade_materials": 10
   },
-  "current_chapter": "One",
-  "bosses_defeated": [],
-  "npc_flags": [],
+  "current_chapter": "Three",
+  "bosses_defeated": [
+    "Two",
+    "One"
+  ],
+  "npc_flags": [
+    "AshenPilgrim",
+    "WoundedScout"
+  ],
   "quest_log": {
     "active": [],
-    "completed": []
+    "completed": [
+      "ScoutsCommendation",
+      "PilgrimsBlessing"
+    ]
   },
   "player_pos": {
-    "x": 4,
-    "y": 2
+    "x": 26,
+    "y": 4
   },
-  "ng_plus": 1,
+  "ng_plus": 5,
   "bestiary_seen": [
     "Barrow Sentinel",
-    "Fell Acolyte",
+    "Skeleton",
+    "Orc",
+    "Wyrmscale Warden",
+    "Wraith",
+    "Bandit",
+    "Goblin",
+    "Mimic",
+    "Forsaken Knight",
+    "The Barrow Knight",
+    "Slime",
+    "Wolf",
+    "Rat",
     "Hollow",
-    "The Ashen Sovereign"
+    "Grave Ghoul",
+    "The Ashen Sovereign",
+    "Carrion Crow",
+    "Bat",
+    "Fell Acolyte"
   ],
   "difficulty": 0
 }
