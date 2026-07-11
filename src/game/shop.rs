@@ -1,6 +1,8 @@
+use crate::game::chapter::ChapterId;
 use crate::game::item::{
-    chainmail_hauberk, copper_band, ember_of_return, ether, greater_ether, greater_potion,
-    iron_loop, iron_sword, potion, purging_stone, rangers_cloak, ring_of_vigor, sunken_relic_blade,
+    chainmail_hauberk, coinwrought_blade, coinwrought_plate, copper_band, ember_of_return, ether,
+    greater_ether, greater_potion, iron_loop, iron_sword, merchants_blessing, potion,
+    purging_stone, rangers_cloak, ring_of_vigor, sovereign_elixir, sunken_relic_blade,
     sunlit_straightsword, travelers_chestguard, travelers_spear, warded_loop, ArmorFactory,
     ItemFactory, Rarity, RingFactory, WeaponFactory,
 };
@@ -81,101 +83,171 @@ impl ShopUiState {
     }
 }
 
-/// Fixed item stock the shop always carries, paired with its gold price.
-pub fn shop_item_stock() -> Vec<(ItemFactory, u32)> {
-    vec![
+/// Item stock the shop carries, paired with its gold price. The Chapter-One
+/// floor (`purging_stone`/etc.) never goes away; from Chapter Two onward the
+/// shop also surfaces `sovereign_elixir` — always in `item.rs`, but with
+/// nowhere to buy it until now.
+pub fn shop_item_stock(chapter: ChapterId) -> Vec<(ItemFactory, u32)> {
+    let mut stock = vec![
         (potion as ItemFactory, 15),
         (ether as ItemFactory, 20),
         (greater_potion as ItemFactory, 40),
         (greater_ether as ItemFactory, 45),
         (purging_stone as ItemFactory, 40),
         (ember_of_return as ItemFactory, 60),
-    ]
+    ];
+    if chapter != ChapterId::One {
+        stock.push((sovereign_elixir as ItemFactory, 90));
+    }
+    stock
 }
 
-/// Fixed weapon stock, paired with its gold price. Deliberately capped at
-/// Rare — Epic and Legendary weapons stay something you have to earn out in
-/// the field or win from a tough enemy, not something gold can shortcut.
-pub fn shop_weapon_stock() -> Vec<(WeaponFactory, u32)> {
-    vec![
+/// Weapon stock, paired with its gold price. Chapter One is capped at Rare —
+/// Epic weapons stay something you have to earn out in the field or win from
+/// a tough enemy, not something gold can shortcut, until later chapters make
+/// a dedicated shop-exclusive Epic (`coinwrought_blade`) available; Legendary
+/// stays boss-exclusive at every chapter.
+pub fn shop_weapon_stock(chapter: ChapterId) -> Vec<(WeaponFactory, u32)> {
+    let mut stock = vec![
         (iron_sword as WeaponFactory, 20),
         (travelers_spear as WeaponFactory, 50),
         (sunlit_straightsword as WeaponFactory, 50),
         (sunken_relic_blade as WeaponFactory, 120),
-    ]
+    ];
+    if chapter != ChapterId::One {
+        stock.push((coinwrought_blade as WeaponFactory, 300));
+    }
+    stock
 }
 
-/// Fixed armor stock, paired with its gold price. Same Rare cap as weapons.
-pub fn shop_armor_stock() -> Vec<(ArmorFactory, u32)> {
-    vec![
+/// Armor stock, paired with its gold price. Same chapter-gated Epic unlock
+/// as `shop_weapon_stock`.
+pub fn shop_armor_stock(chapter: ChapterId) -> Vec<(ArmorFactory, u32)> {
+    let mut stock = vec![
         (travelers_chestguard as ArmorFactory, 20),
         (rangers_cloak as ArmorFactory, 50),
         (chainmail_hauberk as ArmorFactory, 50),
-    ]
+    ];
+    if chapter != ChapterId::One {
+        stock.push((coinwrought_plate as ArmorFactory, 300));
+    }
+    stock
 }
 
-/// Fixed ring stock, paired with its gold price. Same Rare cap as weapons.
-pub fn shop_ring_stock() -> Vec<(RingFactory, u32)> {
-    vec![
+/// Ring stock, paired with its gold price. Same chapter-gated Epic unlock as
+/// `shop_weapon_stock`.
+pub fn shop_ring_stock(chapter: ChapterId) -> Vec<(RingFactory, u32)> {
+    let mut stock = vec![
         (copper_band as RingFactory, 20),
         (iron_loop as RingFactory, 20),
         (ring_of_vigor as RingFactory, 50),
         (warded_loop as RingFactory, 120),
-    ]
+    ];
+    if chapter != ChapterId::One {
+        stock.push((merchants_blessing as RingFactory, 300));
+    }
+    stock
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const ALL_CHAPTERS: [ChapterId; 3] = [ChapterId::One, ChapterId::Two, ChapterId::Three];
+
     #[test]
     fn item_stock_prices_match_their_catalog_value() {
-        for (factory, price) in shop_item_stock() {
-            assert_eq!(factory().value, price);
+        for chapter in ALL_CHAPTERS {
+            for (factory, price) in shop_item_stock(chapter) {
+                assert_eq!(factory().value, price);
+            }
         }
     }
 
     #[test]
     fn weapon_stock_prices_match_their_rarity_value() {
-        for (factory, price) in shop_weapon_stock() {
-            assert_eq!(factory().rarity.base_value(), price);
-        }
-    }
-
-    #[test]
-    fn weapon_stock_never_carries_epic_or_legendary_gear() {
-        use crate::game::item::Rarity;
-        for (factory, _) in shop_weapon_stock() {
-            let rarity = factory().rarity;
-            assert!(
-                rarity < Rarity::Epic,
-                "shop stock should stop at Rare; found {rarity}"
-            );
+        for chapter in ALL_CHAPTERS {
+            for (factory, price) in shop_weapon_stock(chapter) {
+                assert_eq!(factory().rarity.base_value(), price);
+            }
         }
     }
 
     #[test]
     fn armor_stock_prices_match_their_rarity_value() {
-        for (factory, price) in shop_armor_stock() {
-            assert_eq!(factory().rarity.base_value(), price);
+        for chapter in ALL_CHAPTERS {
+            for (factory, price) in shop_armor_stock(chapter) {
+                assert_eq!(factory().rarity.base_value(), price);
+            }
         }
     }
 
     #[test]
     fn ring_stock_prices_match_their_rarity_value() {
-        for (factory, price) in shop_ring_stock() {
-            assert_eq!(factory().rarity.base_value(), price);
+        for chapter in ALL_CHAPTERS {
+            for (factory, price) in shop_ring_stock(chapter) {
+                assert_eq!(factory().rarity.base_value(), price);
+            }
         }
     }
 
     #[test]
-    fn armor_and_ring_stock_never_carry_epic_or_legendary_gear() {
-        use crate::game::item::Rarity;
-        for (factory, _) in shop_armor_stock() {
+    fn chapter_one_stock_never_carries_epic_or_legendary_gear() {
+        for (factory, _) in shop_weapon_stock(ChapterId::One) {
+            let rarity = factory().rarity;
+            assert!(
+                rarity < Rarity::Epic,
+                "Chapter One shop stock should stop at Rare; found {rarity}"
+            );
+        }
+        for (factory, _) in shop_armor_stock(ChapterId::One) {
             assert!(factory().rarity < Rarity::Epic);
         }
-        for (factory, _) in shop_ring_stock() {
+        for (factory, _) in shop_ring_stock(ChapterId::One) {
             assert!(factory().rarity < Rarity::Epic);
+        }
+    }
+
+    #[test]
+    fn chapters_two_and_three_unlock_exactly_one_epic_entry_per_tab_and_never_legendary() {
+        for chapter in [ChapterId::Two, ChapterId::Three] {
+            let epic_weapons = shop_weapon_stock(chapter)
+                .into_iter()
+                .filter(|(f, _)| f().rarity == Rarity::Epic)
+                .count();
+            let epic_armor = shop_armor_stock(chapter)
+                .into_iter()
+                .filter(|(f, _)| f().rarity == Rarity::Epic)
+                .count();
+            let epic_rings = shop_ring_stock(chapter)
+                .into_iter()
+                .filter(|(f, _)| f().rarity == Rarity::Epic)
+                .count();
+            assert_eq!(epic_weapons, 1);
+            assert_eq!(epic_armor, 1);
+            assert_eq!(epic_rings, 1);
+
+            for (factory, _) in shop_weapon_stock(chapter) {
+                assert!(factory().rarity < Rarity::Legendary, "Legendary stays boss-exclusive");
+            }
+            for (factory, _) in shop_armor_stock(chapter) {
+                assert!(factory().rarity < Rarity::Legendary);
+            }
+            for (factory, _) in shop_ring_stock(chapter) {
+                assert!(factory().rarity < Rarity::Legendary);
+            }
+        }
+    }
+
+    #[test]
+    fn sovereign_elixir_is_only_sold_from_chapter_two_onward() {
+        assert!(shop_item_stock(ChapterId::One)
+            .iter()
+            .all(|(f, _)| f().name != "Sovereign Elixir"));
+        for chapter in [ChapterId::Two, ChapterId::Three] {
+            assert!(shop_item_stock(chapter)
+                .iter()
+                .any(|(f, _)| f().name == "Sovereign Elixir"));
         }
     }
 }

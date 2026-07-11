@@ -5,16 +5,16 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 4,
-        "xp": 75,
-        "unspent_points": 6,
+        "level": 9,
+        "xp": 10,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 84,
-          "hp": 84,
-          "max_mp": 13,
-          "mp": 13,
-          "attack": 18,
-          "defense": 14,
+          "max_hp": 200,
+          "hp": 200,
+          "max_mp": 18,
+          "mp": 18,
+          "attack": 30,
+          "defense": 40,
           "speed": 6,
           "luck": 5
         },
@@ -35,16 +35,22 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Worn Shortsword",
-          "rarity": "Common",
-          "attack_bonus": 2,
+          "name": "Sunken Relic Blade",
+          "rarity": "Rare",
+          "attack_bonus": 11,
           "defense_bonus": 0,
-          "description": "A nicked, well-used blade. Better than fists.",
-          "source": "Starting",
+          "description": "Pulled from somewhere it should never have been found.",
+          "source": "World",
           "upgrade_level": 0,
           "passive": null
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Dragonscale Aegis",
+          "rarity": "Legendary",
+          "defense_bonus": 24,
+          "description": "Overlapping scales said to have turned aside a dragon's breath.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -55,18 +61,18 @@
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 4,
-        "xp": 75,
-        "unspent_points": 6,
+        "level": 9,
+        "xp": 10,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 44,
-          "hp": 44,
-          "max_mp": 45,
-          "mp": 45,
-          "attack": 8,
-          "defense": 7,
-          "speed": 11,
-          "luck": 9
+          "max_hp": 89,
+          "hp": 89,
+          "max_mp": 70,
+          "mp": 70,
+          "attack": 40,
+          "defense": 14,
+          "speed": 16,
+          "luck": 14
         },
         "abilities": [
           {
@@ -85,16 +91,24 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Apprentice's Wand",
-          "rarity": "Common",
-          "attack_bonus": 1,
-          "defense_bonus": 0,
-          "description": "A simple wand every mage starts with.",
-          "source": "Starting",
+          "name": "Sentinel's Greathammer",
+          "rarity": "Epic",
+          "attack_bonus": 14,
+          "defense_bonus": 3,
+          "description": "A pillar with a grip. The barrow shook when it fell.",
+          "source": {
+            "EnemyDrop": "Barrow Sentinel"
+          },
           "upgrade_level": 0,
           "passive": null
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Ranger's Cloak",
+          "rarity": "Uncommon",
+          "defense_bonus": 5,
+          "description": "Woven to shed rain, blades, and notice alike.",
+          "source": "World"
+        },
         "equipped_rings": [
           null,
           null
@@ -105,18 +119,18 @@
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 4,
-        "xp": 75,
-        "unspent_points": 6,
+        "level": 9,
+        "xp": 10,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 62,
-          "hp": 62,
-          "max_mp": 36,
-          "mp": 36,
-          "attack": 9,
-          "defense": 12,
+          "max_hp": 137,
+          "hp": 137,
+          "max_mp": 56,
+          "mp": 56,
+          "attack": 20,
+          "defense": 38,
           "speed": 7,
-          "luck": 7
+          "luck": 12
         },
         "abilities": [
           {
@@ -135,14 +149,18 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Acolyte's Mace",
-          "rarity": "Common",
-          "attack_bonus": 2,
-          "defense_bonus": 1,
-          "description": "Blunt and humble, blessed only lightly.",
-          "source": "Starting",
+          "name": "Warden's Fang",
+          "rarity": "Legendary",
+          "attack_bonus": 24,
+          "defense_bonus": 4,
+          "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
+          "source": {
+            "EnemyDrop": "Wyrmscale Warden"
+          },
           "upgrade_level": 0,
-          "passive": null
+          "passive": {
+            "DamageReduction": 0.15
+          }
         },
         "equipped_armor": null,
         "equipped_rings": [
@@ -155,18 +173,18 @@
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 4,
-        "xp": 75,
-        "unspent_points": 6,
+        "level": 9,
+        "xp": 10,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 54,
-          "hp": 54,
-          "max_mp": 20,
-          "mp": 20,
-          "attack": 15,
-          "defense": 8,
-          "speed": 17,
-          "luck": 18
+          "max_hp": 114,
+          "hp": 114,
+          "max_mp": 30,
+          "mp": 30,
+          "attack": 49,
+          "defense": 13,
+          "speed": 27,
+          "luck": 34
         },
         "abilities": [
           {
@@ -185,29 +203,46 @@
           }
         ],
         "equipped_weapon": {
-          "name": "Thief's Dirk",
-          "rarity": "Common",
-          "attack_bonus": 3,
-          "defense_bonus": 0,
-          "description": "Slim, quick, and honest about none of its history.",
-          "source": "Starting",
-          "upgrade_level": 0,
-          "passive": null
+          "name": "Knightsbane",
+          "rarity": "Legendary",
+          "attack_bonus": 34,
+          "defense_bonus": 10,
+          "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
+          "source": {
+            "EnemyDrop": "The Barrow Knight"
+          },
+          "upgrade_level": 2,
+          "passive": {
+            "Lifesteal": 0.15
+          }
         },
-        "equipped_armor": null,
+        "equipped_armor": {
+          "name": "Barrow-Touched Plate",
+          "rarity": "Epic",
+          "defense_bonus": 15,
+          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
+          "source": "World"
+        },
         "equipped_rings": [
-          null,
+          {
+            "name": "Band of the Barrow",
+            "rarity": "Legendary",
+            "attack_bonus": 6,
+            "defense_bonus": 6,
+            "description": "Buried alongside the Knight himself. It has not gone cold.",
+            "source": "World"
+          },
           null
         ],
         "boss_kind": null,
         "is_elite": false
       }
     ],
-    "gold": 337,
+    "gold": 580,
     "effects": [
       {
-        "name": "Curse of Frailty",
-        "target": "Defense",
+        "name": "Curse of Sloth",
+        "target": "Speed",
         "delta": -4,
         "encounters_remaining": 1
       }
@@ -226,7 +261,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        4
+        7
       ],
       [
         {
@@ -239,10 +274,51 @@
           "value": 20,
           "description": "Bitter and metallic; steadies the mind enough to cast again."
         },
-        3
+        4
+      ],
+      [
+        {
+          "name": "Sovereign Elixir",
+          "kind": "Elixir",
+          "value": 90,
+          "description": "A regal cure-all, brewed for a king who never earned it."
+        },
+        1
       ]
     ],
     "weapons": [
+      {
+        "name": "Worn Shortsword",
+        "rarity": "Common",
+        "attack_bonus": 2,
+        "defense_bonus": 0,
+        "description": "A nicked, well-used blade. Better than fists.",
+        "source": "Starting",
+        "upgrade_level": 0,
+        "passive": null
+      },
+      {
+        "name": "Acolyte's Mace",
+        "rarity": "Common",
+        "attack_bonus": 2,
+        "defense_bonus": 1,
+        "description": "Blunt and humble, blessed only lightly.",
+        "source": "Starting",
+        "upgrade_level": 0,
+        "passive": null
+      },
+      {
+        "name": "Goblin Shiv",
+        "rarity": "Common",
+        "attack_bonus": 4,
+        "defense_bonus": 0,
+        "description": "Crude but wickedly sharp.",
+        "source": {
+          "EnemyDrop": "Goblin"
+        },
+        "upgrade_level": 0,
+        "passive": null
+      },
       {
         "name": "Traveler's Spear",
         "rarity": "Uncommon",
@@ -252,57 +328,43 @@
         "source": "World",
         "upgrade_level": 0,
         "passive": null
-      },
-      {
-        "name": "Knightsbane",
-        "rarity": "Legendary",
-        "attack_bonus": 24,
-        "defense_bonus": 4,
-        "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
-        "source": {
-          "EnemyDrop": "The Barrow Knight"
-        },
-        "upgrade_level": 0,
-        "passive": {
-          "Lifesteal": 0.15
-        }
       }
     ],
     "armors": [
       {
-        "name": "Ranger's Cloak",
-        "rarity": "Uncommon",
-        "defense_bonus": 5,
-        "description": "Woven to shed rain, blades, and notice alike.",
-        "source": "World"
-      },
-      {
-        "name": "Barrow-Touched Plate",
-        "rarity": "Epic",
-        "defense_bonus": 15,
-        "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
-        "source": "World"
+        "name": "Warded Chainmail",
+        "rarity": "Rare",
+        "defense_bonus": 9,
+        "description": "Cold to the touch, etched with wards against the restless dead.",
+        "source": {
+          "EnemyDrop": "Wraith"
+        }
       }
     ],
     "rings": [],
-    "upgrade_materials": 9
+    "upgrade_materials": 4
   },
-  "current_chapter": "Two",
+  "current_chapter": "Three",
   "bosses_defeated": [
+    "Two",
     "One"
   ],
   "npc_flags": [
-    "OldHerbalist"
+    "OldHerbalist",
+    "WoundedScout",
+    "AshenPilgrim"
   ],
   "quest_log": {
     "active": [],
     "completed": [
-      "HerbalistsRequest"
+      "HerbalistsRequest",
+      "ScoutsCommendation",
+      "PilgrimsBlessing"
     ]
   },
   "player_pos": {
-    "x": 4,
-    "y": 7
+    "x": 5,
+    "y": 3
   },
   "ng_plus": 0
 }

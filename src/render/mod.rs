@@ -45,7 +45,14 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::Inventory(inv_ui) => {
             inventory::draw(assets, inv_ui, &world.party, &world.inventory, &mut text)
         }
-        GameState::Shop(shop_ui) => shop::draw(assets, shop_ui, &world.party, &world.inventory, &mut text),
+        GameState::Shop(shop_ui) => shop::draw(
+            assets,
+            shop_ui,
+            &world.party,
+            &world.inventory,
+            world.current_chapter,
+            &mut text,
+        ),
         GameState::QuestLog(ql_ui) => {
             quest_log::draw(ql_ui, &world.quest_log, &world.inventory, &mut text)
         }

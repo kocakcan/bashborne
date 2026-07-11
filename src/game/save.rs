@@ -34,24 +34,56 @@ pub struct SaveData {
     pub ng_plus: u32,
 }
 
-/// Where the save file lives: next to wherever the game is run from.
-pub fn save_path() -> PathBuf {
+/// How many save slots the main menu offers. Slot 3 is labeled "(Dev)" in
+/// the UI by convention only (`render/main_menu.rs`) — no mechanical
+/// difference from the other two, just an obvious sandbox to playtest in
+/// without touching real progress.
+pub const SAVE_SLOTS: u8 = 3;
+
+/// Where slot `slot`'s save file lives: next to wherever the game is run
+/// from. `slot` is 1-indexed (1..=SAVE_SLOTS), matching `World.active_slot`
+/// and `MainMenuState::slots`' on-screen numbering.
+pub fn save_path(slot: u8) -> PathBuf {
+    PathBuf::from(format!("bashborne_save_{slot}.json"))
+}
+
+/// Where the single save file lived before the 3-slot system existed.
+fn legacy_save_path() -> PathBuf {
     PathBuf::from("bashborne_save.json")
 }
 
-pub fn write(data: &SaveData) -> anyhow::Result<()> {
+/// One-time migration: if slot 1 has no file yet but the pre-slot save does,
+/// claim it as slot 1 rather than orphaning it. Cheap to call on every read
+/// of slot 1 since it's a no-op once the rename has happened.
+fn migrate_legacy_save() {
+    let legacy = legacy_save_path();
+    let slot_one = save_path(1);
+    if !slot_one.exists() && legacy.exists() {
+        let _ = fs::rename(&legacy, &slot_one);
+    }
+}
+
+pub fn write(data: &SaveData, slot: u8) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(data)?;
-    fs::write(save_path(), json)?;
+    fs::write(save_path(slot), json)?;
     Ok(())
 }
 
-/// Reads the save file, if one exists and parses as the current version.
-/// Any failure (missing, corrupt, stale version) just means "no save" —
-/// the game starts fresh rather than crashing on a bad file.
-pub fn read() -> Option<SaveData> {
-    let json = fs::read_to_string(save_path()).ok()?;
+/// Reads `slot`'s save file, if one exists and parses as the current
+/// version. Any failure (missing, corrupt, stale version) just means "no
+/// save" — the game starts fresh rather than crashing on a bad file.
+pub fn read(slot: u8) -> Option<SaveData> {
+    if slot == 1 {
+        migrate_legacy_save();
+    }
+    let json = fs::read_to_string(save_path(slot)).ok()?;
     let data: SaveData = serde_json::from_str(&json).ok()?;
     (data.version == SAVE_VERSION).then_some(data)
+}
+
+/// Reads every slot at once, for the main menu's slot picker.
+pub fn read_all_slots() -> [Option<SaveData>; SAVE_SLOTS as usize] {
+    [read(1), read(2), read(3)]
 }
 
 #[cfg(test)]
@@ -60,6 +92,18 @@ mod tests {
     use crate::game::character::{rogue, warrior};
     use crate::game::item::{iron_sword, potion};
     use crate::game::quest::QuestId;
+
+    // No test here touches the real filesystem (`read`/`write`/
+    // `migrate_legacy_save`) — `cargo test`'s working directory is the repo
+    // root, the same place a real save file lives, and this repo's own
+    // `bashborne_save.json` is real player progress. `save_path` is pure
+    // (just builds a `PathBuf`), so it's safe to exercise directly.
+    #[test]
+    fn save_path_is_distinct_per_slot() {
+        assert_ne!(save_path(1), save_path(2));
+        assert_ne!(save_path(2), save_path(3));
+        assert_ne!(save_path(1), save_path(3));
+    }
 
     fn sample_save() -> SaveData {
         let mut party = Party::new(vec![warrior("Bram"), rogue("Wren")]);

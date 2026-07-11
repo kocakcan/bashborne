@@ -40,7 +40,7 @@ use standard `cargo fmt` / `cargo clippy` defaults if asked to clean up code.
 ```
 src/
   main.rs          — window_conf (title/size), Assets::load, the macroquad main loop (poll key -> tick -> draw -> next_frame)
-  input.rs         — engine-agnostic Key enum; poll_key() wraps macroquad's raw KeyCode polling
+  input.rs         — engine-agnostic Key enum; stateful Input::poll wraps macroquad's raw KeyCode polling with its own key-repeat timer
   app.rs           — World (Party + Inventory + GameState + chapter progress + rng + anim timer), all input handling, save/load hooks
   render/
     mod.rs         — sets up the offscreen camera/canvas, dispatches to the right screen based on GameState, blits the canvas to the window, then flushes queued text
@@ -71,7 +71,7 @@ src/
     levelup.rs     — LevelUpUiState backing the allocation screen
     blacksmith.rs  — upgrade costs/increments, BlacksmithUiState
     status.rs      — StatusEffect: buffs/curses that persist across encounters
-    save.rs        — SaveData (serde/JSON) + read/write of bashborne_save.json
+    save.rs        — SaveData (serde/JSON) + slot-aware read/write (3 save slots)
     state.rs       — GameState enum, ExploreState, field-event table
 ```
 
@@ -106,9 +106,12 @@ trait objects — for a fixed, known
 set of screens this gives exhaustive `match` checking at compile time with
 no dynamic dispatch. `CombatPhase` is the same idea one level down:
 `SelectAction → SelectAbility → SelectTarget → {Victory, Defeat, Fled}`, all
-exhaustively matched wherever it's read. `CombatPhase::Resolving` exists but
-is currently unused (reserved for adding a delay between an action and the
-log update).
+exhaustively matched wherever it's read. `CombatPhase::Resolving` is the
+turn-resolution hold state: `app.rs::begin_resolving_hold` switches into it
+and stashes the real next phase in `pending_phase` behind a
+`RESOLVING_HOLD_SECONDS` timer, and `render/combat.rs` reads it to drive the
+lunge/flash/idle-bob animation beat before the log updates and the phase
+advances for real.
 
 ### Turn order & combat
 
@@ -126,16 +129,23 @@ rising to 24% at NG+7) to promote exactly one enemy in the roll to an Elite
 variant (`Character::apply_elite`) — tougher, better-paying, and never a
 Mimic or boss. Several species have signature moves handled in
 `resolve_enemy_action`: the **Wraith** curses the party (30% of turns, via
-`roll_curse`), **Goblins**/**Wolves** prioritize the lowest-HP%/lowest-max-HP
-target 60% of the time, **Skeletons** can Bone Guard (skip the attack for
-+3 defense), **Orcs** can Reckless Swing (1.6x damage with self-recoil),
-**Bandits** can Coin Grab (steal gold instead of attacking), **Barrow
-Sentinels** can Warcry (party-wide defense curse), and **Forsaken Knights**
-can land Knight's Judgment (1.7x damage, no drawback). The **Mimic** never
-appears in the normal encounter table — it's a 1-in-5 chance hiding inside
-what looked like a treasure find. Enemy display names (`Character::
-display_name`, e.g. "Elite Orc") are cosmetic only — every species-keyed
-comparison always matches against the raw `Character.name`.
+`roll_curse`), **Fell Acolytes** can chant a Withering Prayer (25%, drains a
+member's MP to heal themselves), **Goblins**/**Wolves** prioritize the
+lowest-HP%/lowest-max-HP target 60% of the time, **Skeletons** can Bone
+Guard (skip the attack for +3 defense), **Orcs** can Reckless Swing (1.6x
+damage with self-recoil), **Bandits** can Coin Grab (steal gold instead of
+attacking), **Barrow Sentinels** can Warcry (party-wide defense curse), and
+**Forsaken Knights** can land Knight's Judgment (1.7x damage, no drawback).
+For those seven probability-gated moves, an Elite variant additionally gets
+one guaranteed shot at its species' move on its first eligible turn
+(`Character.elite_signature_used`, checked as `(is_elite &&
+!elite_signature_used) || rng.gen_bool(p)` in `resolve_enemy_action`) before
+reverting to the normal per-turn odds — a mechanical difference from a plain
+enemy, not just bigger numbers. The **Mimic** never appears in the normal
+encounter table — it's a 1-in-5 chance hiding inside what looked like a
+treasure find. Enemy display names (`Character::display_name`, e.g. "Elite
+Orc") are cosmetic only — every species-keyed comparison always matches
+against the raw `Character.name`.
 
 Each chapter has one boss, reachable only via its fixed `Tile::BossLair`
 tile, not a random roll. Bosses are identified by `Character::boss_kind`
@@ -177,14 +187,21 @@ math); monsters leave it `None`. `Rarity` (`item.rs`) is a five-tier enum
 (Common < Uncommon < Rare < Epic < Legendary) with a derived `Ord`, plus
 `base_value()` used for both shop pricing and loot value. Weapons come from
 field-treasure rolls, per-species drop chances (`combat::loot_profile`),
-the shop (Common/Uncommon/Rare only), or the boss (Legendary, guaranteed).
+the shop, or the boss (Legendary, guaranteed).
 
 `i` from Explore opens the out-of-combat inventory (`render/inventory.rs`,
 state in `game/inventory_ui.rs`) to equip gear or use consumables on any
 party member — displaced gear returns to the bag, and the `p` party-gear
 mode can unequip or move pieces between members directly. `e` on a town
 tile opens the shop (`render/shop.rs`, `game/shop.rs`); selling only works on
-spare (unequipped) gear. In combat, "Item" opens a submenu
+spare (unequipped) gear. Shop stock is gated by `World.current_chapter`
+(threaded into `shop_item_stock`/`shop_weapon_stock`/`shop_armor_stock`/
+`shop_ring_stock`): Chapter One is Common→Rare only, and from Chapter Two
+onward it additionally carries one dedicated shop-exclusive Epic
+weapon/armor/ring (`coinwrought_blade`/`coinwrought_plate`/
+`merchants_blessing` — deliberately not reused from `loot_profile` or the
+treasure-tile roll) plus `sovereign_elixir`. Legendary always stays
+boss-exclusive, at every chapter. In combat, "Item" opens a submenu
 (`CombatPhase::SelectItem`) to pick which consumable to use.
 
 ### Field events & status effects
@@ -235,31 +252,38 @@ screenshot of the window) after a change to `render/*.rs` or `input.rs`.
 
 ## Save/load
 
-Shift+S while exploring writes `bashborne_save.json` (serde/JSON, in the
-working directory) via `game/save.rs`. Plain `s`/Down-arrow both move the
-player south — `input.rs::poll_key` only lets the physical S key fall
-through to `Key::Char('S')` (the save shortcut `app.rs` checks for) when
-Shift is held; otherwise it's folded into `Key::Down` alongside the arrow
-key and `w`/`a`/`d`. The game never auto-loads: it always boots to the main
-menu (`World::at_main_menu`), which offers a Continue entry only if
-`game/save.rs::read()` finds a valid save; picking it calls `World::
-from_save`. Deleting the save file is how a player makes Continue disappear.
-Only exploration state persists (party, inventory, chapter/boss/NPC/quest
-progress, position); combat and menus are never saved. `SaveData.version`
-gates loading: any mismatch or parse failure silently falls back to no save
-being offered.
+Three save slots (`game/save.rs::SAVE_SLOTS`), each its own JSON file in the
+working directory (`bashborne_save_1.json`/`_2.json`/`_3.json`,
+`save::save_path(slot)`). Slot 3 is labeled "(Dev)" on the main menu by pure
+UI convention (`render/main_menu.rs`) — mechanically identical to slots 1-2,
+just an obvious sandbox to playtest in without touching real progress. A
+one-time migration (`save::migrate_legacy_save`, run on any read of slot 1)
+renames a pre-3-slot `bashborne_save.json`, if found, into slot 1 rather
+than orphaning it.
+
+The game never auto-loads: it always boots to the main menu
+(`World::at_main_menu`), which loads all three slots up front
+(`save::read_all_slots`) into `MainMenuState.slots` for the picker. Up/Down
+move across the 3 slot rows plus a Quit row (`MAIN_MENU_ROWS`); Enter on a
+slot loads it if occupied or starts a fresh game there if empty, either way
+setting `World.active_slot`; `n` forces "New Game" on the highlighted slot,
+arming `confirm_overwrite` (now `Option<u8>`, the slot awaiting
+confirmation) if it's occupied. Shift+S while exploring writes back to
+whichever slot `World.active_slot` holds via `game/save.rs::write`. Plain
+`s`/Down-arrow both move the player south — `Input::poll` only lets the
+physical S key fall through to `Key::Char('S')` (the save shortcut `app.rs`
+checks for) when Shift is held; otherwise it's folded into `Key::Down`
+alongside the arrow key and `w`/`a`/`d`. Deleting a slot's save file is how
+a player makes that slot's row show "New Game" again. Only exploration
+state persists (party, inventory, chapter/boss/NPC/quest progress,
+position); combat and menus are never saved. `SaveData.version` gates
+loading: any mismatch or parse failure silently falls back to no save being
+offered for that slot.
 
 ## Known stubs / deliberately unfinished seams
 
 - The playable-class roster (Warrior/Mage/Cleric/Rogue) is fixed at game
   start; there's no party selection or recruitment.
-- `World.anim_timer`/`anim_frame_idx` (`app.rs`) still tick every frame but
-  nothing in `render/*.rs` reads `anim_frame_idx` anymore — enemies are
-  drawn as flat species-colored boxes (`combat::species_color`), not
-  animated sprite frames. This is leftover plumbing from an earlier
-  ASCII-sprite-animation version of the combat screen; it's currently dead
-  code (`cargo build` warns on `World::anim_frame`), not a bug to "fix" by
-  wiring it back up unless you're deliberately re-adding sprite animation.
 
 ## Platform notes
 

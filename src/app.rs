@@ -7,7 +7,9 @@ use crate::game::blacksmith::{
     upgrade_cost, upgrade_increments, weapon_for_mut, weapon_refs, BlacksmithUiState, SHARD_PRICE,
 };
 use crate::game::chapter::{chapter_def, ChapterId};
-use crate::game::character::{cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS};
+use crate::game::character::{
+    cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS,
+};
 use crate::game::combat::{ActorRef, CombatAction, CombatPhase, CombatState, RESOLVING_HOLD_SECONDS};
 use crate::game::inventory_ui::{
     EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
@@ -22,7 +24,8 @@ use crate::game::shop::{
     ShopTab, ShopUiState,
 };
 use crate::game::state::{
-    roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuEntry, MainMenuState,
+    roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuState,
+    MAIN_MENU_ROWS,
 };
 
 /// `World.anim_timer` wraps at this many seconds so it doesn't grow without
@@ -75,6 +78,12 @@ pub struct World {
     /// the same everywhere `current_player_pos` returns `Some` — Explore and
     /// every sub-screen that carries a `return_pos` — not just Explore.
     pub confirm_quit: bool,
+    /// Which of the 3 save slots this session is playing in, if any — set
+    /// when a slot is picked (or started fresh) on the main menu, and read
+    /// by the Shift+S quicksave handler so it always writes back to the same
+    /// slot rather than a single fixed path. `None` only before a slot has
+    /// ever been chosen (e.g. a `World::new()` not routed through the menu).
+    pub active_slot: Option<u8>,
 }
 
 impl World {
@@ -99,14 +108,15 @@ impl World {
             anim_timer: 0.0,
             show_help: false,
             confirm_quit: false,
+            active_slot: None,
         }
     }
 
-    /// The startup state: a fresh world parked on the title screen. Whether
-    /// Continue is offered depends on a valid save existing right now.
+    /// The startup state: a fresh world parked on the title screen, with all
+    /// 3 save slots loaded from disk for the slot picker.
     pub fn at_main_menu() -> Self {
         let mut world = Self::new();
-        world.state = GameState::MainMenu(MainMenuState::new(crate::game::save::read().is_some()));
+        world.state = GameState::MainMenu(MainMenuState::new(crate::game::save::read_all_slots()));
         world
     }
 
@@ -126,9 +136,10 @@ impl World {
         }
     }
 
-    /// Rebuilds a `World` from a snapshot, dropping the player back onto the
-    /// saved chapter's map at the saved position.
-    pub fn from_save(data: crate::game::save::SaveData) -> Self {
+    /// Rebuilds a `World` from a snapshot loaded out of `slot`, dropping the
+    /// player back onto the saved chapter's map at the saved position and
+    /// arming `active_slot` so a later quicksave lands back in the same slot.
+    pub fn from_save(data: crate::game::save::SaveData, slot: u8) -> Self {
         let mut explore = ExploreState::for_chapter(data.current_chapter);
         explore.player_pos = data.player_pos;
         explore.push_log("Loaded saved game.");
@@ -146,7 +157,16 @@ impl World {
             anim_timer: 0.0,
             show_help: false,
             confirm_quit: false,
+            active_slot: Some(slot),
         }
+    }
+
+    /// Starts a brand-new game and marks `slot` as the active save slot from
+    /// now on, so a later Shift+S quicksave lands in the slot the player
+    /// picked rather than a default.
+    fn start_new_game_in_slot(&mut self, slot: u8) {
+        *self = Self::new();
+        self.active_slot = Some(slot);
     }
 
     /// Where the player is standing right now, if there's a meaningful
@@ -248,10 +268,15 @@ impl World {
         }
         if key == Key::Char('S') {
             if let Some(pos) = self.current_player_pos() {
-                let data = self.to_save(pos);
-                let message = match crate::game::save::write(&data) {
-                    Ok(()) => "Game saved.".to_string(),
-                    Err(e) => format!("Couldn't save the game: {e}"),
+                let message = match self.active_slot {
+                    Some(slot) => {
+                        let data = self.to_save(pos);
+                        match crate::game::save::write(&data, slot) {
+                            Ok(()) => "Game saved.".to_string(),
+                            Err(e) => format!("Couldn't save the game: {e}"),
+                        }
+                    }
+                    None => "No active save slot.".to_string(),
                 };
                 self.push_status_message(message);
                 return;
@@ -294,42 +319,49 @@ impl World {
         };
         // The overwrite confirmation is modal: nothing else reacts until the
         // player commits or backs out.
-        if menu.confirm_overwrite {
+        if let Some(slot) = menu.confirm_overwrite {
             match key {
-                Key::Enter | Key::Char('y') => *self = Self::new(),
-                Key::Esc | Key::Char('n') => menu.confirm_overwrite = false,
+                Key::Enter | Key::Char('y') => self.start_new_game_in_slot(slot),
+                Key::Esc | Key::Char('n') => menu.confirm_overwrite = None,
                 _ => {}
             }
             return;
         }
-        let entries = menu.entries();
         match key {
             Key::Up | Key::Char('w') => {
-                menu.cursor = (menu.cursor + entries.len() - 1) % entries.len();
+                menu.cursor = (menu.cursor + MAIN_MENU_ROWS - 1) % MAIN_MENU_ROWS;
             }
             Key::Down | Key::Char('s') => {
-                menu.cursor = (menu.cursor + 1) % entries.len();
+                menu.cursor = (menu.cursor + 1) % MAIN_MENU_ROWS;
             }
             Key::Char('q') | Key::Esc => self.should_quit = true,
-            Key::Enter => match entries[menu.cursor] {
-                MainMenuEntry::Quit => self.should_quit = true,
-                MainMenuEntry::NewGame => {
-                    if menu.has_save {
-                        menu.confirm_overwrite = true;
+            // Forces "New Game" on the highlighted slot regardless of
+            // whether Enter would have loaded it — arms the overwrite
+            // confirm if the slot is occupied, same as picking an occupied
+            // slot's row used to always do.
+            Key::Char('n') => {
+                let cursor = menu.cursor;
+                if cursor < 3 {
+                    let slot = (cursor + 1) as u8;
+                    if menu.slots[cursor].is_some() {
+                        menu.confirm_overwrite = Some(slot);
                     } else {
-                        *self = Self::new();
+                        self.start_new_game_in_slot(slot);
                     }
                 }
-                MainMenuEntry::Continue => match crate::game::save::read() {
-                    Some(data) => *self = Self::from_save(data),
-                    None => {
-                        // The save vanished since the menu was built; drop
-                        // the Continue entry rather than loading garbage.
-                        menu.has_save = false;
-                        menu.cursor = 0;
+            }
+            Key::Enter => {
+                let cursor = menu.cursor;
+                if cursor == 3 {
+                    self.should_quit = true;
+                } else {
+                    let slot = (cursor + 1) as u8;
+                    match menu.slots[cursor].take() {
+                        Some(data) => *self = Self::from_save(data, slot),
+                        None => self.start_new_game_in_slot(slot),
                     }
-                },
-            },
+                }
+            }
             _ => {}
         }
     }
@@ -1661,10 +1693,10 @@ impl World {
     fn shop_list_len(&self, mode: ShopMode, tab: ShopTab) -> usize {
         match mode {
             ShopMode::Buy => match tab {
-                ShopTab::Items => shop_item_stock().len(),
-                ShopTab::Weapons => shop_weapon_stock().len(),
-                ShopTab::Armor => shop_armor_stock().len(),
-                ShopTab::Rings => shop_ring_stock().len(),
+                ShopTab::Items => shop_item_stock(self.current_chapter).len(),
+                ShopTab::Weapons => shop_weapon_stock(self.current_chapter).len(),
+                ShopTab::Armor => shop_armor_stock(self.current_chapter).len(),
+                ShopTab::Rings => shop_ring_stock(self.current_chapter).len(),
             },
             ShopMode::Sell => match tab {
                 ShopTab::Items => self.inventory.items.len(),
@@ -1677,7 +1709,7 @@ impl World {
 
     fn apply_shop_buy(&mut self, tab: ShopTab, idx: usize) {
         let message = match tab {
-            ShopTab::Items => match shop_item_stock().get(idx) {
+            ShopTab::Items => match shop_item_stock(self.current_chapter).get(idx) {
                 Some(&(factory, price)) if self.party.gold >= price => {
                     self.party.gold -= price;
                     let item = factory();
@@ -1688,7 +1720,7 @@ impl World {
                 Some(_) => Some("Not enough gold for that.".to_string()),
                 None => None,
             },
-            ShopTab::Weapons => match shop_weapon_stock().get(idx) {
+            ShopTab::Weapons => match shop_weapon_stock(self.current_chapter).get(idx) {
                 Some(&(factory, price)) if self.party.gold >= price => {
                     self.party.gold -= price;
                     let weapon = factory();
@@ -1699,7 +1731,7 @@ impl World {
                 Some(_) => Some("Not enough gold for that.".to_string()),
                 None => None,
             },
-            ShopTab::Armor => match shop_armor_stock().get(idx) {
+            ShopTab::Armor => match shop_armor_stock(self.current_chapter).get(idx) {
                 Some(&(factory, price)) if self.party.gold >= price => {
                     self.party.gold -= price;
                     let armor = factory();
@@ -1710,7 +1742,7 @@ impl World {
                 Some(_) => Some("Not enough gold for that.".to_string()),
                 None => None,
             },
-            ShopTab::Rings => match shop_ring_stock().get(idx) {
+            ShopTab::Rings => match shop_ring_stock(self.current_chapter).get(idx) {
                 Some(&(factory, price)) if self.party.gold >= price => {
                     self.party.gold -= price;
                     let ring = factory();
@@ -1848,6 +1880,7 @@ impl World {
             }
             Key::Enter => self.apply_levelup_allocation(member_cursor, stat_cursor),
             Key::Char('f') => self.apply_levelup_fill(member_cursor, stat_cursor),
+            Key::Backspace => self.apply_levelup_undo(),
             _ => {}
         }
     }
@@ -1856,45 +1889,76 @@ impl World {
         let Some(stat) = ALLOC_STATS.get(stat_idx).copied() else {
             return;
         };
-        let message = self.party.members.get_mut(member_idx).map(|member| {
-            if member.allocate_point(stat) {
-                format!(
-                    "{} spends a point on {stat}. ({} left)",
-                    member.name, member.unspent_points
-                )
-            } else {
-                "No points left to spend.".to_string()
-            }
-        });
+        let result = self
+            .party
+            .members
+            .get_mut(member_idx)
+            .map(|member| (member.allocate_point_tracked(stat), member.name.clone(), member.unspent_points));
         if let GameState::LevelUp(ui) = &mut self.state {
-            if let Some(msg) = message {
-                ui.message = Some(msg);
+            if let Some((gain, name, left)) = result {
+                ui.message = Some(match gain {
+                    Some(gain) => {
+                        ui.history.push((member_idx, stat, gain));
+                        format!("{name} spends a point on {stat}. ({left} left)")
+                    }
+                    None => "No points left to spend.".to_string(),
+                });
             }
         }
     }
 
     /// Spends every banked point on `stat` in one go. Since `allocate_point`
     /// can no longer be refused for any reason but zero points banked, this
-    /// loop is guaranteed to end with `unspent_points == 0`.
+    /// loop is guaranteed to end with `unspent_points == 0`. Pushes one
+    /// history entry per point spent (not one for the whole fill), so
+    /// Backspace always rewinds exactly one point regardless of how it was
+    /// spent.
     fn apply_levelup_fill(&mut self, member_idx: usize, stat_idx: usize) {
         let Some(stat) = ALLOC_STATS.get(stat_idx).copied() else {
             return;
         };
-        let message = self.party.members.get_mut(member_idx).map(|member| {
-            let mut spent = 0u32;
-            while member.allocate_point(stat) {
-                spent += 1;
+        let result = self.party.members.get_mut(member_idx).map(|member| {
+            let mut gains = Vec::new();
+            while let Some(gain) = member.allocate_point_tracked(stat) {
+                gains.push(gain);
             }
-            if spent == 0 {
-                "No points left to spend.".to_string()
-            } else {
-                format!("{} spends {spent} point(s) on {stat}.", member.name)
-            }
+            (gains, member.name.clone())
         });
         if let GameState::LevelUp(ui) = &mut self.state {
-            if let Some(msg) = message {
-                ui.message = Some(msg);
+            if let Some((gains, name)) = result {
+                ui.message = Some(if gains.is_empty() {
+                    "No points left to spend.".to_string()
+                } else {
+                    let spent = gains.len();
+                    for gain in gains {
+                        ui.history.push((member_idx, stat, gain));
+                    }
+                    format!("{name} spends {spent} point(s) on {stat}.")
+                });
             }
+        }
+    }
+
+    /// Undoes the most recent point spent during this visit to the level-up
+    /// screen, if any. Scoped to `LevelUpUiState::history`, which is empty
+    /// again the next time the screen is opened.
+    fn apply_levelup_undo(&mut self) {
+        let Some((member_idx, stat, gain)) = (if let GameState::LevelUp(ui) = &mut self.state {
+            ui.history.pop()
+        } else {
+            None
+        }) else {
+            return;
+        };
+        let name = self.party.members.get_mut(member_idx).map(|member| {
+            member.deallocate_point(stat, gain);
+            member.name.clone()
+        });
+        if let GameState::LevelUp(ui) = &mut self.state {
+            ui.message = Some(match name {
+                Some(name) => format!("Undid {name}'s point on {stat}."),
+                None => "Nothing to undo.".to_string(),
+            });
         }
     }
 
@@ -2260,10 +2324,23 @@ mod tests {
 
     /// Puts a fresh world on the title screen without touching the
     /// filesystem — `at_main_menu()` would read the real save file.
-    fn world_at_menu(has_save: bool) -> World {
+    fn world_at_menu(slots: [Option<crate::game::save::SaveData>; 3]) -> World {
         let mut world = World::new();
-        world.state = GameState::MainMenu(MainMenuState::new(has_save));
+        world.state = GameState::MainMenu(MainMenuState::new(slots));
         world
+    }
+
+    fn empty_slots() -> [Option<crate::game::save::SaveData>; 3] {
+        [None, None, None]
+    }
+
+    /// A minimal but valid occupied-slot fixture, built through the same
+    /// `to_save` production code path other save/load tests use rather than
+    /// hand-rolling a `SaveData` literal.
+    fn occupied_slot() -> Option<crate::game::save::SaveData> {
+        let mut world = World::new();
+        world.party.gold = 555;
+        Some(world.to_save(Position { x: 1, y: 1 }))
     }
 
     fn menu(world: &World) -> &MainMenuState {
@@ -2274,62 +2351,92 @@ mod tests {
     }
 
     #[test]
-    fn menu_without_a_save_offers_new_game_and_quit_only() {
-        let world = world_at_menu(false);
-        assert_eq!(
-            menu(&world).entries(),
-            vec![MainMenuEntry::NewGame, MainMenuEntry::Quit]
-        );
-        assert_eq!(
-            menu(&world).entries()[menu(&world).cursor],
-            MainMenuEntry::NewGame
-        );
+    fn menu_starts_with_cursor_on_the_first_slot() {
+        let world = world_at_menu(empty_slots());
+        assert_eq!(menu(&world).cursor, 0);
+        assert!(menu(&world).slots.iter().all(|s| s.is_none()));
     }
 
     #[test]
-    fn menu_navigation_wraps_and_enter_on_quit_quits() {
-        let mut world = world_at_menu(true);
-        assert_eq!(menu(&world).entries().len(), 3);
-        world.handle_key(Key::Up); // wraps from Continue to Quit
-        assert_eq!(menu(&world).cursor, 2);
-        world.handle_key(Key::Down); // wraps back to Continue
+    fn menu_navigation_wraps_across_four_rows_and_enter_on_quit_quits() {
+        let mut world = world_at_menu(empty_slots());
+        world.handle_key(Key::Up); // wraps from Slot 1 to Quit
+        assert_eq!(menu(&world).cursor, 3);
+        world.handle_key(Key::Down); // wraps back to Slot 1
         assert_eq!(menu(&world).cursor, 0);
         world.handle_key(Key::Down);
+        world.handle_key(Key::Down);
         world.handle_key(Key::Down); // Quit
+        assert_eq!(menu(&world).cursor, 3);
         world.handle_key(Key::Enter);
         assert!(world.should_quit);
     }
 
     #[test]
-    fn new_game_without_a_save_starts_exploring_immediately() {
-        let mut world = world_at_menu(false);
-        world.handle_key(Key::Enter); // cursor starts on New Game
+    fn enter_on_an_empty_slot_starts_a_fresh_game_there() {
+        let mut world = world_at_menu(empty_slots());
+        world.handle_key(Key::Down); // Slot 1 -> Slot 2
+        world.handle_key(Key::Enter);
         assert!(matches!(world.state, GameState::Explore(_)));
-        assert!(!world.should_quit);
+        assert_eq!(world.active_slot, Some(2));
     }
 
     #[test]
-    fn new_game_with_a_save_asks_before_overwriting() {
-        let mut world = world_at_menu(true);
-        world.handle_key(Key::Down); // Continue -> New Game
-        world.handle_key(Key::Enter);
-        assert!(menu(&world).confirm_overwrite, "should ask, not start");
+    fn enter_on_an_occupied_slot_loads_it() {
+        let mut slots = empty_slots();
+        slots[0] = occupied_slot();
+        let mut world = world_at_menu(slots);
+        world.handle_key(Key::Enter); // cursor starts on Slot 1
+        assert!(matches!(world.state, GameState::Explore(_)));
+        assert_eq!(world.active_slot, Some(1));
+        assert_eq!(world.party.gold, 555, "should load that slot's save data");
+    }
+
+    #[test]
+    fn n_on_an_occupied_slot_asks_before_overwriting() {
+        let mut slots = empty_slots();
+        slots[0] = occupied_slot();
+        let mut world = world_at_menu(slots);
+        world.handle_key(Key::Char('n'));
+        assert_eq!(
+            menu(&world).confirm_overwrite,
+            Some(1),
+            "should ask, not start"
+        );
 
         world.handle_key(Key::Esc); // turn back
-        assert!(!menu(&world).confirm_overwrite);
+        assert_eq!(menu(&world).confirm_overwrite, None);
         assert!(
             matches!(world.state, GameState::MainMenu(_)),
             "backing out should stay on the menu"
         );
+        assert_eq!(
+            menu(&world).slots[0].as_ref().map(|d| d.party.gold),
+            Some(555),
+            "backing out must not consume the slot's data"
+        );
 
-        world.handle_key(Key::Enter); // New Game again
+        world.handle_key(Key::Char('n')); // force New Game again
         world.handle_key(Key::Enter); // confirm this time
         assert!(matches!(world.state, GameState::Explore(_)));
+        assert_eq!(world.active_slot, Some(1));
+        assert_ne!(
+            world.party.gold, 555,
+            "a fresh game shouldn't keep the old save's gold"
+        );
+    }
+
+    #[test]
+    fn n_on_an_empty_slot_starts_fresh_without_confirming() {
+        let mut world = world_at_menu(empty_slots());
+        world.handle_key(Key::Char('n'));
+        assert!(matches!(world.state, GameState::Explore(_)));
+        assert_eq!(world.active_slot, Some(1));
     }
 
     #[test]
     fn q_on_the_menu_quits() {
-        let mut world = world_at_menu(true);
+        let mut world = world_at_menu(empty_slots());
         world.handle_key(Key::Char('q'));
         assert!(world.should_quit);
     }
@@ -2342,6 +2449,71 @@ mod tests {
         assert!(matches!(world.state, GameState::Inventory(_)));
         world.handle_key(Key::Esc);
         assert!(matches!(world.state, GameState::Explore(_)));
+    }
+
+    #[test]
+    fn u_opens_levelup_and_backspace_undoes_the_last_allocation() {
+        let mut world = World::new();
+        world.party.members[0].unspent_points = 3;
+        let base_hp = world.party.members[0].stats.max_hp;
+
+        world.handle_key(Key::Char('u'));
+        assert!(matches!(world.state, GameState::LevelUp(_)));
+
+        // stat_cursor starts on the first ALLOC_STATS entry, Max HP.
+        world.handle_key(Key::Enter);
+        let after_spend = world.party.members[0].stats.max_hp;
+        assert!(after_spend > base_hp, "spending a point should grow max HP");
+        assert_eq!(world.party.members[0].unspent_points, 2);
+
+        world.handle_key(Key::Backspace);
+        assert_eq!(
+            world.party.members[0].stats.max_hp, base_hp,
+            "undo should restore the exact stat value"
+        );
+        assert_eq!(
+            world.party.members[0].unspent_points, 3,
+            "undo should refund the spent point"
+        );
+    }
+
+    #[test]
+    fn backspace_undoes_one_point_at_a_time_after_a_fill() {
+        let mut world = World::new();
+        world.party.members[0].unspent_points = 3;
+        let base_hp = world.party.members[0].stats.max_hp;
+
+        world.handle_key(Key::Char('u'));
+        world.handle_key(Key::Char('f')); // spend all 3 banked points on Max HP
+        assert_eq!(world.party.members[0].unspent_points, 0);
+        let filled_hp = world.party.members[0].stats.max_hp;
+        assert!(filled_hp > base_hp);
+
+        world.handle_key(Key::Backspace);
+        assert_eq!(world.party.members[0].unspent_points, 1);
+        assert!(
+            world.party.members[0].stats.max_hp < filled_hp,
+            "one undo should only rewind one point"
+        );
+
+        world.handle_key(Key::Backspace);
+        world.handle_key(Key::Backspace);
+        assert_eq!(world.party.members[0].unspent_points, 3);
+        assert_eq!(
+            world.party.members[0].stats.max_hp, base_hp,
+            "undoing every point returns to the pre-fill baseline"
+        );
+    }
+
+    #[test]
+    fn backspace_with_no_history_does_nothing() {
+        let mut world = World::new();
+        world.handle_key(Key::Char('u'));
+        world.handle_key(Key::Backspace);
+        assert!(
+            matches!(world.state, GameState::LevelUp(_)),
+            "an empty undo history should just be a no-op, not crash or exit the screen"
+        );
     }
 
     #[test]
@@ -2964,7 +3136,8 @@ mod tests {
         // Round-trip through the actual JSON representation, not just the
         // in-memory structs, since that's what the save file stores.
         let json = serde_json::to_string(&world.to_save(pos)).expect("save should serialize");
-        let restored = World::from_save(serde_json::from_str(&json).expect("save should parse"));
+        let restored =
+            World::from_save(serde_json::from_str(&json).expect("save should parse"), 1);
 
         assert_eq!(restored.party.gold, 777);
         assert_eq!(restored.current_chapter, ChapterId::Two);

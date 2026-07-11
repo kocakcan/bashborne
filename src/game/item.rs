@@ -530,6 +530,23 @@ pub fn mimics_fang() -> Weapon {
     }
 }
 
+/// Shop-exclusive Epic weapon, unlocked from Chapter Two onward
+/// (`game/shop.rs::shop_weapon_stock`) — commissioned rather than looted, so
+/// it deliberately doesn't share a name or `GearSource::EnemyDrop` tag with
+/// anything in `combat::loot_profile` or the treasure-tile roll.
+pub fn coinwrought_blade() -> Weapon {
+    Weapon {
+        name: "Coinwrought Blade".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 15,
+        defense_bonus: 1,
+        description: "Forged wherever the gold ran thickest. It doesn't care whose war it ends.".into(),
+        source: GearSource::World,
+        upgrade_level: 0,
+        passive: None,
+    }
+}
+
 pub fn dragonslayers_oath() -> Weapon {
     Weapon {
         name: "Dragonslayer's Oath".into(),
@@ -727,6 +744,18 @@ pub fn barrow_touched_plate() -> Armor {
     }
 }
 
+/// Shop-exclusive Epic armor, unlocked from Chapter Two onward — see
+/// `coinwrought_blade`'s doc comment for why it stays out of the loot tables.
+pub fn coinwrought_plate() -> Armor {
+    Armor {
+        name: "Coinwrought Plate".into(),
+        rarity: Rarity::Epic,
+        defense_bonus: 15,
+        description: "Bought, sold, and bought again. Still holds.".into(),
+        source: GearSource::World,
+    }
+}
+
 pub fn dragonscale_aegis() -> Armor {
     Armor {
         name: "Dragonscale Aegis".into(),
@@ -860,6 +889,19 @@ pub fn sentinels_seal() -> Ring {
         defense_bonus: 7,
         description: "The badge of the barrow watch, heavy as duty.".into(),
         source: GearSource::EnemyDrop("Barrow Sentinel".into()),
+    }
+}
+
+/// Shop-exclusive Epic ring, unlocked from Chapter Two onward — see
+/// `coinwrought_blade`'s doc comment for why it stays out of the loot tables.
+pub fn merchants_blessing() -> Ring {
+    Ring {
+        name: "Merchant's Blessing".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 3,
+        defense_bonus: 6,
+        description: "A trade charm, worn smooth by a hundred desperate haggles.".into(),
+        source: GearSource::World,
     }
 }
 

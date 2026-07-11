@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::game::character::AllocStat;
+use crate::game::chapter::ChapterId;
 use crate::game::inventory_ui::InventoryMode;
 use crate::game::item::Inventory;
 use crate::game::party::Party;
@@ -20,7 +21,14 @@ const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 const ICON_SIZE: f32 = 8.0;
 const ICON_GAP: f32 = 10.0;
 
-pub fn draw(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
+pub fn draw(
+    assets: &Assets,
+    shop: &ShopUiState,
+    party: &Party,
+    inventory: &Inventory,
+    chapter: ChapterId,
+    cmds: &mut Vec<TextCmd>,
+) {
     let content_y0 = HEADER_Y + HEADER_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
@@ -28,12 +36,12 @@ pub fn draw(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inve
     draw_rectangle_lines(0.0, content_y0, LEFT_W, content_y1 - content_y0, 1.0, WHITE);
 
     match shop.mode {
-        ShopMode::Buy => draw_buy_list(assets, shop, party, inventory, content_y0, cmds),
+        ShopMode::Buy => draw_buy_list(assets, shop, party, inventory, chapter, content_y0, cmds),
         ShopMode::Sell => draw_sell_list(assets, shop, inventory, content_y0, cmds),
     }
 
     draw_party_gear(assets, party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
-    draw_footer(shop.message.as_deref(), content_y1, CANVAS_HEIGHT, cmds);
+    draw_footer(shop.message.as_deref(), chapter, content_y1, CANVAS_HEIGHT, cmds);
 }
 
 fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
@@ -65,13 +73,21 @@ fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
     );
 }
 
-fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: &Inventory, y0: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_buy_list(
+    assets: &Assets,
+    shop: &ShopUiState,
+    party: &Party,
+    inventory: &Inventory,
+    chapter: ChapterId,
+    y0: f32,
+    cmds: &mut Vec<TextCmd>,
+) {
     let pad = 4.0;
     let text_pad = pad + ICON_GAP;
     let visible = 6usize;
     match shop.tab {
         ShopTab::Items => {
-            let stock = shop_item_stock();
+            let stock = shop_item_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
@@ -106,7 +122,7 @@ fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: 
             }
         }
         ShopTab::Weapons => {
-            let stock = shop_weapon_stock();
+            let stock = shop_weapon_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
@@ -130,7 +146,7 @@ fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: 
             }
         }
         ShopTab::Armor => {
-            let stock = shop_armor_stock();
+            let stock = shop_armor_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
@@ -154,7 +170,7 @@ fn draw_buy_list(assets: &Assets, shop: &ShopUiState, party: &Party, inventory: 
             }
         }
         ShopTab::Rings => {
-            let stock = shop_ring_stock();
+            let stock = shop_ring_stock(chapter);
             let range = scroll_window(stock.len(), shop.cursor, visible);
             for (row, i) in range.enumerate() {
                 let (factory, price) = stock[i];
@@ -301,8 +317,13 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
     }
 }
 
-fn draw_footer(message: Option<&str>, y0: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_footer(message: Option<&str>, chapter: ChapterId, y0: f32, y1: f32, cmds: &mut Vec<TextCmd>) {
     draw_rectangle_lines(0.0, y0, CANVAS_WIDTH, y1 - y0, 1.0, WHITE);
-    let text = message.unwrap_or("Epic and Legendary gear can't be bought - you'll have to earn it.");
+    let hint = if chapter == ChapterId::One {
+        "Epic and Legendary gear can't be bought - you'll have to earn it."
+    } else {
+        "Legendary gear can't be bought - you'll have to earn it."
+    };
+    let text = message.unwrap_or(hint);
     push_text(cmds, text, 4.0, y0 + 12.0, 7.0, WHITE);
 }

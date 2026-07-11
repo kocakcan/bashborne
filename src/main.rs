@@ -6,6 +6,7 @@ mod render;
 use macroquad::prelude::*;
 
 use app::World;
+use input::Input;
 use render::assets::Assets;
 
 fn window_conf() -> Conf {
@@ -22,12 +23,14 @@ async fn main() {
     let assets = Assets::load().await;
     // Start on the title screen; Continue/New Game decide the save's fate.
     let mut world = World::at_main_menu();
+    let mut input = Input::new();
 
     while !world.should_quit {
-        if let Some(key) = input::poll_key() {
+        let dt = get_frame_time();
+        if let Some(key) = input.poll(dt) {
             world.handle_key(key);
         }
-        world.tick(get_frame_time());
+        world.tick(dt);
 
         render::draw(&assets, &world);
 

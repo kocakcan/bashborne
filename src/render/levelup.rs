@@ -80,6 +80,6 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
 
 fn draw_footer(message: Option<&str>, y0: f32, cmds: &mut Vec<TextCmd>) {
     draw_rectangle_lines(0.0, y0, CANVAS_WIDTH, CANVAS_HEIGHT - y0, 1.0, WHITE);
-    let text = message.unwrap_or("up/down pick member, left/right pick stat, Enter to spend a point, f to spend all, Esc to leave");
+    let text = message.unwrap_or("up/down pick member, left/right pick stat, Enter to spend a point, f to spend all, Backspace to undo, Esc to leave");
     push_text(cmds, text, 4.0, y0 + 12.0, 7.0, WHITE);
 }

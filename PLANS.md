@@ -11,18 +11,15 @@ future work, roughly ordered cheapest/highest-value first within each tier.
   (`src/game/character.rs`) already support more than one ability; nothing
   in combat resolution assumes a single ability per class. Probably the
   best next investment for the effort involved.
-- **Elite unique mechanics** — elites (`Character::apply_elite`) currently
-  just get bigger stats (1.5x HP/ATK, 1.3x DEF). Giving them a guaranteed
-  shot at their species' signature move (Wraith curse, Orc Reckless Swing,
-  etc.) would make the elite roll feel distinct rather than just
-  numerically bigger.
 
 ## Moderate, touches a few systems
 
-- **Respec system** — a "Purging Stone"-style consumable refunding
-  `unspent_points` (not automatic `level_growth`), fitting the existing
-  `game/item.rs` consumable pattern. Pairs naturally with the hard-cap
-  removal already shipped, since points are cheap to reallocate once earned.
+- **Full respec system** — the level-up screen now supports Backspace-undo
+  within a single visit to the screen (`LevelUpUiState::history`,
+  `Character::deallocate_point`), which covers "I picked the wrong stat
+  just now." A persistent, any-time respec — refunding *all* banked points
+  on a member regardless of when they were spent, e.g. via a consumable —
+  is still a distinct, unimplemented feature.
 - **Difficulty setting at game start** — `Character::apply_ng_plus` already
   takes a `u32` cycle multiplier; a main-menu difficulty pick could reuse
   that math as a starting offset instead of always beginning at NG+0.
@@ -36,15 +33,12 @@ future work, roughly ordered cheapest/highest-value first within each tier.
 
 ## Balance-only, no new content
 
-- **NG+ scaling omits speed/luck** — `Character::apply_ng_plus` only
-  multiplies max_hp/attack/defense (its own test asserts speed/luck are
-  left untouched). At NG+7 monsters hit harder and survive longer but never
-  act first or crit more. Worth revisiting now that the leveling numbers
-  have changed with the hard-cap removal.
-- **Chapter-gated shop/loot tiers** — shop stock (`game/shop.rs`) is flat
-  Common→Rare across all 3 chapters. Unlocking Epic-tier goods later in the
-  story, or NG+-gated loot tables, would give replay more to chase beyond
-  bigger stat numbers.
+- **NG+-gated loot tables** — shop stock (`game/shop.rs`) now unlocks a
+  dedicated Epic weapon/armor/ring plus `sovereign_elixir` from Chapter Two
+  onward (see git history), but `combat::loot_profile`'s field-drop odds
+  don't scale with NG+ cycle at all. Higher-NG+ drop chances (or a
+  higher-still tier gated behind a specific NG+ cycle) would give replay
+  more to chase beyond bigger stat numbers.
 
 ## Bigger lifts
 
@@ -63,12 +57,3 @@ future work, roughly ordered cheapest/highest-value first within each tier.
 - **Controller support** — lowest priority; `input.rs` only wraps keyboard
   polling, and macroquad's own gamepad support is thin, so this would
   likely mean pulling in `gilrs`.
-
-## Docs cleanup
-
-- `CLAUDE.md`'s "Known stubs / deliberately unfinished seams" section is
-  stale: it claims `CombatPhase::Resolving` and `World.anim_timer` are
-  unused/dead code. They're not — `Resolving` is wired via
-  `app.rs::begin_resolving_hold`/`RESOLVING_HOLD_SECONDS`, and `anim_timer`
-  drives real idle-bob/lunge/flash sprite animation in `render/combat.rs`.
-  Worth a quick correction independent of any item above.

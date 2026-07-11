@@ -348,6 +348,11 @@ pub struct Character {
     /// raw `name`; use `display_name()` for anything shown to the player.
     #[serde(default)]
     pub is_elite: bool,
+    /// Whether this elite has already fired its guaranteed shot at its
+    /// species' signature move (see `apply_elite`). Ignored for non-elites,
+    /// which keep rolling their move's normal odds every eligible turn.
+    #[serde(default)]
+    pub elite_signature_used: bool,
 }
 
 impl Character {
@@ -485,6 +490,13 @@ impl Character {
         self.stats.attack = ((self.stats.attack as f32) * mult).round() as i32;
         self.stats.defense = ((self.stats.defense as f32) * mult).round() as i32;
         self.stats.hp = self.stats.max_hp;
+
+        // Speed/luck ride the same curve at half strength — enough that NG+
+        // enemies are noticeably nimbler/luckier over several cycles without
+        // swinging turn order or crit rates as hard as raw hp/attack/defense.
+        let minor_mult = ng_plus_minor_multiplier(ng_plus);
+        self.stats.speed = ((self.stats.speed as f32) * minor_mult).round() as i32;
+        self.stats.luck = ((self.stats.luck as f32) * minor_mult).round() as i32;
     }
 
     /// Toughens a boss when the party has significantly overleveled its
@@ -536,8 +548,16 @@ impl Character {
     /// `unspent_points`; every stat can always absorb another point, just at
     /// diminishing returns past its soft cap (see `AllocRule`).
     pub fn allocate_point(&mut self, stat: AllocStat) -> bool {
+        self.allocate_point_tracked(stat).is_some()
+    }
+
+    /// Same as `allocate_point`, but returns the exact gain applied (or
+    /// `None` if no point was spent) so a caller can record it — e.g. the
+    /// level-up screen's undo history — and later reverse it exactly via
+    /// `deallocate_point` without recomputing soft-cap math.
+    pub fn allocate_point_tracked(&mut self, stat: AllocStat) -> Option<i32> {
         if self.unspent_points == 0 {
-            return false;
+            return None;
         }
         let gain = match self.alloc_preview(stat) {
             AllocPreview::Full(n) | AllocPreview::Diminished(n) => n,
@@ -557,7 +577,29 @@ impl Character {
             AllocStat::Speed => self.stats.speed += gain,
             AllocStat::Luck => self.stats.luck += gain,
         }
-        true
+        Some(gain)
+    }
+
+    /// Inverse of `allocate_point_tracked`: refunds one banked point and
+    /// subtracts exactly `amount` (the gain that call returned) back off
+    /// `stat`. Takes the exact amount rather than recomputing it so undo is
+    /// always precise regardless of where the soft cap sits now.
+    pub fn deallocate_point(&mut self, stat: AllocStat, amount: i32) {
+        self.unspent_points += 1;
+        match stat {
+            AllocStat::MaxHp => {
+                self.stats.max_hp -= amount;
+                self.stats.hp -= amount;
+            }
+            AllocStat::MaxMp => {
+                self.stats.max_mp -= amount;
+                self.stats.mp -= amount;
+            }
+            AllocStat::Attack => self.stats.attack -= amount,
+            AllocStat::Defense => self.stats.defense -= amount,
+            AllocStat::Speed => self.stats.speed -= amount,
+            AllocStat::Luck => self.stats.luck -= amount,
+        }
     }
 
     /// Luck stat, boosting critical-hit chance (`combat::crit_chance`). No
@@ -699,6 +741,7 @@ pub fn warrior(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -740,6 +783,7 @@ pub fn mage(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -781,6 +825,7 @@ pub fn cleric(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -822,6 +867,7 @@ pub fn rogue(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -848,6 +894,7 @@ pub fn slime(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -874,6 +921,7 @@ pub fn goblin(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -900,6 +948,7 @@ pub fn bat(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -926,6 +975,7 @@ pub fn wolf(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -952,6 +1002,7 @@ pub fn skeleton(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -978,6 +1029,7 @@ pub fn orc(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1006,6 +1058,7 @@ pub fn wraith(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1033,6 +1086,7 @@ pub fn mimic(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1059,6 +1113,7 @@ pub fn hollow(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1085,6 +1140,7 @@ pub fn rat(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1111,6 +1167,7 @@ pub fn carrion_crow(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1137,6 +1194,7 @@ pub fn bandit(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1166,6 +1224,7 @@ pub fn fell_acolyte(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1194,6 +1253,7 @@ pub fn grave_ghoul(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1222,6 +1282,7 @@ pub fn barrow_sentinel(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1250,6 +1311,7 @@ pub fn forsaken_knight(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: None,
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1257,6 +1319,13 @@ pub fn forsaken_knight(name: &str) -> Character {
 /// survives longer each cycle, capping at NG+7.
 pub fn ng_plus_multiplier(ng_plus: u32) -> f32 {
     1.0 + 0.35 * ng_plus.min(7) as f32
+}
+
+/// Half-strength companion to [`ng_plus_multiplier`], used for speed/luck so
+/// NG+ enemies drift nimbler/luckier over successive cycles without swinging
+/// turn order or crit rates as hard as the hp/attack/defense curve does.
+pub fn ng_plus_minor_multiplier(ng_plus: u32) -> f32 {
+    1.0 + 0.175 * ng_plus.min(7) as f32
 }
 
 /// The game's one hand-placed boss, guarding the lair in the field's far
@@ -1288,6 +1357,7 @@ pub fn barrow_knight(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::BarrowKnight),
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1317,6 +1387,7 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::WyrmscaleWarden),
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1347,6 +1418,7 @@ pub fn ashen_sovereign(name: &str) -> Character {
         equipped_rings: [None, None],
         boss_kind: Some(BossKind::AshenSovereign),
         is_elite: false,
+        elite_signature_used: false,
     }
 }
 
@@ -1790,9 +1862,33 @@ mod tests {
         assert!(enemy.stats.max_hp > base.max_hp);
         assert!(enemy.stats.attack > base.attack);
         assert!(enemy.stats.defense > base.defense);
-        assert_eq!(enemy.stats.speed, base.speed, "speed is left untouched");
-        assert_eq!(enemy.stats.luck, base.luck, "luck is left untouched");
+        assert!(
+            enemy.stats.speed >= base.speed,
+            "speed scales at half strength, never down"
+        );
+        assert!(
+            enemy.stats.luck >= base.luck,
+            "luck scales at half strength, never down"
+        );
         assert_eq!(enemy.stats.hp, enemy.stats.max_hp, "heals to full");
+    }
+
+    #[test]
+    fn apply_ng_plus_scales_speed_and_luck_at_half_strength() {
+        let mut enemy = orc("Orc");
+        let base = enemy.stats;
+        enemy.apply_ng_plus(7);
+        let full_mult = ng_plus_multiplier(7);
+        let minor_mult = ng_plus_minor_multiplier(7);
+        assert!(minor_mult < full_mult, "minor multiplier is the weaker curve");
+        assert_eq!(
+            enemy.stats.speed,
+            ((base.speed as f32) * minor_mult).round() as i32
+        );
+        assert_eq!(
+            enemy.stats.luck,
+            ((base.luck as f32) * minor_mult).round() as i32
+        );
     }
 
     #[test]

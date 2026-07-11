@@ -886,20 +886,26 @@ impl CombatState {
         if alive_targets.is_empty() {
             return;
         }
-        let (ename, atk, is_wraith, boss_kind) = {
+        let (ename, atk, is_wraith, boss_kind, is_elite) = {
             let e = &self.enemies[ei];
             (
                 e.name.clone(),
                 e.stats.attack,
                 e.name == "Wraith",
                 e.boss_kind,
+                e.is_elite,
             )
         };
+        // Elites get one guaranteed shot at their species' signature move
+        // (checked alongside each move's normal roll below), then fall back
+        // to the usual per-turn odds for the rest of the encounter.
+        let elite_guaranteed = is_elite && !self.enemies[ei].elite_signature_used;
         let target_idx = Self::pick_target(&ename, &alive_targets, party, rng);
         let dname = self.enemies[ei].display_name();
 
         // Wraiths spend some turns cursing the party instead of attacking directly.
-        if is_wraith && rng.gen_bool(0.3) {
+        if is_wraith && (elite_guaranteed || rng.gen_bool(0.3)) {
+            self.enemies[ei].elite_signature_used = true;
             let curse = roll_curse(rng, self.ng_plus);
             self.push_log(format!("{dname} whispers a curse over your party..."));
             self.push_log(format!(
@@ -912,13 +918,14 @@ impl CombatState {
 
         // Fell Acolytes siphon a member's magic to knit themselves back
         // together — but only if anyone still has MP worth stealing.
-        if ename == "Fell Acolyte" && rng.gen_bool(0.25) {
+        if ename == "Fell Acolyte" && (elite_guaranteed || rng.gen_bool(0.25)) {
             let mp_targets: Vec<usize> = alive_targets
                 .iter()
                 .copied()
                 .filter(|&i| party.members[i].stats.mp > 0)
                 .collect();
             if let Some(&ti) = mp_targets.get(rng.gen_range(0..mp_targets.len().max(1))) {
+                self.enemies[ei].elite_signature_used = true;
                 let level = self.enemies[ei].level as i32;
                 let drain = (3 + level).min(party.members[ti].stats.mp);
                 party.members[ti].stats.mp -= drain;
@@ -936,7 +943,8 @@ impl CombatState {
 
         // Skeletons sometimes hunker down instead of attacking, toughening
         // themselves for the rest of the fight.
-        if ename == "Skeleton" && rng.gen_bool(0.2) {
+        if ename == "Skeleton" && (elite_guaranteed || rng.gen_bool(0.2)) {
+            self.enemies[ei].elite_signature_used = true;
             self.enemies[ei].stats.defense += 3;
             self.push_log(format!(
                 "{dname} raises its guard, bones knitting tighter. (+3 Defense)"
@@ -946,7 +954,8 @@ impl CombatState {
 
         // Orcs occasionally swing recklessly for a much harder hit, but the
         // wild swing costs them some of their own hide in the process.
-        if ename == "Orc" && rng.gen_bool(0.25) {
+        if ename == "Orc" && (elite_guaranteed || rng.gen_bool(0.25)) {
+            self.enemies[ei].elite_signature_used = true;
             let def = party.members[target_idx].total_defense()
                 + party.stat_delta(StatEffectTarget::Defense);
             let luck = self.enemies[ei].total_luck();
@@ -969,7 +978,8 @@ impl CombatState {
         }
 
         // Bandits would rather rob the party blind than fight fair.
-        if ename == "Bandit" && party.gold > 0 && rng.gen_bool(0.2) {
+        if ename == "Bandit" && party.gold > 0 && (elite_guaranteed || rng.gen_bool(0.2)) {
+            self.enemies[ei].elite_signature_used = true;
             let stolen = (party.gold / 20).clamp(1, 15).min(party.gold);
             party.gold -= stolen;
             self.push_log(format!("{dname} snatches {stolen} gold and darts back!"));
@@ -978,7 +988,8 @@ impl CombatState {
 
         // Barrow Sentinels let out a warcry that weakens the whole party's
         // defense for the rest of the encounter.
-        if ename == "Barrow Sentinel" && rng.gen_bool(0.2) {
+        if ename == "Barrow Sentinel" && (elite_guaranteed || rng.gen_bool(0.2)) {
+            self.enemies[ei].elite_signature_used = true;
             let curse = crate::game::status::StatusEffect {
                 name: "Sentinel's Warcry".to_string(),
                 target: StatEffectTarget::Defense,
@@ -994,7 +1005,8 @@ impl CombatState {
 
         // Forsaken Knights occasionally land a much harder judgment strike,
         // no drawback attached.
-        if ename == "Forsaken Knight" && rng.gen_bool(0.25) {
+        if ename == "Forsaken Knight" && (elite_guaranteed || rng.gen_bool(0.25)) {
+            self.enemies[ei].elite_signature_used = true;
             let def = party.members[target_idx].total_defense()
                 + party.stat_delta(StatEffectTarget::Defense);
             let luck = self.enemies[ei].total_luck();
@@ -1622,6 +1634,32 @@ mod tests {
         assert!(
             cursed_at_least_once,
             "wraith should curse the party at least once across many trials"
+        );
+    }
+
+    #[test]
+    fn elite_wraith_is_guaranteed_to_curse_on_its_first_eligible_turn() {
+        let mut party = test_party();
+        let mut enemy = wraith("Wraith");
+        enemy.apply_elite();
+        let enemies = vec![enemy];
+        let mut combat = CombatState::new(&party, enemies);
+        // Any seed works: the elite guarantee short-circuits the normal
+        // 30%-chance roll entirely, so this isn't a probabilistic sweep.
+        let mut rng = StdRng::seed_from_u64(0);
+        combat.turn_order = vec![ActorRef::Enemy(0), ActorRef::Player(0)];
+        combat.turn_cursor = 0;
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Enemy(0),
+        };
+        combat.resolve_current_turn(&mut party, &mut rng);
+        assert!(
+            !party.effects.is_empty(),
+            "an elite wraith should be guaranteed to curse on its first turn"
+        );
+        assert!(
+            combat.enemies[0].elite_signature_used,
+            "firing the guaranteed move should flip the used flag"
         );
     }
 

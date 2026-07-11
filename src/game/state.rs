@@ -15,6 +15,7 @@ use crate::game::levelup::LevelUpUiState;
 use crate::game::map::{Map, Position};
 use crate::game::npc::NpcId;
 use crate::game::quest_ui::QuestLogUiState;
+use crate::game::save::{SaveData, SAVE_SLOTS};
 use crate::game::shop::ShopUiState;
 use crate::game::status::{roll_blessing, roll_curse, StatusEffect};
 
@@ -74,52 +75,29 @@ pub struct EventState {
     pub npc: Option<NpcId>,
 }
 
-/// The title screen shown at startup, before any world state matters.
+/// The title screen shown at startup, before any world state matters. Three
+/// save slots (1-indexed everywhere outside this array — `slots[0]` is slot
+/// 1, matching `save::save_path`/`World.active_slot`) plus a Quit row.
+/// Loaded once via `save::read_all_slots()` when the menu opens; slot
+/// contents don't change again until the player picks one.
 pub struct MainMenuState {
+    pub slots: [Option<SaveData>; SAVE_SLOTS as usize],
+    /// 0-2 select a slot row, 3 selects Quit.
     pub cursor: usize,
-    /// Whether a valid save exists — gates the Continue entry.
-    pub has_save: bool,
-    /// True while "New Game" is waiting for the player to confirm
-    /// abandoning the existing save.
-    pub confirm_overwrite: bool,
+    /// Which slot (1-indexed) is waiting for the player to confirm
+    /// abandoning its existing save via "New Game", if any.
+    pub confirm_overwrite: Option<u8>,
 }
 
-/// An entry on the main menu — which ones appear depends on `has_save`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MainMenuEntry {
-    Continue,
-    NewGame,
-    Quit,
-}
-
-impl MainMenuEntry {
-    pub fn label(self) -> &'static str {
-        match self {
-            MainMenuEntry::Continue => "Continue",
-            MainMenuEntry::NewGame => "New Game",
-            MainMenuEntry::Quit => "Quit",
-        }
-    }
-}
+/// Selectable rows on the main menu: `SAVE_SLOTS` save slots + Quit.
+pub const MAIN_MENU_ROWS: usize = SAVE_SLOTS as usize + 1;
 
 impl MainMenuState {
-    pub fn new(has_save: bool) -> Self {
+    pub fn new(slots: [Option<SaveData>; SAVE_SLOTS as usize]) -> Self {
         Self {
+            slots,
             cursor: 0,
-            has_save,
-            confirm_overwrite: false,
-        }
-    }
-
-    pub fn entries(&self) -> Vec<MainMenuEntry> {
-        if self.has_save {
-            vec![
-                MainMenuEntry::Continue,
-                MainMenuEntry::NewGame,
-                MainMenuEntry::Quit,
-            ]
-        } else {
-            vec![MainMenuEntry::NewGame, MainMenuEntry::Quit]
+            confirm_overwrite: None,
         }
     }
 }
