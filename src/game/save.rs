@@ -13,7 +13,11 @@ use crate::game::quest::QuestLog;
 
 /// Bumped whenever `SaveData`'s shape changes incompatibly; `read` treats a
 /// mismatched version the same as no save at all rather than half-loading it.
-pub const SAVE_VERSION: u32 = 1;
+/// Bumped for the full stat-system rescale (0-50-per-stat hard caps,
+/// rebalanced base stats/growth/gear/monster scaling) — every number in an
+/// old save means something different now, so old saves must not silently
+/// load under the new formulas.
+pub const SAVE_VERSION: u32 = 2;
 
 /// Everything that persists between sessions. Deliberately only ever
 /// captured while exploring — combat, menus, and dialogue are transient, so

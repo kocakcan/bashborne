@@ -127,19 +127,21 @@ pub const POINTS_PER_LEVEL: u32 = 3;
 /// a separate, already-bounded path and is intentionally not capped here.
 pub const MAX_LEVEL: u32 = 40;
 
-/// How one allocated point behaves for one stat: the full-value gain, and
-/// the soft cap past which the gain is halved (rounded up, floored at +1 —
-/// see `AllocPreview::Diminished`). There is no hard cap: every stat can
-/// always absorb another banked point, just at a diminishing rate past the
-/// soft cap, so a class's point budget can never strand points it can't
-/// spend (see the removed `hard_cap`'s history for why that was a bug).
-/// The soft cap compares against the *base* stat (`stats.attack`, not
-/// `total_attack()`), so gear never eats headroom; automatic `level_growth`
-/// ignores it entirely — it only governs hand-spent points.
+/// How one allocated point behaves for one stat: the full-value gain, the
+/// soft cap past which the gain is halved (rounded up, floored at +1 — see
+/// `AllocPreview::Diminished`), and the hard cap past which the stat refuses
+/// to grow at all (`AllocPreview::Capped`). The hard cap is enforced against
+/// *every* source of growth, not just hand-spent points — see
+/// `Character::apply_stat_delta`, the single chokepoint both automatic
+/// `level_growth` and `allocate_point_tracked` go through — so a stat can
+/// never sneak past its cap via leveling alone while allocation still thinks
+/// there's headroom. The soft cap compares against the *base* stat
+/// (`stats.attack`, not `total_attack()`), so gear never eats headroom.
 #[derive(Debug, Clone, Copy)]
 pub struct AllocRule {
     pub gain: i32,
     pub soft_cap: i32,
+    pub hard_cap: i32,
 }
 
 /// Per-class allocation payoff, one `AllocRule` per spendable stat. This is
@@ -169,62 +171,82 @@ impl AllocProfile {
 }
 
 /// Shorthand for the tables below.
-const fn rule(gain: i32, soft_cap: i32) -> AllocRule {
-    AllocRule { gain, soft_cap }
+const fn rule(gain: i32, soft_cap: i32, hard_cap: i32) -> AllocRule {
+    AllocRule { gain, soft_cap, hard_cap }
 }
+
+/// Every stat a playable class can allocate into is hard-capped here — see
+/// `AllocRule`'s doc comment for why this is enforced against automatic
+/// growth too, not just spent points.
+const PLAYER_HARD_CAP: i32 = 50;
+
+/// Monster/boss automatic growth (`Character::scale_to_level`) is a
+/// percentage of the species' *own* level-1 base stat per level, not a flat
+/// shared table — so a tougher species stays proportionally tougher instead
+/// of every species converging toward the same numbers at high levels.
+/// Speed/luck don't grow this way; NG+'s minor multiplier moves those instead.
+const MONSTER_HP_GROWTH_RATE: f32 = 0.10;
+const MONSTER_ATTACK_GROWTH_RATE: f32 = 0.03;
+// Higher than HP/attack's rates relative to typical base size, since the
+// weakest species' defense (as low as 2) needs enough rate to cross a whole
+// point within a handful of levels rather than getting stuck at 0 growth
+// forever under `growth_carry`'s fractional accumulation.
+const MONSTER_DEFENSE_GROWTH_RATE: f32 = 0.09;
 
 /// Each class's allocation table — this is where class identity in
 /// point-spending lives (the Warrior is the premier HP investment, the Mage
-/// and Rogue get the best attack-per-point), via `gain` and `soft_cap` only.
-/// There's deliberately no hard cap (see `AllocRule`'s doc comment).
+/// and Rogue get the best attack-per-point), via `gain` and `soft_cap`, all
+/// under the shared `PLAYER_HARD_CAP` ceiling.
 pub fn alloc_profile(class: Class) -> AllocProfile {
     match class {
-        // Off-tank: the best HP-per-point in the party *and* a real attack
-        // gain, at the price of mediocre MP/speed/luck payoff.
+        // Off-tank: the best HP-per-point in the party, a real attack gain,
+        // at the price of mediocre MP/speed/luck payoff.
         Class::Warrior => AllocProfile {
-            max_hp: rule(7, 170),
-            max_mp: rule(2, 30),
-            attack: rule(2, 45),
-            defense: rule(2, 40),
-            speed: rule(1, 15),
-            luck: rule(1, 15),
+            max_hp: rule(3, 41, PLAYER_HARD_CAP),
+            max_mp: rule(1, 24, PLAYER_HARD_CAP),
+            attack: rule(2, 28, PLAYER_HARD_CAP),
+            defense: rule(2, 30, PLAYER_HARD_CAP),
+            speed: rule(1, 24, PLAYER_HARD_CAP),
+            luck: rule(1, 24, PLAYER_HARD_CAP),
         },
         // Glass cannon: top-tier attack and MP payoff, the frailest HP/defense.
         Class::Mage => AllocProfile {
-            max_hp: rule(3, 80),
-            max_mp: rule(4, 110),
-            attack: rule(3, 40),
-            defense: rule(1, 22),
-            speed: rule(1, 25),
-            luck: rule(1, 25),
+            max_hp: rule(1, 24, PLAYER_HARD_CAP),
+            max_mp: rule(3, 41, PLAYER_HARD_CAP),
+            attack: rule(3, 33, PLAYER_HARD_CAP),
+            defense: rule(1, 24, PLAYER_HARD_CAP),
+            speed: rule(2, 26, PLAYER_HARD_CAP),
+            luck: rule(2, 26, PLAYER_HARD_CAP),
         },
-        // Support: balanced, durable-leaning, with no standout damage payoff.
+        // Support: balanced, durable-leaning, with no standout damage payoff
+        // (deliberately no gain=3 stat — the flattest build in the party).
         Class::Cleric => AllocProfile {
-            max_hp: rule(5, 120),
-            max_mp: rule(3, 90),
-            attack: rule(2, 35),
-            defense: rule(2, 38),
-            speed: rule(1, 16),
-            luck: rule(1, 20),
+            max_hp: rule(2, 36, PLAYER_HARD_CAP),
+            max_mp: rule(2, 38, PLAYER_HARD_CAP),
+            attack: rule(1, 24, PLAYER_HARD_CAP),
+            defense: rule(2, 28, PLAYER_HARD_CAP),
+            speed: rule(1, 24, PLAYER_HARD_CAP),
+            luck: rule(1, 24, PLAYER_HARD_CAP),
         },
-        // Striker: the highest attack ceiling plus double-value speed/luck.
+        // Striker: the highest attack ceiling plus double-value speed/luck
+        // (the spikiest build — three gain=3 stats).
         Class::Rogue => AllocProfile {
-            max_hp: rule(4, 100),
-            max_mp: rule(2, 45),
-            attack: rule(3, 48),
-            defense: rule(1, 24),
-            speed: rule(2, 42),
-            luck: rule(2, 34),
+            max_hp: rule(1, 25, PLAYER_HARD_CAP),
+            max_mp: rule(1, 24, PLAYER_HARD_CAP),
+            attack: rule(3, 33, PLAYER_HARD_CAP),
+            defense: rule(1, 24, PLAYER_HARD_CAP),
+            speed: rule(3, 41, PLAYER_HARD_CAP),
+            luck: rule(3, 41, PLAYER_HARD_CAP),
         },
         // Monsters never allocate; keep the old flat, effectively-uncapped
         // table so nothing changes if one ever does.
         Class::Monster => AllocProfile {
-            max_hp: rule(5, i32::MAX),
-            max_mp: rule(3, i32::MAX),
-            attack: rule(2, i32::MAX),
-            defense: rule(2, i32::MAX),
-            speed: rule(1, i32::MAX),
-            luck: rule(1, i32::MAX),
+            max_hp: rule(5, i32::MAX, i32::MAX),
+            max_mp: rule(3, i32::MAX, i32::MAX),
+            attack: rule(2, i32::MAX, i32::MAX),
+            defense: rule(2, i32::MAX, i32::MAX),
+            speed: rule(1, i32::MAX, i32::MAX),
+            luck: rule(1, i32::MAX, i32::MAX),
         },
     }
 }
@@ -237,6 +259,9 @@ pub enum AllocPreview {
     Full(i32),
     /// At/past the soft cap: gain halved (rounded up, so never zero).
     Diminished(i32),
+    /// Already at the hard cap: no further gain is possible, so the point
+    /// stays banked rather than being spent for zero effect.
+    Capped,
 }
 
 /// XP required to advance from `level` to `level + 1`.
@@ -248,60 +273,69 @@ pub fn xp_to_next_level(level: u32) -> u32 {
 /// to the banked points the player spends by hand — so each class grows into
 /// a different shape on its own (the Warrior toughens, the Mage's mana pool
 /// deepens, the Rogue gets faster and luckier) even before any allocation.
+/// Fields are fractional (rather than the old flat integers) since hitting
+/// the right fraction of a 50-point hard cap by level 40 needs rates like
+/// 0.51/level — see `Character::growth_carry`, which accumulates the
+/// fractional remainder between levels so a small rate doesn't silently
+/// round up to +1/level every single level.
 #[derive(Debug, Clone, Copy)]
 pub struct LevelGrowth {
-    pub max_hp: i32,
-    pub max_mp: i32,
-    pub attack: i32,
-    pub defense: i32,
-    pub speed: i32,
-    pub luck: i32,
+    pub max_hp: f32,
+    pub max_mp: f32,
+    pub attack: f32,
+    pub defense: f32,
+    pub speed: f32,
+    pub luck: f32,
 }
 
-/// Each class's growth profile. `Monster` gets a flat, modest curve — it's
-/// what `Character::scale_to_level` uses to toughen enemies up for later
-/// chapters, not something the player ever sees on a party member.
+/// Each class's growth profile — these rates alone (zero points allocated)
+/// land every class/stat at or under ~66% of `PLAYER_HARD_CAP` by
+/// `MAX_LEVEL`, leaving real headroom for allocation to matter. `Monster`'s
+/// table is unused: regular monsters/bosses grow via a percentage of their
+/// own species base stat instead (see `Character::scale_to_level`'s
+/// `monster_base` argument), so their hierarchy doesn't compress at high
+/// levels the way a flat shared rate would.
 pub fn level_growth(class: Class) -> LevelGrowth {
     match class {
         Class::Warrior => LevelGrowth {
-            max_hp: 7,
-            max_mp: 1,
-            attack: 2,
-            defense: 2,
-            speed: 0,
-            luck: 0,
+            max_hp: 0.64,
+            max_mp: 0.22,
+            attack: 0.51,
+            defense: 0.56,
+            speed: 0.18,
+            luck: 0.18,
         },
         Class::Mage => LevelGrowth {
-            max_hp: 3,
-            max_mp: 5,
-            attack: 1,
-            defense: 1,
-            speed: 1,
-            luck: 1,
+            max_hp: 0.07,
+            max_mp: 0.64,
+            attack: 0.62,
+            defense: 0.15,
+            speed: 0.47,
+            luck: 0.47,
         },
         Class::Rogue => LevelGrowth {
-            max_hp: 4,
-            max_mp: 2,
-            attack: 2,
-            defense: 1,
-            speed: 2,
-            luck: 2,
+            max_hp: 0.33,
+            max_mp: 0.22,
+            attack: 0.62,
+            defense: 0.22,
+            speed: 0.82,
+            luck: 0.82,
         },
         Class::Cleric => LevelGrowth {
-            max_hp: 5,
-            max_mp: 4,
-            attack: 1,
-            defense: 2,
-            speed: 0,
-            luck: 1,
+            max_hp: 0.55,
+            max_mp: 0.58,
+            attack: 0.29,
+            defense: 0.51,
+            speed: 0.18,
+            luck: 0.40,
         },
         Class::Monster => LevelGrowth {
-            max_hp: 5,
-            max_mp: 0,
-            attack: 1,
-            defense: 1,
-            speed: 0,
-            luck: 0,
+            max_hp: 0.0,
+            max_mp: 0.0,
+            attack: 0.0,
+            defense: 0.0,
+            speed: 0.0,
+            luck: 0.0,
         },
     }
 }
@@ -353,6 +387,12 @@ pub struct Character {
     /// which keep rolling their move's normal odds every eligible turn.
     #[serde(default)]
     pub elite_signature_used: bool,
+    /// Fractional remainder of automatic per-level growth not yet applied,
+    /// one slot per `AllocStat` (indexed in `ALLOC_STATS` order) — see
+    /// `LevelGrowth`'s doc comment for why this exists. Defaults to zero for
+    /// saves/tests predating this field.
+    #[serde(default)]
+    pub growth_carry: [f32; 6],
 }
 
 impl Character {
@@ -430,7 +470,7 @@ impl Character {
             self.xp -= xp_to_next_level(self.level);
             self.level += 1;
             self.unspent_points += POINTS_PER_LEVEL;
-            self.apply_level_growth();
+            self.apply_level_growth(None);
             levels += 1;
         }
         if self.level >= MAX_LEVEL {
@@ -445,36 +485,57 @@ impl Character {
         levels
     }
 
-    /// Applies one level's worth of this class's automatic growth (see
-    /// `level_growth`). Current HP/MP grow alongside their maxima so the
-    /// bump is never a phantom gain that still has to be healed up to.
-    /// Each stat delta is scaled by `growth_multiplier` so uncapped
-    /// automatic growth doesn't keep compounding forever — hand-allocated
-    /// points (`POINTS_PER_LEVEL`) are untouched by this taper.
-    fn apply_level_growth(&mut self) {
-        let g = level_growth(self.class);
+    /// Applies one level's worth of automatic growth, scaled by
+    /// `growth_multiplier` so it doesn't keep compounding forever (hand-
+    /// allocated points are untouched by this taper) and routed through
+    /// `apply_stat_delta` so it can never push a stat past its hard cap.
+    /// `monster_base` is `None` for playable characters (uses this class's
+    /// `level_growth` table) or `Some(species' own level-1 stats)` for
+    /// monsters (see `scale_to_level`), which grow as a fixed percentage of
+    /// their own base stats instead of a shared flat table — that keeps
+    /// weaker/stronger species properly separated at high levels instead of
+    /// compressing toward the same numbers. Fractional remainders that don't
+    /// add up to a whole point yet are kept in `growth_carry` rather than
+    /// rounded away, so a small rate still adds up correctly over many
+    /// levels instead of silently becoming +1/level every level.
+    fn apply_level_growth(&mut self, monster_base: Option<&Stats>) {
         let m = growth_multiplier(self.level);
-        let scale = |v: i32| ((v as f32) * m).round() as i32;
-        self.stats.max_hp += scale(g.max_hp);
-        self.stats.hp += scale(g.max_hp);
-        self.stats.max_mp += scale(g.max_mp);
-        self.stats.mp += scale(g.max_mp);
-        self.stats.attack += scale(g.attack);
-        self.stats.defense += scale(g.defense);
-        self.stats.speed += scale(g.speed);
-        self.stats.luck += scale(g.luck);
+        let rates: [f32; 6] = match monster_base {
+            Some(base) => [
+                base.max_hp as f32 * MONSTER_HP_GROWTH_RATE,
+                0.0,
+                base.attack as f32 * MONSTER_ATTACK_GROWTH_RATE,
+                base.defense as f32 * MONSTER_DEFENSE_GROWTH_RATE,
+                0.0,
+                0.0,
+            ],
+            None => {
+                let g = level_growth(self.class);
+                [g.max_hp, g.max_mp, g.attack, g.defense, g.speed, g.luck]
+            }
+        };
+        for (i, stat) in ALLOC_STATS.iter().enumerate() {
+            self.growth_carry[i] += rates[i] * m;
+            let whole = self.growth_carry[i].trunc();
+            self.growth_carry[i] -= whole;
+            self.apply_stat_delta(*stat, whole as i32);
+        }
     }
 
     /// Raises this character straight to `level` (if higher than its current
-    /// one), applying its class's automatic growth for every level gained
-    /// and topping HP/MP off. This is how later chapters toughen up their
+    /// one), applying its automatic growth for every level gained and
+    /// topping HP/MP off. This is how later chapters toughen up their
     /// regular monsters — same species, more dangerous specimen — and since
     /// `combat::xp_value` reads the resulting stats, XP rewards scale along
-    /// with the threat automatically.
+    /// with the threat automatically. The species' own level-1 stats are
+    /// captured once, before any growth is applied, so every subsequent
+    /// level's growth is a percentage of the *original* base rather than an
+    /// already-grown value (which would compound instead of scaling linearly).
     pub fn scale_to_level(&mut self, level: u32) {
+        let monster_base = self.stats;
         while self.level < level {
             self.level += 1;
-            self.apply_level_growth();
+            self.apply_level_growth(Some(&monster_base));
         }
         self.stats.hp = self.stats.max_hp;
         self.stats.mp = self.stats.max_mp;
@@ -507,14 +568,14 @@ impl Character {
     /// chapter — bosses are otherwise hardcoded and never run through
     /// `scale_to_level`, so a party that ground out extra levels before
     /// reaching the lair would trivialize the fight. A no-op at or under
-    /// `baseline_level`; otherwise +6% max_hp/attack/defense per excess
-    /// level, capped at 20 excess levels (+120%), then healed to full.
+    /// `baseline_level`; otherwise +2.5% max_hp/attack/defense per excess
+    /// level, capped at 20 excess levels (+50%), then healed to full.
     pub fn scale_boss_to_party(&mut self, avg_party_level: u32, baseline_level: u32) {
         if avg_party_level <= baseline_level {
             return;
         }
         let excess = (avg_party_level - baseline_level).min(20);
-        let mult = 1.0 + 0.06 * excess as f32;
+        let mult = 1.0 + 0.025 * excess as f32;
         self.stats.max_hp = ((self.stats.max_hp as f32) * mult).round() as i32;
         self.stats.attack = ((self.stats.attack as f32) * mult).round() as i32;
         self.stats.defense = ((self.stats.defense as f32) * mult).round() as i32;
@@ -536,27 +597,31 @@ impl Character {
     }
 
     /// What spending one point on `stat` would do right now, given this
-    /// class's `alloc_profile` and the stat's current base value.
+    /// class's `alloc_profile` and the stat's current base value. Clips the
+    /// gain to whatever headroom remains under the hard cap, and refuses
+    /// entirely (`Capped`) once there's none left.
     pub fn alloc_preview(&self, stat: AllocStat) -> AllocPreview {
         let rule = alloc_profile(self.class).rule(stat);
         let current = self.base_stat(stat);
-        if current >= rule.soft_cap {
-            AllocPreview::Diminished((rule.gain + 1) / 2)
+        let headroom = rule.hard_cap - current;
+        if headroom <= 0 {
+            AllocPreview::Capped
+        } else if current >= rule.soft_cap {
+            AllocPreview::Diminished(((rule.gain + 1) / 2).min(headroom))
         } else {
-            AllocPreview::Full(rule.gain)
+            AllocPreview::Full(rule.gain.min(headroom))
         }
     }
 
-    /// Spends one banked point on `stat`, if any are banked. Returns
-    /// whether a point was spent — the only refusal is having zero
-    /// `unspent_points`; every stat can always absorb another point, just at
-    /// diminishing returns past its soft cap (see `AllocRule`).
+    /// Spends one banked point on `stat`, if any are banked and it isn't
+    /// already at its hard cap. Returns whether a point was spent.
     pub fn allocate_point(&mut self, stat: AllocStat) -> bool {
         self.allocate_point_tracked(stat).is_some()
     }
 
     /// Same as `allocate_point`, but returns the exact gain applied (or
-    /// `None` if no point was spent) so a caller can record it — e.g. the
+    /// `None` if no point was spent — either no points are banked, or `stat`
+    /// is already at its hard cap) so a caller can record it — e.g. the
     /// level-up screen's undo history — and later reverse it exactly via
     /// `deallocate_point` without recomputing soft-cap math.
     pub fn allocate_point_tracked(&mut self, stat: AllocStat) -> Option<i32> {
@@ -565,23 +630,40 @@ impl Character {
         }
         let gain = match self.alloc_preview(stat) {
             AllocPreview::Full(n) | AllocPreview::Diminished(n) => n,
+            AllocPreview::Capped => return None,
         };
         self.unspent_points -= 1;
+        Some(self.apply_stat_delta(stat, gain))
+    }
+
+    /// The single chokepoint every source of stat growth — automatic
+    /// `level_growth` and hand-spent allocation alike — goes through to
+    /// mutate `stats`, clamping against this class's hard cap (`alloc_profile`)
+    /// on every call. Clamping against the *current* value each time (rather
+    /// than only at the end of a longer computation) makes the cap
+    /// bypass-proof no matter how growth and allocation interleave across a
+    /// playthrough. Returns the amount actually applied, which may be less
+    /// than `delta` (or zero) if the cap was reached.
+    fn apply_stat_delta(&mut self, stat: AllocStat, delta: i32) -> i32 {
+        let hard_cap = alloc_profile(self.class).rule(stat).hard_cap;
+        let current = self.base_stat(stat);
+        let new_value = (current + delta).min(hard_cap);
+        let applied = new_value - current;
         match stat {
             AllocStat::MaxHp => {
-                self.stats.max_hp += gain;
-                self.stats.hp += gain;
+                self.stats.max_hp = new_value;
+                self.stats.hp += applied;
             }
             AllocStat::MaxMp => {
-                self.stats.max_mp += gain;
-                self.stats.mp += gain;
+                self.stats.max_mp = new_value;
+                self.stats.mp += applied;
             }
-            AllocStat::Attack => self.stats.attack += gain,
-            AllocStat::Defense => self.stats.defense += gain,
-            AllocStat::Speed => self.stats.speed += gain,
-            AllocStat::Luck => self.stats.luck += gain,
+            AllocStat::Attack => self.stats.attack = new_value,
+            AllocStat::Defense => self.stats.defense = new_value,
+            AllocStat::Speed => self.stats.speed = new_value,
+            AllocStat::Luck => self.stats.luck = new_value,
         }
-        Some(gain)
+        applied
     }
 
     /// Inverse of `allocate_point_tracked`: refunds one banked point and
@@ -714,24 +796,29 @@ impl Character {
 /// otherwise never see it.
 pub fn class_abilities(class: Class) -> Vec<Ability> {
     match class {
+        // mp_cost values are rescaled proportionally to each class's new,
+        // much smaller base max_mp (see the base `Stats` in `warrior`/
+        // `mage`/`cleric`/`rogue` below) so every ability stays castable at
+        // level 1 with zero MP allocated — a flat-percentage translation of
+        // the pre-rescale costs, not independently retuned.
         Class::Warrior => vec![
             Ability {
                 name: "Power Strike".into(),
-                mp_cost: 3,
+                mp_cost: 1,
                 base_power: 10,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Crushing Blow".into(),
-                mp_cost: 6,
+                mp_cost: 2,
                 base_power: 18,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Quaking Slam".into(),
-                mp_cost: 8,
+                mp_cost: 3,
                 base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: true,
@@ -740,21 +827,21 @@ pub fn class_abilities(class: Class) -> Vec<Ability> {
         Class::Mage => vec![
             Ability {
                 name: "Firebolt".into(),
-                mp_cost: 6,
+                mp_cost: 3,
                 base_power: 16,
                 kind: AbilityKind::MagicDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Lightning Bolt".into(),
-                mp_cost: 12,
+                mp_cost: 6,
                 base_power: 26,
                 kind: AbilityKind::MagicDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Chaos Storm".into(),
-                mp_cost: 18,
+                mp_cost: 9,
                 base_power: 20,
                 kind: AbilityKind::MagicDamage,
                 targets_all_enemies: true,
@@ -763,21 +850,21 @@ pub fn class_abilities(class: Class) -> Vec<Ability> {
         Class::Cleric => vec![
             Ability {
                 name: "Mend".into(),
-                mp_cost: 8,
+                mp_cost: 5,
                 base_power: 18,
                 kind: AbilityKind::Heal,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Smite".into(),
-                mp_cost: 5,
+                mp_cost: 3,
                 base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Wrath of the Gods".into(),
-                mp_cost: 12,
+                mp_cost: 7,
                 base_power: 15,
                 kind: AbilityKind::MagicDamage,
                 targets_all_enemies: true,
@@ -786,21 +873,21 @@ pub fn class_abilities(class: Class) -> Vec<Ability> {
         Class::Rogue => vec![
             Ability {
                 name: "Backstab".into(),
-                mp_cost: 4,
+                mp_cost: 1,
                 base_power: 12,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: false,
             },
             Ability {
                 name: "Fan of Knives".into(),
-                mp_cost: 9,
+                mp_cost: 3,
                 base_power: 14,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: true,
             },
             Ability {
                 name: "Hornet Sting".into(),
-                mp_cost: 12,
+                mp_cost: 3,
                 base_power: 26,
                 kind: AbilityKind::PhysicalDamage,
                 targets_all_enemies: false,
@@ -818,14 +905,19 @@ pub fn warrior(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 42,
-            hp: 42,
-            max_mp: 10,
-            mp: 10,
-            attack: 12,
-            defense: 8,
-            speed: 6,
-            luck: 5,
+            max_hp: 15,
+            hp: 15,
+            max_mp: 4,
+            mp: 4,
+            attack: 6,
+            defense: 7,
+            // Kept at (rather than below) the weakest trash monster's speed
+            // (Slime, 4) — `CombatState::new`'s turn-order sort is stable
+            // and lists party members before enemies, so a tie still goes
+            // to the player. Mediocre, not literally the slowest thing in
+            // the game.
+            speed: 4,
+            luck: 2,
         },
         abilities: class_abilities(Class::Warrior),
         equipped_weapon: Some(worn_shortsword()),
@@ -834,6 +926,7 @@ pub fn warrior(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -845,14 +938,14 @@ pub fn mage(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 26,
-            hp: 26,
-            max_mp: 30,
-            mp: 30,
-            attack: 5,
-            defense: 4,
-            speed: 8,
-            luck: 6,
+            max_hp: 6,
+            hp: 6,
+            max_mp: 15,
+            mp: 15,
+            attack: 8,
+            defense: 2,
+            speed: 5,
+            luck: 5,
         },
         abilities: class_abilities(Class::Mage),
         equipped_weapon: Some(apprentice_wand()),
@@ -861,6 +954,7 @@ pub fn mage(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -872,13 +966,14 @@ pub fn cleric(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 32,
-            hp: 32,
-            max_mp: 24,
-            mp: 24,
-            attack: 6,
+            max_hp: 13,
+            hp: 13,
+            max_mp: 14,
+            mp: 14,
+            attack: 4,
             defense: 6,
-            speed: 7,
+            // See the Warrior's matching comment above.
+            speed: 4,
             luck: 4,
         },
         abilities: class_abilities(Class::Cleric),
@@ -888,6 +983,7 @@ pub fn cleric(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -899,14 +995,14 @@ pub fn rogue(name: &str) -> Character {
         xp: 0,
         unspent_points: 0,
         stats: Stats {
-            max_hp: 30,
-            hp: 30,
-            max_mp: 14,
-            mp: 14,
-            attack: 9,
-            defense: 5,
-            speed: 11,
-            luck: 12,
+            max_hp: 8,
+            hp: 8,
+            max_mp: 4,
+            mp: 4,
+            attack: 8,
+            defense: 2,
+            speed: 10,
+            luck: 10,
         },
         abilities: class_abilities(Class::Rogue),
         equipped_weapon: Some(thieves_dirk()),
@@ -915,6 +1011,7 @@ pub fn rogue(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -942,6 +1039,7 @@ pub fn slime(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -969,6 +1067,7 @@ pub fn goblin(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -996,6 +1095,7 @@ pub fn bat(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1023,6 +1123,7 @@ pub fn wolf(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1050,6 +1151,7 @@ pub fn skeleton(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1077,6 +1179,7 @@ pub fn orc(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1106,6 +1209,7 @@ pub fn wraith(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1134,6 +1238,7 @@ pub fn mimic(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1161,6 +1266,7 @@ pub fn hollow(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1188,6 +1294,7 @@ pub fn rat(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1215,6 +1322,7 @@ pub fn carrion_crow(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1242,6 +1350,7 @@ pub fn bandit(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1272,6 +1381,7 @@ pub fn fell_acolyte(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1301,6 +1411,7 @@ pub fn grave_ghoul(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1330,6 +1441,7 @@ pub fn barrow_sentinel(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1359,20 +1471,23 @@ pub fn forsaken_knight(name: &str) -> Character {
         boss_kind: None,
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
 /// Dark-Souls-style NG+ multiplier: every mob and boss hits harder and
-/// survives longer each cycle, capping at NG+7.
+/// survives longer each cycle, capping at NG+7. Retuned to a gentler
+/// per-cycle rate than the pre-rescale game (0.35/cycle) to match the much
+/// smaller HP/attack/defense pools under the new 50-per-stat hard cap.
 pub fn ng_plus_multiplier(ng_plus: u32) -> f32 {
-    1.0 + 0.35 * ng_plus.min(7) as f32
+    1.0 + 0.10 * ng_plus.min(7) as f32
 }
 
 /// Half-strength companion to [`ng_plus_multiplier`], used for speed/luck so
 /// NG+ enemies drift nimbler/luckier over successive cycles without swinging
 /// turn order or crit rates as hard as the hp/attack/defense curve does.
 pub fn ng_plus_minor_multiplier(ng_plus: u32) -> f32 {
-    1.0 + 0.175 * ng_plus.min(7) as f32
+    1.0 + 0.05 * ng_plus.min(7) as f32
 }
 
 /// The game's one hand-placed boss, guarding the lair in the field's far
@@ -1405,6 +1520,7 @@ pub fn barrow_knight(name: &str) -> Character {
         boss_kind: Some(BossKind::BarrowKnight),
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1435,6 +1551,7 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         boss_kind: Some(BossKind::WyrmscaleWarden),
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1466,6 +1583,7 @@ pub fn ashen_sovereign(name: &str) -> Character {
         boss_kind: Some(BossKind::AshenSovereign),
         is_elite: false,
         elite_signature_used: false,
+        growth_carry: [0.0; 6],
     }
 }
 
@@ -1520,8 +1638,8 @@ mod tests {
     fn total_attack_includes_the_equipped_weapons_bonus() {
         let mut hero = warrior("Bram");
         let base = hero.stats.attack;
-        hero.equip_weapon(iron_sword()); // +3 attack
-        assert_eq!(hero.total_attack(), base + 3);
+        hero.equip_weapon(iron_sword()); // +1 attack
+        assert_eq!(hero.total_attack(), base + 1);
     }
 
     #[test]
@@ -1631,19 +1749,19 @@ mod tests {
     fn total_defense_folds_in_armor_and_both_rings() {
         let mut hero = warrior("Bram");
         let base = hero.total_defense();
-        hero.equip_armor(padded_vest()); // +2 defense
+        hero.equip_armor(padded_vest()); // +1 defense
         hero.equip_ring(RingSlot::First, copper_band()); // +0 defense
-        hero.equip_ring(RingSlot::Second, band_of_the_barrow()); // +6 defense
-        assert_eq!(hero.total_defense(), base + 2 + 6);
+        hero.equip_ring(RingSlot::Second, band_of_the_barrow()); // +3 defense
+        assert_eq!(hero.total_defense(), base + 1 + 3);
     }
 
     #[test]
     fn total_attack_folds_in_both_rings() {
         let mut hero = warrior("Bram");
         let base = hero.total_attack();
-        hero.equip_ring(RingSlot::First, copper_band()); // +2 attack
-        hero.equip_ring(RingSlot::Second, band_of_the_barrow()); // +6 attack
-        assert_eq!(hero.total_attack(), base + 2 + 6);
+        hero.equip_ring(RingSlot::First, copper_band()); // +1 attack
+        hero.equip_ring(RingSlot::Second, band_of_the_barrow()); // +3 attack
+        assert_eq!(hero.total_attack(), base + 1 + 3);
     }
 
     #[test]
@@ -1724,8 +1842,8 @@ mod tests {
         let base_hp = hero.stats.max_hp;
         assert!(hero.allocate_point(AllocStat::MaxHp));
         // The Warrior's signature HP payoff, straight from its AllocProfile.
-        assert_eq!(hero.stats.max_hp, base_hp + 7);
-        assert_eq!(hero.stats.hp, base_hp + 7, "current HP follows max");
+        assert_eq!(hero.stats.max_hp, base_hp + 3);
+        assert_eq!(hero.stats.hp, base_hp + 3, "current HP follows max");
         assert_eq!(hero.unspent_points, 0);
     }
 
@@ -1772,24 +1890,60 @@ mod tests {
     }
 
     #[test]
-    fn allocate_point_never_refuses_while_points_are_banked() {
-        // No hard cap exists anymore — dumping hundreds of points into one
-        // stat, for every playable class, must never hit a refusal until
-        // the banked points themselves run out. This is the guarantee that
-        // replaces the old hard-cap tuning: it can't go stale the next time
-        // MAX_LEVEL or POINTS_PER_LEVEL changes.
+    fn allocate_point_refuses_once_a_stat_hits_its_hard_cap() {
+        // Every playable class/stat is hard-capped at `PLAYER_HARD_CAP` (50)
+        // — dumping hundreds of banked points into one stat must eventually
+        // refuse rather than let it climb forever (the exact bug this
+        // rescale fixes: unlimited stat growth from spamming one stat).
         for mut hero in [warrior("B"), mage("S"), cleric("I"), rogue("W")] {
             for &stat in &ALLOC_STATS {
                 hero.unspent_points = 500;
-                for _ in 0..500 {
-                    assert!(
-                        hero.allocate_point(stat),
-                        "{:?}'s {stat} refused a point despite {} banked",
-                        hero.class,
-                        hero.unspent_points + 1
-                    );
-                }
-                assert_eq!(hero.unspent_points, 0);
+                while hero.allocate_point(stat) {}
+                assert_eq!(
+                    hero.base_stat(stat),
+                    PLAYER_HARD_CAP,
+                    "{:?}'s {stat} should settle exactly at the hard cap",
+                    hero.class
+                );
+                assert_eq!(
+                    hero.alloc_preview(stat),
+                    AllocPreview::Capped,
+                    "{:?}'s {stat} should refuse further points once capped",
+                    hero.class
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_point_keeps_the_point_banked_when_already_capped() {
+        let mut hero = warrior("Bram");
+        hero.stats.max_hp = PLAYER_HARD_CAP;
+        hero.unspent_points = 3;
+        assert!(!hero.allocate_point(AllocStat::MaxHp));
+        assert_eq!(hero.unspent_points, 3, "a refused point must stay banked");
+        assert_eq!(hero.stats.max_hp, PLAYER_HARD_CAP);
+    }
+
+    #[test]
+    fn automatic_growth_alone_never_exceeds_the_hard_cap() {
+        // The bug this whole rescale fixes: automatic per-level growth used
+        // to be completely unbounded, so a character with zero points ever
+        // spent on Attack could still reach a high Attack purely by leveling.
+        // Now every stat — grown or allocated — is clamped by the same
+        // `apply_stat_delta` chokepoint.
+        for factory in [warrior as fn(&str) -> Character, mage, cleric, rogue] {
+            let mut hero = factory("Zero-Alloc");
+            for _ in 0..(MAX_LEVEL - 1) {
+                hero.gain_xp(xp_to_next_level(hero.level));
+            }
+            for &stat in &ALLOC_STATS {
+                assert!(
+                    hero.base_stat(stat) <= PLAYER_HARD_CAP,
+                    "{:?}'s {stat} exceeded the hard cap from growth alone: {}",
+                    hero.class,
+                    hero.base_stat(stat)
+                );
             }
         }
     }
@@ -1829,15 +1983,21 @@ mod tests {
 
     #[test]
     fn each_class_grows_into_a_different_shape_on_level_up() {
-        let level_once = |mut c: Character| {
-            c.gain_xp(xp_to_next_level(1));
+        // Growth rates are fractional (see `LevelGrowth`'s doc comment) and
+        // accumulate in `growth_carry`, so a single level-up often doesn't
+        // cross a whole point yet — level up several times to let each
+        // class's shape reliably show through.
+        let level_up_ten_times = |mut c: Character| {
+            for _ in 0..10 {
+                c.gain_xp(xp_to_next_level(c.level));
+            }
             c
         };
-        let bram = level_once(warrior("Bram"));
-        let sella = level_once(mage("Sella"));
-        let wren = level_once(rogue("Wren"));
+        let bram = level_up_ten_times(warrior("Bram"));
+        let sella = level_up_ten_times(mage("Sella"));
+        let wren = level_up_ten_times(rogue("Wren"));
 
-        // Same level-up, different automatic growth per class.
+        // Same ten level-ups, different automatic growth per class.
         assert!(
             bram.stats.max_hp - warrior("Bram").stats.max_hp
                 > sella.stats.max_hp - mage("Sella").stats.max_hp,
@@ -1860,14 +2020,20 @@ mod tests {
         let mut hero = warrior("Bram");
         let hp_before = hero.stats.max_hp;
         let atk_before = hero.stats.attack;
-        hero.gain_xp(xp_to_next_level(1));
+        // A single level-up's fractional growth (see `LevelGrowth`) doesn't
+        // always cross a whole point immediately — level up enough times
+        // that `growth_carry` is guaranteed to have produced at least one.
+        for _ in 0..10 {
+            hero.gain_xp(xp_to_next_level(hero.level));
+        }
         assert!(
             hero.stats.max_hp > hp_before,
             "growth applies without spending points"
         );
         assert!(hero.stats.attack > atk_before);
         assert_eq!(
-            hero.unspent_points, POINTS_PER_LEVEL,
+            hero.unspent_points,
+            POINTS_PER_LEVEL * 10,
             "banked points still accrue"
         );
     }
@@ -2013,13 +2179,12 @@ mod tests {
 
     #[test]
     fn scaling_to_a_high_level_grows_slower_than_a_flat_curve_would() {
+        let base_hp = orc("Orc").stats.max_hp;
         let mut tapered = orc("Orc");
         tapered.scale_to_level(30);
-        let mut untapered = orc("Orc");
-        let g = level_growth(untapered.class);
-        untapered.stats.max_hp += g.max_hp * 30;
+        let untapered_hp = base_hp + (base_hp as f32 * MONSTER_HP_GROWTH_RATE * 30.0).round() as i32;
         assert!(
-            tapered.stats.max_hp < untapered.stats.max_hp,
+            tapered.stats.max_hp < untapered_hp,
             "tapered growth should fall behind a naive flat-rate projection at high levels"
         );
     }

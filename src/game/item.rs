@@ -281,13 +281,13 @@ impl Weapon {
 
 // --- Weapon factory functions, grouped by rarity tier. ---
 // Bonuses scale with rarity so "rarer = better" holds at a glance:
-// Common ~2-4, Uncommon ~5-7, Rare ~9-11, Epic ~15, Legendary ~22.
+// Common ~1-2, Uncommon ~3, Rare ~4-5, Epic ~6-7, Legendary ~10-12.
 
 pub fn worn_shortsword() -> Weapon {
     Weapon {
         name: "Worn Shortsword".into(),
         rarity: Rarity::Common,
-        attack_bonus: 2,
+        attack_bonus: 1,
         defense_bonus: 0,
         description: "A nicked, well-used blade. Better than fists.".into(),
         source: GearSource::Starting,
@@ -313,7 +313,7 @@ pub fn acolytes_mace() -> Weapon {
     Weapon {
         name: "Acolyte's Mace".into(),
         rarity: Rarity::Common,
-        attack_bonus: 2,
+        attack_bonus: 1,
         defense_bonus: 1,
         description: "Blunt and humble, blessed only lightly.".into(),
         source: GearSource::Starting,
@@ -326,7 +326,7 @@ pub fn thieves_dirk() -> Weapon {
     Weapon {
         name: "Thief's Dirk".into(),
         rarity: Rarity::Common,
-        attack_bonus: 3,
+        attack_bonus: 2,
         defense_bonus: 0,
         description: "Slim, quick, and honest about none of its history.".into(),
         source: GearSource::Starting,
@@ -339,7 +339,7 @@ pub fn iron_sword() -> Weapon {
     Weapon {
         name: "Iron Sword".into(),
         rarity: Rarity::Common,
-        attack_bonus: 3,
+        attack_bonus: 1,
         defense_bonus: 0,
         description: "A sturdy, mass-produced blade left behind by a traveler.".into(),
         source: GearSource::World,
@@ -352,7 +352,7 @@ pub fn goblin_shiv() -> Weapon {
     Weapon {
         name: "Goblin Shiv".into(),
         rarity: Rarity::Common,
-        attack_bonus: 4,
+        attack_bonus: 2,
         defense_bonus: 0,
         description: "Crude but wickedly sharp.".into(),
         source: GearSource::EnemyDrop("Goblin".into()),
@@ -365,7 +365,7 @@ pub fn hollow_soldiers_blade() -> Weapon {
     Weapon {
         name: "Hollow Soldier's Blade".into(),
         rarity: Rarity::Common,
-        attack_bonus: 4,
+        attack_bonus: 2,
         defense_bonus: 0,
         description: "Its owner forgot everything but how to swing it.".into(),
         source: GearSource::EnemyDrop("Hollow".into()),
@@ -378,7 +378,7 @@ pub fn travelers_spear() -> Weapon {
     Weapon {
         name: "Traveler's Spear".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 6,
+        attack_bonus: 3,
         defense_bonus: 1,
         description: "Light, well-balanced, and easy to keep an enemy at range.".into(),
         source: GearSource::World,
@@ -391,7 +391,7 @@ pub fn bone_blade() -> Weapon {
     Weapon {
         name: "Bone Blade".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 7,
+        attack_bonus: 3,
         defense_bonus: 0,
         description: "Carved from a fallen skeleton's own femur.".into(),
         source: GearSource::EnemyDrop("Skeleton".into()),
@@ -404,7 +404,7 @@ pub fn bandits_falchion() -> Weapon {
     Weapon {
         name: "Bandit's Falchion".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 6,
+        attack_bonus: 3,
         defense_bonus: 0,
         description: "Curved for cutting purses and throats alike.".into(),
         source: GearSource::EnemyDrop("Bandit".into()),
@@ -417,7 +417,7 @@ pub fn sunlit_straightsword() -> Weapon {
     Weapon {
         name: "Sunlit Straightsword".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 7,
+        attack_bonus: 3,
         defense_bonus: 1,
         description: "Kept bright by an oath someone else abandoned.".into(),
         source: GearSource::World,
@@ -430,7 +430,7 @@ pub fn orcish_greataxe() -> Weapon {
     Weapon {
         name: "Orcish Greataxe".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 10,
+        attack_bonus: 5,
         defense_bonus: 0,
         description: "Heavy enough to fell a tree in one swing.".into(),
         source: GearSource::EnemyDrop("Orc".into()),
@@ -443,8 +443,8 @@ pub fn wraithbane_edge() -> Weapon {
     Weapon {
         name: "Wraithbane Edge".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 9,
-        defense_bonus: 2,
+        attack_bonus: 4,
+        defense_bonus: 1,
         description: "Etched with wards that flare hot near the restless dead.".into(),
         source: GearSource::EnemyDrop("Wraith".into()),
         upgrade_level: 0,
@@ -456,7 +456,7 @@ pub fn sunken_relic_blade() -> Weapon {
     Weapon {
         name: "Sunken Relic Blade".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 11,
+        attack_bonus: 5,
         defense_bonus: 0,
         description: "Pulled from somewhere it should never have been found.".into(),
         source: GearSource::World,
@@ -469,7 +469,7 @@ pub fn fell_censer() -> Weapon {
     Weapon {
         name: "Fell Censer".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 9,
+        attack_bonus: 4,
         defense_bonus: 1,
         description: "Swings heavy; the smoke it sheds still prays.".into(),
         source: GearSource::EnemyDrop("Fell Acolyte".into()),
@@ -482,7 +482,7 @@ pub fn forsaken_longsword() -> Weapon {
     Weapon {
         name: "Forsaken Longsword".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 10,
+        attack_bonus: 5,
         defense_bonus: 1,
         description: "Its crest was filed off long before its wielder fell.".into(),
         source: GearSource::EnemyDrop("Forsaken Knight".into()),
@@ -495,8 +495,8 @@ pub fn sentinels_greathammer() -> Weapon {
     Weapon {
         name: "Sentinel's Greathammer".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 14,
-        defense_bonus: 3,
+        attack_bonus: 6,
+        defense_bonus: 1,
         description: "A pillar with a grip. The barrow shook when it fell.".into(),
         source: GearSource::EnemyDrop("Barrow Sentinel".into()),
         upgrade_level: 0,
@@ -508,7 +508,7 @@ pub fn moonlit_greatsword() -> Weapon {
     Weapon {
         name: "Moonlit Greatsword".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 16,
+        attack_bonus: 7,
         defense_bonus: 0,
         description: "A pale arc of light given an edge. It hums when drawn.".into(),
         source: GearSource::World,
@@ -521,7 +521,7 @@ pub fn mimics_fang() -> Weapon {
     Weapon {
         name: "Mimic's Fang".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 15,
+        attack_bonus: 7,
         defense_bonus: 1,
         description: "Still faintly warm. It was a tooth a moment ago.".into(),
         source: GearSource::EnemyDrop("Mimic".into()),
@@ -538,7 +538,7 @@ pub fn coinwrought_blade() -> Weapon {
     Weapon {
         name: "Coinwrought Blade".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 15,
+        attack_bonus: 7,
         defense_bonus: 1,
         description: "Forged wherever the gold ran thickest. It doesn't care whose war it ends.".into(),
         source: GearSource::World,
@@ -551,8 +551,8 @@ pub fn dragonslayers_oath() -> Weapon {
     Weapon {
         name: "Dragonslayer's Oath".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 22,
-        defense_bonus: 3,
+        attack_bonus: 10,
+        defense_bonus: 1,
         description: "A greatsword said to have ended an age. Absurdly rare to find.".into(),
         source: GearSource::World,
         upgrade_level: 0,
@@ -568,8 +568,8 @@ pub fn knightsbane() -> Weapon {
     Weapon {
         name: "Knightsbane".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 24,
-        defense_bonus: 4,
+        attack_bonus: 11,
+        defense_bonus: 2,
         description: "Forged in the barrow's cold fire; still hums with the Knight's fury.".into(),
         source: GearSource::EnemyDrop("The Barrow Knight".into()),
         upgrade_level: 0,
@@ -584,8 +584,8 @@ pub fn wardens_fang() -> Weapon {
     Weapon {
         name: "Warden's Fang".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 24,
-        defense_bonus: 4,
+        attack_bonus: 11,
+        defense_bonus: 2,
         description: "Torn from the Warden's own jaw; the scales along its edge still shed.".into(),
         source: GearSource::EnemyDrop("Wyrmscale Warden".into()),
         upgrade_level: 0,
@@ -599,8 +599,8 @@ pub fn sovereigns_reckoning() -> Weapon {
     Weapon {
         name: "Sovereign's Reckoning".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 27,
-        defense_bonus: 5,
+        attack_bonus: 12,
+        defense_bonus: 2,
         description: "What's left of a throne, reforged into something that only takes.".into(),
         source: GearSource::EnemyDrop("The Ashen Sovereign".into()),
         upgrade_level: 0,
@@ -622,13 +622,13 @@ pub struct Armor {
 
 // --- Armor factory functions, grouped by rarity tier. ---
 // Defense scales with rarity, same ladder as weapons:
-// Common ~2-4, Uncommon ~5-7, Rare ~9-11, Epic ~15, Legendary ~22-24.
+// Common ~1-2, Uncommon ~2-3, Rare ~4-5, Epic ~6-7, Legendary ~11.
 
 pub fn padded_vest() -> Armor {
     Armor {
         name: "Padded Vest".into(),
         rarity: Rarity::Common,
-        defense_bonus: 2,
+        defense_bonus: 1,
         description: "Quilted cloth over leather. Better than bare skin.".into(),
         source: GearSource::World,
     }
@@ -638,7 +638,7 @@ pub fn worn_leather_jerkin() -> Armor {
     Armor {
         name: "Worn Leather Jerkin".into(),
         rarity: Rarity::Common,
-        defense_bonus: 3,
+        defense_bonus: 1,
         description: "Cracked with age, but the stitching still holds.".into(),
         source: GearSource::World,
     }
@@ -648,7 +648,7 @@ pub fn travelers_chestguard() -> Armor {
     Armor {
         name: "Traveler's Chestguard".into(),
         rarity: Rarity::Common,
-        defense_bonus: 4,
+        defense_bonus: 2,
         description: "Boiled leather plates, favored by wandering merchants.".into(),
         source: GearSource::World,
     }
@@ -658,7 +658,7 @@ pub fn rangers_cloak() -> Armor {
     Armor {
         name: "Ranger's Cloak".into(),
         rarity: Rarity::Uncommon,
-        defense_bonus: 5,
+        defense_bonus: 2,
         description: "Woven to shed rain, blades, and notice alike.".into(),
         source: GearSource::World,
     }
@@ -668,7 +668,7 @@ pub fn chainmail_hauberk() -> Armor {
     Armor {
         name: "Chainmail Hauberk".into(),
         rarity: Rarity::Uncommon,
-        defense_bonus: 6,
+        defense_bonus: 3,
         description: "Interlocked rings stripped from a fallen skeleton.".into(),
         source: GearSource::EnemyDrop("Skeleton".into()),
     }
@@ -678,7 +678,7 @@ pub fn acolytes_vestment() -> Armor {
     Armor {
         name: "Acolyte's Vestment".into(),
         rarity: Rarity::Uncommon,
-        defense_bonus: 5,
+        defense_bonus: 2,
         description: "Ash-gray robes, hemmed with prayers best left unread.".into(),
         source: GearSource::EnemyDrop("Fell Acolyte".into()),
     }
@@ -688,7 +688,7 @@ pub fn brigand_leathers() -> Armor {
     Armor {
         name: "Brigand Leathers".into(),
         rarity: Rarity::Uncommon,
-        defense_bonus: 6,
+        defense_bonus: 3,
         description: "Patched a dozen times, each patch a bad story.".into(),
         source: GearSource::EnemyDrop("Bandit".into()),
     }
@@ -698,7 +698,7 @@ pub fn warded_chainmail() -> Armor {
     Armor {
         name: "Warded Chainmail".into(),
         rarity: Rarity::Rare,
-        defense_bonus: 9,
+        defense_bonus: 4,
         description: "Cold to the touch, etched with wards against the restless dead.".into(),
         source: GearSource::EnemyDrop("Wraith".into()),
     }
@@ -708,7 +708,7 @@ pub fn knights_plate() -> Armor {
     Armor {
         name: "Knight's Plate".into(),
         rarity: Rarity::Rare,
-        defense_bonus: 10,
+        defense_bonus: 5,
         description: "Dented but unbroken, stripped from a brute of an orc.".into(),
         source: GearSource::EnemyDrop("Orc".into()),
     }
@@ -718,7 +718,7 @@ pub fn elite_knights_armor() -> Armor {
     Armor {
         name: "Elite Knight's Armor".into(),
         rarity: Rarity::Rare,
-        defense_bonus: 11,
+        defense_bonus: 5,
         description: "Proud plate that outlived its order and its knight.".into(),
         source: GearSource::EnemyDrop("Forsaken Knight".into()),
     }
@@ -728,7 +728,7 @@ pub fn sentinels_bulwark() -> Armor {
     Armor {
         name: "Sentinel's Bulwark".into(),
         rarity: Rarity::Epic,
-        defense_bonus: 14,
+        defense_bonus: 6,
         description: "Stone-set plate that stood watch longer than its wearer lived.".into(),
         source: GearSource::EnemyDrop("Barrow Sentinel".into()),
     }
@@ -738,7 +738,7 @@ pub fn barrow_touched_plate() -> Armor {
     Armor {
         name: "Barrow-Touched Plate".into(),
         rarity: Rarity::Epic,
-        defense_bonus: 15,
+        defense_bonus: 7,
         description: "Unearthed from the barrow's outer vaults, still faintly humming.".into(),
         source: GearSource::World,
     }
@@ -750,7 +750,7 @@ pub fn coinwrought_plate() -> Armor {
     Armor {
         name: "Coinwrought Plate".into(),
         rarity: Rarity::Epic,
-        defense_bonus: 15,
+        defense_bonus: 7,
         description: "Bought, sold, and bought again. Still holds.".into(),
         source: GearSource::World,
     }
@@ -760,7 +760,7 @@ pub fn dragonscale_aegis() -> Armor {
     Armor {
         name: "Dragonscale Aegis".into(),
         rarity: Rarity::Legendary,
-        defense_bonus: 24,
+        defense_bonus: 11,
         description: "Overlapping scales said to have turned aside a dragon's breath.".into(),
         source: GearSource::World,
     }
@@ -780,13 +780,13 @@ pub struct Ring {
 
 // --- Ring factory functions, grouped by rarity tier. ---
 // Bonuses are roughly half the weapon/armor ladder, since two rings can be
-// worn at once: Common ~1-2, Uncommon ~2-3, Rare ~4-5, Epic ~7-8, Legendary ~11-12.
+// worn at once: Common ~1, Uncommon ~1, Rare ~1-2, Epic ~2-3, Legendary ~2-3.
 
 pub fn copper_band() -> Ring {
     Ring {
         name: "Copper Band".into(),
         rarity: Rarity::Common,
-        attack_bonus: 2,
+        attack_bonus: 1,
         defense_bonus: 0,
         description: "A plain band, faintly warm to the touch.".into(),
         source: GearSource::World,
@@ -798,7 +798,7 @@ pub fn iron_loop() -> Ring {
         name: "Iron Loop".into(),
         rarity: Rarity::Common,
         attack_bonus: 0,
-        defense_bonus: 2,
+        defense_bonus: 1,
         description: "Heavy and unadorned. Purely functional.".into(),
         source: GearSource::World,
     }
@@ -819,7 +819,7 @@ pub fn ring_of_vigor() -> Ring {
     Ring {
         name: "Ring of Vigor".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 3,
+        attack_bonus: 1,
         defense_bonus: 0,
         description: "Pried from a goblin's clenched, still-twitching fist.".into(),
         source: GearSource::EnemyDrop("Goblin".into()),
@@ -831,7 +831,7 @@ pub fn ring_of_warding() -> Ring {
         name: "Ring of Warding".into(),
         rarity: Rarity::Uncommon,
         attack_bonus: 0,
-        defense_bonus: 3,
+        defense_bonus: 1,
         description: "Threaded with a ward-sigil, dulled but still active.".into(),
         source: GearSource::EnemyDrop("Skeleton".into()),
     }
@@ -841,7 +841,7 @@ pub fn ghouls_knucklebone() -> Ring {
     Ring {
         name: "Ghoul's Knucklebone".into(),
         rarity: Rarity::Uncommon,
-        attack_bonus: 2,
+        attack_bonus: 1,
         defense_bonus: 1,
         description: "A finger bone lashed into a crude loop. Still hungry.".into(),
         source: GearSource::EnemyDrop("Grave Ghoul".into()),
@@ -852,7 +852,7 @@ pub fn wolfsbane_signet() -> Ring {
     Ring {
         name: "Wolfsbane Signet".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 5,
+        attack_bonus: 2,
         defense_bonus: 0,
         description: "Carved with a snarling wolf's-head, still sharp-edged.".into(),
         source: GearSource::EnemyDrop("Wolf".into()),
@@ -864,7 +864,7 @@ pub fn warded_loop() -> Ring {
         name: "Warded Loop".into(),
         rarity: Rarity::Rare,
         attack_bonus: 0,
-        defense_bonus: 5,
+        defense_bonus: 2,
         description: "A closed circuit of old wards, humming under strain.".into(),
         source: GearSource::World,
     }
@@ -874,8 +874,8 @@ pub fn ring_of_favor() -> Ring {
     Ring {
         name: "Ring of Favor".into(),
         rarity: Rarity::Rare,
-        attack_bonus: 3,
-        defense_bonus: 3,
+        attack_bonus: 1,
+        defense_bonus: 1,
         description: "A goddess's favor, or a very good forgery of it.".into(),
         source: GearSource::World,
     }
@@ -886,7 +886,7 @@ pub fn sentinels_seal() -> Ring {
         name: "Sentinel's Seal".into(),
         rarity: Rarity::Epic,
         attack_bonus: 0,
-        defense_bonus: 7,
+        defense_bonus: 3,
         description: "The badge of the barrow watch, heavy as duty.".into(),
         source: GearSource::EnemyDrop("Barrow Sentinel".into()),
     }
@@ -898,8 +898,8 @@ pub fn merchants_blessing() -> Ring {
     Ring {
         name: "Merchant's Blessing".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 3,
-        defense_bonus: 6,
+        attack_bonus: 1,
+        defense_bonus: 3,
         description: "A trade charm, worn smooth by a hundred desperate haggles.".into(),
         source: GearSource::World,
     }
@@ -909,8 +909,8 @@ pub fn sovereigns_signet() -> Ring {
     Ring {
         name: "Sovereign's Signet".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 7,
-        defense_bonus: 5,
+        attack_bonus: 3,
+        defense_bonus: 2,
         description: "The seal of a throne of ash. It still expects obedience.".into(),
         source: GearSource::EnemyDrop("The Ashen Sovereign".into()),
     }
@@ -920,8 +920,8 @@ pub fn mimics_coil() -> Ring {
     Ring {
         name: "Mimic's Coil".into(),
         rarity: Rarity::Epic,
-        attack_bonus: 4,
-        defense_bonus: 4,
+        attack_bonus: 2,
+        defense_bonus: 2,
         description: "Still faintly shifting, as if unsure what shape to hold.".into(),
         source: GearSource::EnemyDrop("Mimic".into()),
     }
@@ -931,8 +931,8 @@ pub fn band_of_the_barrow() -> Ring {
     Ring {
         name: "Band of the Barrow".into(),
         rarity: Rarity::Legendary,
-        attack_bonus: 6,
-        defense_bonus: 6,
+        attack_bonus: 3,
+        defense_bonus: 3,
         description: "Buried alongside the Knight himself. It has not gone cold.".into(),
         source: GearSource::World,
     }

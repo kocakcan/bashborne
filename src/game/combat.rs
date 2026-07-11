@@ -1394,9 +1394,10 @@ impl CombatState {
 const CRIT_MULTIPLIER: f32 = 1.75;
 
 /// Chance (0.0-1.0) of a critical hit, given the attacker's Luck stat.
-/// 1.5% per point of luck, capped at 50%.
+/// 1.0% per point of luck, capped at 50% — the post-rescale 50-luck hard cap
+/// lands exactly on this ceiling instead of saturating a third of the way in.
 fn crit_chance(luck: i32) -> f32 {
-    (luck as f32 * 1.5).min(50.0) / 100.0
+    (luck as f32 * 1.0).min(50.0) / 100.0
 }
 
 /// Rolls damage from `power` vs `defense`, applying a chance of a critical
@@ -1406,7 +1407,7 @@ fn crit_chance(luck: i32) -> f32 {
 /// carries a `luck` value regardless of who it belongs to.
 fn roll_damage(power: i32, defense: i32, luck: i32, rng: &mut impl Rng) -> (i32, bool) {
     let base = (power - defense / 2).max(1);
-    let variance = rng.gen_range(-2..=2);
+    let variance = rng.gen_range(-1..=1);
     let mut dmg = (base + variance).max(1);
     let is_crit = rng.gen::<f32>() < crit_chance(luck);
     if is_crit {
@@ -2063,6 +2064,12 @@ mod tests {
         let mut saw_a_big_hit = false;
         for seed in 0..80u64 {
             let mut party = test_party();
+            // A level-1 Forsaken Knight vastly outclasses a level-1 Warrior
+            // (it's a late-chapter species, never actually paired this way
+            // by the real encounter tables) — inflate HP so a big hit isn't
+            // clamped at 0 and made indistinguishable from a normal one.
+            party.members[0].stats.max_hp = 9999;
+            party.members[0].stats.hp = 9999;
             let hp_before = party.members[0].stats.hp;
             let mut combat = CombatState::new(&party, vec![forsaken_knight("Forsaken Knight")]);
             let mut rng = StdRng::seed_from_u64(seed);
@@ -2234,7 +2241,8 @@ mod tests {
 
         let mut party = test_party();
         party.members[0].equip_weapon(knightsbane());
-        party.members[0].take_damage(20); // leave room to observe healing
+        let half_max_hp = party.members[0].stats.max_hp / 2;
+        party.members[0].take_damage(half_max_hp); // leave room to observe healing
         let hp_before = party.members[0].stats.hp;
 
         let mut enemies = vec![slime("Slime")];
@@ -2289,6 +2297,10 @@ mod tests {
             enemy.stats.max_hp = 9999;
             let mut combat = CombatState::new(&party, vec![enemy]);
             let mut rng = StdRng::seed_from_u64(11);
+            // The Barrow Knight (speed 6) outpaces the Warrior (speed 4) —
+            // force the player's turn regardless of which enemy this run uses.
+            combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+            combat.turn_cursor = 0;
             combat.phase = CombatPhase::SelectTarget {
                 actor: ActorRef::Player(0),
                 action: CombatAction::Attack,
@@ -2407,6 +2419,11 @@ mod tests {
             enemies[0].stats.hp = 1;
             let mut combat = CombatState::new(&party, enemies);
             let mut rng = StdRng::seed_from_u64(seed);
+            // The Orc (speed 5) outpaces the Warrior (speed 4) — force the
+            // player's turn regardless so this test exercises the player's
+            // attack, not the Orc's.
+            combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+            combat.turn_cursor = 0;
             combat.phase = CombatPhase::SelectTarget {
                 actor: ActorRef::Player(0),
                 action: CombatAction::Attack,
@@ -2530,6 +2547,10 @@ mod tests {
         enemies[0].stats.hp = 1;
         let mut combat = CombatState::new(&party, enemies);
         let mut rng = StdRng::seed_from_u64(3);
+        // The Barrow Knight (speed 6) outpaces the Warrior (speed 4) — force
+        // the player's turn so this test exercises the player's attack.
+        combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+        combat.turn_cursor = 0;
         combat.phase = CombatPhase::SelectTarget {
             actor: ActorRef::Player(0),
             action: CombatAction::Attack,
@@ -3022,6 +3043,10 @@ mod tests {
         enemies[0].stats.hp = 1;
         let mut combat = CombatState::new(&party, enemies);
         let mut rng = StdRng::seed_from_u64(3);
+        // The Barrow Knight (speed 6) outpaces the Warrior (speed 4) — force
+        // the player's turn so this test exercises the player's attack.
+        combat.turn_order = vec![ActorRef::Player(0), ActorRef::Enemy(0)];
+        combat.turn_cursor = 0;
         combat.phase = CombatPhase::SelectTarget {
             actor: ActorRef::Player(0),
             action: CombatAction::Attack,
@@ -3077,11 +3102,12 @@ mod tests {
     #[test]
     fn a_revive_raises_the_fallen_at_the_given_fraction() {
         let mut hero = warrior("Bram");
+        let max_hp = hero.stats.max_hp;
         hero.stats.hp = 0;
         assert!(!hero.is_alive());
         let msg = use_item_kind(ItemKind::Revive { heal_percent: 0.5 }, &mut hero);
         assert!(hero.is_alive());
-        assert_eq!(hero.stats.hp, hero.stats.max_hp / 2);
+        assert_eq!(hero.stats.hp, ((max_hp as f32 * 0.5).round() as i32).max(1));
         assert!(msg.contains("rises"));
     }
 

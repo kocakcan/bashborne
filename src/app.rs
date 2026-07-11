@@ -541,7 +541,14 @@ impl World {
             explore.steps_in_grass += 1;
             // ~1 in 4 steps through grass triggers *some* field event (not always a fight).
             if self.rng.gen_ratio(1, 4) {
-                let enemy_level = chapter_def(self.current_chapter).enemy_level;
+                // A party more than 3 levels above the chapter's intended
+                // baseline drags regular encounters up with it (mirroring
+                // `scale_boss_to_party`'s already-existing overleveling
+                // handling for bosses) so grinding past a chapter's pacing
+                // doesn't trivialize the rest of its field encounters.
+                let enemy_level = chapter_def(self.current_chapter)
+                    .enemy_level
+                    .max(self.party.average_level().saturating_sub(3));
                 let challenge = self.challenge_cycle();
                 match roll_field_event(&mut self.rng, enemy_level, challenge) {
                     FieldEvent::Combat(enemies) => {
@@ -2794,8 +2801,8 @@ mod tests {
         world.handle_key(Key::Enter); // confirm target
 
         assert_eq!(
-            world.party.members[0].stats.mp, 4,
-            "picking Ether from the submenu should restore MP, not HP (35% of 10 max MP, rounded)"
+            world.party.members[0].stats.mp, 1,
+            "picking Ether from the submenu should restore MP, not HP (35% of 4 max MP, rounded)"
         );
         let potions = world
             .inventory

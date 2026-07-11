@@ -94,14 +94,16 @@ impl BlacksmithUiState {
     }
 }
 
-/// How much a weapon's attack_bonus grows per upgrade tier, by rarity.
+/// How much a weapon's attack_bonus grows per upgrade tier, by rarity. Hand-
+/// chosen rather than derived from `Rarity::base_value()`'s ratio (which
+/// would flatten to 0 at this rescale's much smaller bonus numbers).
 fn upgrade_attack_increment(rarity: Rarity) -> i32 {
     match rarity {
         Rarity::Common => 1,
-        Rarity::Uncommon => 2,
-        Rarity::Rare => 3,
-        Rarity::Epic => 4,
-        Rarity::Legendary => 5,
+        Rarity::Uncommon => 1,
+        Rarity::Rare => 2,
+        Rarity::Epic => 2,
+        Rarity::Legendary => 2,
     }
 }
 

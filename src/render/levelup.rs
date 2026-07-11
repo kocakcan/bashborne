@@ -59,6 +59,7 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
         let increment = match preview {
             AllocPreview::Full(n) => format!("+{n}/pt"),
             AllocPreview::Diminished(n) => format!("+{n}/pt, soft cap"),
+            AllocPreview::Capped => "MAXED".to_string(),
         };
         let selected = i == ui.stat_cursor;
         let ty = y0 + 12.0 + i as f32 * 14.0;
