@@ -1,7 +1,9 @@
 use macroquad::prelude::*;
 
 use crate::game::character::{AllocStat, RingSlot};
-use crate::game::inventory_ui::{EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS};
+use crate::game::inventory_ui::{
+    move_preview, EquipSlot, InventoryMode, InventoryTab, InventoryUiState, EQUIP_SLOTS,
+};
 use crate::game::item::Inventory;
 use crate::game::party::Party;
 use crate::render::assets::{
@@ -91,8 +93,8 @@ pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory
         InventoryMode::PartyGearAction { action_cursor, .. } => {
             draw_party_gear_action_menu(*action_cursor, content_y0, cmds)
         }
-        InventoryMode::PartyGearTarget { from_member, to_cursor, .. } => {
-            draw_party_gear_target_picker(party, *from_member, *to_cursor, content_y0, cmds)
+        InventoryMode::PartyGearTarget { from_member, slot, to_cursor } => {
+            draw_party_gear_target_picker(assets, party, *from_member, *slot, *to_cursor, content_y0, cmds)
         }
     }
 
@@ -466,9 +468,36 @@ fn draw_party_gear_action_menu(action_cursor: usize, y0: f32, cmds: &mut Vec<Tex
     }
 }
 
-fn draw_party_gear_target_picker(party: &Party, from_member: usize, to_cursor: usize, y0: f32, cmds: &mut Vec<TextCmd>) {
-    push_text(cmds, "Move to...", 4.0, y0 + 10.0, 8.0, WHITE);
-    let mut row = 0.0;
+/// Like `push_delta_line`, but numbers only — the stat is identified by the
+/// pixel icon drawn just to the left instead of a text label.
+fn push_delta_numbers(cmds: &mut Vec<TextCmd>, current: i32, new: i32, x: f32, y: f32) {
+    let diff = new - current;
+    let sign = if diff > 0 { format!("+{diff}") } else { diff.to_string() };
+    push_text(cmds, format!("{current} -> {new} ({sign})"), x, y, 7.0, delta_color(diff));
+}
+
+fn draw_party_gear_target_picker(
+    assets: &Assets,
+    party: &Party,
+    from_member: usize,
+    slot: EquipSlot,
+    to_cursor: usize,
+    y0: f32,
+    cmds: &mut Vec<TextCmd>,
+) {
+    // The piece/source half of the preview is the same for every candidate,
+    // so any non-source member serves to fill in the header.
+    let header = (0..party.members.len())
+        .find(|&i| i != from_member)
+        .and_then(|i| move_preview(party, from_member, i, slot))
+        .map(|p| format!("Move {} ({}) from {} to...", p.piece_name, slot_label(slot), p.from_name))
+        .unwrap_or_else(|| "Move to...".to_string());
+    let header_lines = wrap_lines(&header, 44, 2);
+    for (li, line) in header_lines.iter().enumerate() {
+        push_text(cmds, line, 4.0, y0 + 10.0 + li as f32 * 9.0, 8.0, WHITE);
+    }
+
+    let mut ty = y0 + 15.0 + header_lines.len() as f32 * 9.0;
     for (i, m) in party.members.iter().enumerate() {
         if i == from_member {
             continue;
@@ -476,8 +505,35 @@ fn draw_party_gear_target_picker(party: &Party, from_member: usize, to_cursor: u
         let selected = i == to_cursor;
         let color = if selected { YELLOW } else { WHITE };
         let marker = if selected { "> " } else { "  " };
-        push_text(cmds, format!("{marker}{}", m.name), 4.0, y0 + 24.0 + row * 12.0, 8.0, color);
-        row += 1.0;
+        let current = match slot {
+            EquipSlot::Weapon => m.equipped_weapon.as_ref().map(|w| w.display_name()),
+            EquipSlot::Armor => m.equipped_armor.as_ref().map(|a| a.name.clone()),
+            EquipSlot::Ring(RingSlot::First) => m.equipped_rings[0].as_ref().map(|r| r.name.clone()),
+            EquipSlot::Ring(RingSlot::Second) => m.equipped_rings[1].as_ref().map(|r| r.name.clone()),
+        }
+        .unwrap_or_else(|| "empty".to_string());
+        push_text(cmds, format!("{marker}{} (has: {current})", m.name), 4.0, ty, 8.0, color);
+
+        if let Some(p) = move_preview(party, from_member, i, slot) {
+            // Armor never grants attack; weapons only show DEF when the move
+            // would actually change it (mirrors draw_member_picker).
+            let show_atk = !matches!(slot, EquipSlot::Armor);
+            let show_def = !matches!(slot, EquipSlot::Weapon) || p.def.0 != p.def.1;
+            let dy = ty + 10.0;
+            let mut x = 12.0;
+            if show_atk {
+                draw_icon(&assets.characters, weapon_icon_rect(), x, icon_y_for_text(dy, 7.0, ICON_SIZE), ICON_SIZE);
+                push_delta_numbers(cmds, p.atk.0, p.atk.1, x + ICON_SIZE + 2.0, dy);
+                x += 88.0;
+            }
+            if show_def {
+                draw_icon(&assets.characters, armor_icon_rect(), x, icon_y_for_text(dy, 7.0, ICON_SIZE), ICON_SIZE);
+                push_delta_numbers(cmds, p.def.0, p.def.1, x + ICON_SIZE + 2.0, dy);
+            }
+            ty += 22.0;
+        } else {
+            ty += 12.0;
+        }
     }
 }
 
@@ -512,6 +568,12 @@ pub(super) fn draw_party_gear(
         InventoryMode::PartyGear { member_cursor, slot_cursor } => Some((member_cursor, EQUIP_SLOTS[slot_cursor])),
         InventoryMode::PartyGearAction { member_idx, slot, .. } => Some((member_idx, slot)),
         InventoryMode::PartyGearTarget { to_cursor, slot, .. } => Some((to_cursor, slot)),
+        _ => None,
+    };
+    // While picking a move target, also mark where the piece is coming FROM
+    // (blue, `<`) so the yellow target cursor can't read as a desync.
+    let source: Option<(usize, EquipSlot)> = match *mode {
+        InventoryMode::PartyGearTarget { from_member, slot, .. } => Some((from_member, slot)),
         _ => None,
     };
 
@@ -564,11 +626,20 @@ pub(super) fn draw_party_gear(
                     .map(|r| (r.name.clone(), rarity_color(r.rarity)))
                     .unwrap_or_else(|| ("(empty)".to_string(), DARKGRAY)),
             };
+            let is_source = source == Some((mi, slot));
             if selected {
                 draw_rectangle(bar_x - 1.0, sy - 6.0, bar_w + 2.0, 8.0, Color::new(1.0, 1.0, 0.0, 0.25));
+            } else if is_source {
+                draw_rectangle(bar_x - 1.0, sy - 6.0, bar_w + 2.0, 8.0, Color::new(0.3, 0.55, 1.0, 0.25));
             }
             let name_color = if selected { YELLOW } else { color };
-            let marker = if selected { ">" } else { " " };
+            let marker = if selected {
+                ">"
+            } else if is_source {
+                "<"
+            } else {
+                " "
+            };
             push_text(cmds, format!("{marker}{}:{name}", slot_label(slot)), bar_x, sy, 6.0, name_color);
             sy += 6.0;
         }

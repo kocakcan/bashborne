@@ -1,3 +1,4 @@
+pub mod bestiary_ui;
 pub mod blacksmith;
 pub mod chapter;
 pub mod character;

@@ -1,5 +1,6 @@
 use rand::Rng;
 
+use crate::game::bestiary_ui::BestiaryUiState;
 use crate::game::blacksmith::BlacksmithUiState;
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::Character;
@@ -87,10 +88,22 @@ pub struct MainMenuState {
     /// Which slot (1-indexed) is waiting for the player to confirm
     /// abandoning its existing save via "New Game", if any.
     pub confirm_overwrite: Option<u8>,
+    /// Which slot (1-indexed) is waiting for a difficulty pick before its
+    /// new game actually starts, if any. Every new-game entry point arms
+    /// this instead of starting immediately.
+    pub pending_new_game: Option<u8>,
+    /// Row highlighted in the difficulty picker (indexes `DIFFICULTY_OPTIONS`).
+    pub difficulty_cursor: usize,
 }
 
 /// Selectable rows on the main menu: `SAVE_SLOTS` save slots + Quit.
 pub const MAIN_MENU_ROWS: usize = SAVE_SLOTS as usize + 1;
+
+/// The difficulty choices offered when starting a new game: a label plus the
+/// starting challenge offset `World::challenge_cycle` adds on top of the NG+
+/// story cycle. Accursed plays like starting two NG+ cycles deep without
+/// skipping any story.
+pub const DIFFICULTY_OPTIONS: [(&str, u32); 2] = [("Normal", 0), ("Accursed", 2)];
 
 impl MainMenuState {
     pub fn new(slots: [Option<SaveData>; SAVE_SLOTS as usize]) -> Self {
@@ -98,6 +111,8 @@ impl MainMenuState {
             slots,
             cursor: 0,
             confirm_overwrite: None,
+            pending_new_game: None,
+            difficulty_cursor: 0,
         }
     }
 }
@@ -110,6 +125,7 @@ pub enum GameState {
     Inventory(InventoryUiState),
     Shop(ShopUiState),
     QuestLog(QuestLogUiState),
+    Bestiary(BestiaryUiState),
     LevelUp(LevelUpUiState),
     Blacksmith(BlacksmithUiState),
     GameOver { victory: bool },

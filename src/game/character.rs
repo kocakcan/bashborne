@@ -703,6 +703,109 @@ impl Character {
 
 // --- Starting party factory functions ---
 
+/// The full ability kit for a playable class — the single source of truth
+/// the party factories below pull from. Kept separate so `World::from_save`
+/// can resync loaded members against it: abilities are serialized into the
+/// save, so a save written before a class gained a new ability would
+/// otherwise never see it.
+pub fn class_abilities(class: Class) -> Vec<Ability> {
+    match class {
+        Class::Warrior => vec![
+            Ability {
+                name: "Power Strike".into(),
+                mp_cost: 3,
+                base_power: 10,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Crushing Blow".into(),
+                mp_cost: 6,
+                base_power: 18,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Quaking Slam".into(),
+                mp_cost: 8,
+                base_power: 12,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: true,
+            },
+        ],
+        Class::Mage => vec![
+            Ability {
+                name: "Firebolt".into(),
+                mp_cost: 6,
+                base_power: 16,
+                kind: AbilityKind::MagicDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Lightning Bolt".into(),
+                mp_cost: 12,
+                base_power: 26,
+                kind: AbilityKind::MagicDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Chaos Storm".into(),
+                mp_cost: 18,
+                base_power: 20,
+                kind: AbilityKind::MagicDamage,
+                targets_all_enemies: true,
+            },
+        ],
+        Class::Cleric => vec![
+            Ability {
+                name: "Mend".into(),
+                mp_cost: 8,
+                base_power: 18,
+                kind: AbilityKind::Heal,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Smite".into(),
+                mp_cost: 5,
+                base_power: 12,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Wrath of the Gods".into(),
+                mp_cost: 12,
+                base_power: 15,
+                kind: AbilityKind::MagicDamage,
+                targets_all_enemies: true,
+            },
+        ],
+        Class::Rogue => vec![
+            Ability {
+                name: "Backstab".into(),
+                mp_cost: 4,
+                base_power: 12,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
+            },
+            Ability {
+                name: "Fan of Knives".into(),
+                mp_cost: 9,
+                base_power: 14,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: true,
+            },
+            Ability {
+                name: "Hornet Sting".into(),
+                mp_cost: 12,
+                base_power: 26,
+                kind: AbilityKind::PhysicalDamage,
+                targets_all_enemies: false,
+            },
+        ],
+        Class::Monster => vec![],
+    }
+}
+
 pub fn warrior(name: &str) -> Character {
     Character {
         name: name.to_string(),
@@ -720,22 +823,7 @@ pub fn warrior(name: &str) -> Character {
             speed: 6,
             luck: 5,
         },
-        abilities: vec![
-            Ability {
-                name: "Power Strike".into(),
-                mp_cost: 3,
-                base_power: 10,
-                kind: AbilityKind::PhysicalDamage,
-                targets_all_enemies: false,
-            },
-            Ability {
-                name: "Crushing Blow".into(),
-                mp_cost: 6,
-                base_power: 18,
-                kind: AbilityKind::PhysicalDamage,
-                targets_all_enemies: false,
-            },
-        ],
+        abilities: class_abilities(Class::Warrior),
         equipped_weapon: Some(worn_shortsword()),
         equipped_armor: None,
         equipped_rings: [None, None],
@@ -762,22 +850,7 @@ pub fn mage(name: &str) -> Character {
             speed: 8,
             luck: 6,
         },
-        abilities: vec![
-            Ability {
-                name: "Firebolt".into(),
-                mp_cost: 6,
-                base_power: 16,
-                kind: AbilityKind::MagicDamage,
-                targets_all_enemies: false,
-            },
-            Ability {
-                name: "Lightning Bolt".into(),
-                mp_cost: 12,
-                base_power: 26,
-                kind: AbilityKind::MagicDamage,
-                targets_all_enemies: false,
-            },
-        ],
+        abilities: class_abilities(Class::Mage),
         equipped_weapon: Some(apprentice_wand()),
         equipped_armor: None,
         equipped_rings: [None, None],
@@ -804,22 +877,7 @@ pub fn cleric(name: &str) -> Character {
             speed: 7,
             luck: 4,
         },
-        abilities: vec![
-            Ability {
-                name: "Mend".into(),
-                mp_cost: 8,
-                base_power: 18,
-                kind: AbilityKind::Heal,
-                targets_all_enemies: false,
-            },
-            Ability {
-                name: "Smite".into(),
-                mp_cost: 5,
-                base_power: 12,
-                kind: AbilityKind::PhysicalDamage,
-                targets_all_enemies: false,
-            },
-        ],
+        abilities: class_abilities(Class::Cleric),
         equipped_weapon: Some(acolytes_mace()),
         equipped_armor: None,
         equipped_rings: [None, None],
@@ -846,22 +904,7 @@ pub fn rogue(name: &str) -> Character {
             speed: 11,
             luck: 12,
         },
-        abilities: vec![
-            Ability {
-                name: "Backstab".into(),
-                mp_cost: 4,
-                base_power: 12,
-                kind: AbilityKind::PhysicalDamage,
-                targets_all_enemies: false,
-            },
-            Ability {
-                name: "Fan of Knives".into(),
-                mp_cost: 9,
-                base_power: 14,
-                kind: AbilityKind::PhysicalDamage,
-                targets_all_enemies: true,
-            },
-        ],
+        abilities: class_abilities(Class::Rogue),
         equipped_weapon: Some(thieves_dirk()),
         equipped_armor: None,
         equipped_rings: [None, None],
@@ -1431,6 +1474,23 @@ mod tests {
     };
 
     #[test]
+    fn every_playable_class_has_three_abilities_and_monsters_none() {
+        for class in [Class::Warrior, Class::Mage, Class::Cleric, Class::Rogue] {
+            let kit = class_abilities(class);
+            assert_eq!(kit.len(), 3, "{class:?} should have a 3-ability kit");
+        }
+        assert!(class_abilities(Class::Monster).is_empty());
+    }
+
+    #[test]
+    fn party_factories_use_the_class_ability_kit() {
+        assert_eq!(warrior("Bram").abilities.len(), 3);
+        assert_eq!(mage("Sella").abilities.len(), 3);
+        assert_eq!(cleric("Idris").abilities.len(), 3);
+        assert_eq!(rogue("Wren").abilities.len(), 3);
+    }
+
+    #[test]
     fn starting_characters_always_have_a_weapon_equipped() {
         assert!(warrior("Bram").equipped_weapon.is_some());
         assert!(mage("Sella").equipped_weapon.is_some());
@@ -1750,7 +1810,7 @@ mod tests {
         let vex = rogue("Wren");
         assert_eq!(vex.class, Class::Rogue);
         assert!(vex.equipped_weapon.is_some());
-        assert_eq!(vex.abilities.len(), 2);
+        assert_eq!(vex.abilities.len(), 3);
         assert!(vex.boss_kind.is_none());
     }
 

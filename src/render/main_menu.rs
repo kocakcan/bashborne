@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::game::state::MainMenuState;
+use crate::game::state::{MainMenuState, DIFFICULTY_OPTIONS};
 use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
 use crate::render::common::{push_text, TextCmd};
 
@@ -18,6 +18,9 @@ fn slot_summary(menu: &MainMenuState, slot_idx: usize) -> String {
             );
             if data.ng_plus > 0 {
                 summary.push_str(&format!(" - NG+{}", data.ng_plus));
+            }
+            if data.difficulty > 0 {
+                summary.push_str(" - Accursed");
             }
             summary
         }
@@ -57,6 +60,37 @@ pub fn draw(font: &Font, menu: &MainMenuState, cmds: &mut Vec<TextCmd>) {
     );
 
     let mut y = 140.0;
+    if let Some(slot) = menu.pending_new_game {
+        let header = format!("A new journey begins in Slot {slot}.");
+        let hd = measure_text(&header, Some(font), 12, 1.0);
+        push_text(cmds, header, (CANVAS_WIDTH - hd.width) / 2.0, y, 12.0, LIGHTGRAY);
+        y += 16.0;
+        let prompt = "Choose your burden:";
+        let pd = measure_text(prompt, Some(font), 12, 1.0);
+        push_text(cmds, prompt, (CANVAS_WIDTH - pd.width) / 2.0, y, 12.0, LIGHTGRAY);
+        y += 20.0;
+        for (i, (label, _)) in DIFFICULTY_OPTIONS.iter().enumerate() {
+            let selected = i == menu.difficulty_cursor;
+            let text = if selected { format!("- {label} -") } else { label.to_string() };
+            let color = if selected { YELLOW } else { GRAY };
+            let d = measure_text(&text, Some(font), 12, 1.0);
+            push_text(cmds, text, (CANVAS_WIDTH - d.width) / 2.0, y, 12.0, color);
+            y += 16.0;
+        }
+        y += 4.0;
+        let blurb = if menu.difficulty_cursor == 0 {
+            "The world as it was meant to be walked."
+        } else {
+            "Foes strike as if two cycles deep, from the very first step."
+        };
+        let bd = measure_text(blurb, Some(font), 10, 1.0);
+        push_text(cmds, blurb, (CANVAS_WIDTH - bd.width) / 2.0, y, 10.0, DARKGRAY);
+        y += 18.0;
+        let hint = "Enter - begin      Esc - turn back";
+        let hd = measure_text(hint, Some(font), 12, 1.0);
+        push_text(cmds, hint, (CANVAS_WIDTH - hd.width) / 2.0, y, 12.0, LIGHTGRAY);
+        return;
+    }
     if let Some(slot) = menu.confirm_overwrite {
         for line in [
             format!("A previous journey lingers in Slot {slot}."),

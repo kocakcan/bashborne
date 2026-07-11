@@ -180,6 +180,35 @@ fn loot_profile(species_name: &str) -> LootProfile {
     }
 }
 
+/// Human-readable drop lines for the bestiary's detail panel, derived from
+/// the live `loot_profile` table (drop factories are invoked for their
+/// names) so the codex can never drift from what actually drops.
+pub fn loot_notes(species_name: &str) -> Vec<String> {
+    let profile = loot_profile(species_name);
+    let mut notes = vec![format!("Gold: {}-{}", profile.gold.start(), profile.gold.end())];
+    if let Some((make_item, chance)) = profile.item {
+        notes.push(format!("{}: {:.0}%", make_item().name, chance * 100.0));
+    }
+    if let Some((make_weapon, chance)) = profile.weapon {
+        notes.push(format!("{}: {:.0}%", make_weapon().name, chance * 100.0));
+    }
+    if let Some((make_armor, chance)) = profile.armor {
+        notes.push(format!("{}: {:.0}%", make_armor().name, chance * 100.0));
+    }
+    if let Some((make_ring, chance)) = profile.ring {
+        notes.push(format!("{}: {:.0}%", make_ring().name, chance * 100.0));
+    }
+    if let Some((range, chance)) = profile.shards {
+        notes.push(format!(
+            "Titanite Shards x{}-{}: {:.0}%",
+            range.start(),
+            range.end(),
+            chance * 100.0
+        ));
+    }
+    notes
+}
+
 /// Per-boss spoils. Unlike `loot_profile`, the weapon, shards, and second
 /// gear piece here are never a dice roll — beating the fight itself is the
 /// gate. Only the consumable item slot still rolls.
@@ -250,7 +279,40 @@ fn boost_profile(mut profile: LootProfile) -> LootProfile {
     profile
 }
 
-fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> Loot {
+/// +2 percentage points of drop chance per NG+ cycle, capped at NG+7 (the
+/// same saturation point as `flee_chance`/`elite_chance`) and clamped to
+/// `boost_chance`'s 90% ceiling — replay keeps paying out a little better
+/// without ever making drops certain.
+fn ng_plus_chance(chance: f32, ng_plus: u32) -> f32 {
+    (chance + 0.02 * ng_plus.min(7) as f32).min(0.9)
+}
+
+/// Applies `ng_plus_chance` to every drop chance on a regular species' loot
+/// profile. Deliberately not applied to boss profiles: their signature
+/// drops are a guaranteed 1.0, which the 0.9 ceiling would clip.
+fn ng_plus_profile(mut profile: LootProfile, ng_plus: u32) -> LootProfile {
+    if ng_plus == 0 {
+        return profile;
+    }
+    if let Some((f, c)) = profile.item {
+        profile.item = Some((f, ng_plus_chance(c, ng_plus)));
+    }
+    if let Some((f, c)) = profile.weapon {
+        profile.weapon = Some((f, ng_plus_chance(c, ng_plus)));
+    }
+    if let Some((r, c)) = profile.shards {
+        profile.shards = Some((r, ng_plus_chance(c, ng_plus)));
+    }
+    if let Some((f, c)) = profile.armor {
+        profile.armor = Some((f, ng_plus_chance(c, ng_plus)));
+    }
+    if let Some((f, c)) = profile.ring {
+        profile.ring = Some((f, ng_plus_chance(c, ng_plus)));
+    }
+    profile
+}
+
+fn roll_loot(enemies: &[Character], overkills: &[bool], ng_plus: u32, rng: &mut impl Rng) -> Loot {
     let mut gold = 0u32;
     let mut items = Vec::new();
     let mut weapons = Vec::new();
@@ -272,7 +334,7 @@ fn roll_loot(enemies: &[Character], overkills: &[bool], rng: &mut impl Rng) -> L
                     ring: boss.ring.map(|r| (r, 1.0)),
                 }
             }
-            None => loot_profile(&e.name),
+            None => ng_plus_profile(loot_profile(&e.name), ng_plus),
         };
         let profile = if e.is_elite {
             boost_profile(profile)
@@ -1214,7 +1276,7 @@ impl CombatState {
             return;
         }
         if self.alive_enemy_indices().is_empty() {
-            self.loot = Some(roll_loot(&self.enemies, &self.overkills, rng));
+            self.loot = Some(roll_loot(&self.enemies, &self.overkills, self.ng_plus, rng));
             self.phase = CombatPhase::Victory;
             return;
         }
@@ -2011,6 +2073,27 @@ mod tests {
     }
 
     #[test]
+    fn third_ability_slot_resolves_and_quaking_slam_hits_all_enemies() {
+        let mut party = test_party(); // warrior: Quaking Slam in slot 2, AoE
+        let enemies = vec![slime("Slime"), slime("Slime")];
+        let mut combat = CombatState::new(&party, enemies);
+        let mut rng = StdRng::seed_from_u64(3);
+        let mp_before = party.members[0].stats.mp;
+
+        combat.phase = CombatPhase::SelectTarget {
+            actor: ActorRef::Player(0),
+            action: CombatAction::Ability(2),
+            target_idx: 0,
+        };
+        let hp_before: Vec<i32> = combat.enemies.iter().map(|e| e.stats.hp).collect();
+        combat.resolve_current_turn(&mut party, &mut rng);
+        for (e, before) in combat.enemies.iter().zip(hp_before) {
+            assert!(e.stats.hp < before, "Quaking Slam should damage every enemy");
+        }
+        assert!(party.members[0].stats.mp < mp_before, "Quaking Slam should consume MP");
+    }
+
+    #[test]
     fn ability_is_heal_checks_the_specific_slot() {
         let cleric = crate::game::character::cleric("Idris");
         assert!(cleric.ability_is_heal(0), "Mend (slot 0) should be a heal");
@@ -2406,16 +2489,17 @@ mod tests {
         // Alongside the signature weapon: the Barrow Knight and Warden each
         // guarantee an armor piece, the Sovereign a ring. Never a dice roll.
         let mut rng = StdRng::seed_from_u64(11);
-        let knight = roll_loot(&[barrow_knight("The Barrow Knight")], &[false], &mut rng);
+        let knight = roll_loot(&[barrow_knight("The Barrow Knight")], &[false], 0, &mut rng);
         assert!(knight
             .armors
             .iter()
             .any(|a| a.name == "Barrow-Touched Plate"));
-        let warden = roll_loot(&[wyrmscale_warden("Wyrmscale Warden")], &[false], &mut rng);
+        let warden = roll_loot(&[wyrmscale_warden("Wyrmscale Warden")], &[false], 0, &mut rng);
         assert!(warden.armors.iter().any(|a| a.name == "Dragonscale Aegis"));
         let sovereign = roll_loot(
             &[ashen_sovereign("The Ashen Sovereign")],
             &[false],
+            0,
             &mut rng,
         );
         assert!(sovereign
@@ -2435,6 +2519,7 @@ mod tests {
             let loot = roll_loot(
                 &[mimic("Mimic"), skeleton("Skeleton")],
                 &[false, false],
+                0,
                 &mut rng,
             );
             saw_ring |= loot.rings.iter().any(|r| r.name == "Mimic's Coil");
@@ -2451,9 +2536,9 @@ mod tests {
     fn overkill_grants_bonus_gold() {
         let enemies = vec![slime("Slime")];
         let mut rng1 = StdRng::seed_from_u64(50);
-        let normal = roll_loot(&enemies, &[false], &mut rng1);
+        let normal = roll_loot(&enemies, &[false], 0, &mut rng1);
         let mut rng2 = StdRng::seed_from_u64(50);
-        let overkill = roll_loot(&enemies, &[true], &mut rng2);
+        let overkill = roll_loot(&enemies, &[true], 0, &mut rng2);
 
         assert!(
             overkill.gold > normal.gold,
@@ -2472,11 +2557,66 @@ mod tests {
         elite.apply_elite();
 
         let mut rng1 = StdRng::seed_from_u64(7);
-        let normal_loot = roll_loot(&[normal], &[false], &mut rng1);
+        let normal_loot = roll_loot(&[normal], &[false], 0, &mut rng1);
         let mut rng2 = StdRng::seed_from_u64(7);
-        let elite_loot = roll_loot(&[elite], &[false], &mut rng2);
+        let elite_loot = roll_loot(&[elite], &[false], 0, &mut rng2);
 
         assert!(elite_loot.gold > normal_loot.gold);
+    }
+
+    #[test]
+    fn loot_notes_mirror_the_live_loot_profile() {
+        let goblin_notes = loot_notes("Goblin").join("\n");
+        assert!(goblin_notes.contains("Goblin Shiv"), "goblin notes: {goblin_notes}");
+        assert!(goblin_notes.contains("Gold: 8-16"));
+
+        let rat_notes = loot_notes("Rat").join("\n");
+        assert!(
+            !rat_notes.contains('%') || rat_notes.matches('%').count() == 1,
+            "rats only ever drop a potion: {rat_notes}"
+        );
+        assert!(!rat_notes.contains("Shiv") && !rat_notes.contains("Titanite"));
+    }
+
+    #[test]
+    fn ng_plus_chance_adds_two_points_per_cycle_capped_at_seven_and_ninety_percent() {
+        assert!((ng_plus_chance(0.12, 7) - 0.26).abs() < 1e-6);
+        assert!((ng_plus_chance(0.85, 7) - 0.9).abs() < 1e-6, "0.9 ceiling should clip");
+        assert_eq!(ng_plus_chance(0.3, 0), 0.3, "NG+0 should be a no-op");
+        assert!(
+            (ng_plus_chance(0.12, 12) - ng_plus_chance(0.12, 7)).abs() < 1e-6,
+            "cycles past NG+7 should not keep raising the chance"
+        );
+    }
+
+    #[test]
+    fn ng_plus_seven_drops_strictly_more_weapons_than_ng_plus_zero() {
+        let orcs = vec![orc("Orc")];
+        let mut base_drops = 0usize;
+        let mut ng7_drops = 0usize;
+        // Same seed per iteration so only the NG+ bump differs.
+        for seed in 0..500 {
+            base_drops += roll_loot(&orcs, &[false], 0, &mut StdRng::seed_from_u64(seed))
+                .weapons
+                .len();
+            ng7_drops += roll_loot(&orcs, &[false], 7, &mut StdRng::seed_from_u64(seed))
+                .weapons
+                .len();
+        }
+        assert!(
+            ng7_drops > base_drops,
+            "NG+7 should drop more weapons over 500 kills ({ng7_drops} vs {base_drops})"
+        );
+    }
+
+    #[test]
+    fn boss_guaranteed_drops_survive_ng_plus_scaling() {
+        let mut rng = StdRng::seed_from_u64(11);
+        let knight = roll_loot(&[barrow_knight("The Barrow Knight")], &[false], 7, &mut rng);
+        assert!(
+            knight.weapons.iter().any(|w| w.name == "Knightsbane"),
+            "the boss's guaranteed signature weapon must not be clipped by the NG+ ceiling"
+        );
     }
 
     #[test]
@@ -2742,8 +2882,8 @@ mod tests {
 
         // Same seed, so the underlying gold roll is identical — only the
         // level multiplier differs.
-        let base_loot = roll_loot(&base, &[false], &mut StdRng::seed_from_u64(9));
-        let scaled_loot = roll_loot(&scaled, &[false], &mut StdRng::seed_from_u64(9));
+        let base_loot = roll_loot(&base, &[false], 0, &mut StdRng::seed_from_u64(9));
+        let scaled_loot = roll_loot(&scaled, &[false], 0, &mut StdRng::seed_from_u64(9));
         assert!(scaled_loot.gold > base_loot.gold);
         assert!(scaled_loot.xp > base_loot.xp);
     }

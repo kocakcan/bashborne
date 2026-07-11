@@ -33,18 +33,18 @@ pub fn draw(
     let content_y0 = HEADER_Y + HEADER_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
-    draw_header(party, inventory, cmds);
+    draw_header(inventory, cmds);
     draw_weapon_list(bs, party, inventory, content_y0, content_y1, cmds);
     draw_party_gear(assets, party, &InventoryMode::Browsing, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
     draw_footer(bs.message.as_deref(), current_chapter == ChapterId::Three, content_y1, cmds);
 }
 
-fn draw_header(party: &Party, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
+fn draw_header(inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     draw_rectangle_lines(0.0, HEADER_Y, CANVAS_WIDTH, HEADER_H, 1.0, WHITE);
     push_text(cmds, "Andre of Astora - Weapon Upgrades", 4.0, HEADER_Y + 9.0, 9.0, WHITE);
     push_text(
         cmds,
-        format!("Gold: {}   Titanite Shards: {}", party.gold, inventory.upgrade_materials),
+        format!("Titanite Shards: {}", inventory.upgrade_materials),
         4.0,
         HEADER_Y + HEADER_H - 2.0,
         7.0,

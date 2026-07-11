@@ -32,7 +32,7 @@ pub fn draw(
     let content_y0 = HEADER_Y + HEADER_H;
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
-    draw_header(shop, party, cmds);
+    draw_header(shop, cmds);
     draw_rectangle_lines(0.0, content_y0, LEFT_W, content_y1 - content_y0, 1.0, WHITE);
 
     match shop.mode {
@@ -44,7 +44,7 @@ pub fn draw(
     draw_footer(shop.message.as_deref(), chapter, content_y1, CANVAS_HEIGHT, cmds);
 }
 
-fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
+fn draw_header(shop: &ShopUiState, cmds: &mut Vec<TextCmd>) {
     let buy_color = if shop.mode == ShopMode::Buy { YELLOW } else { GRAY };
     let sell_color = if shop.mode == ShopMode::Sell { YELLOW } else { GRAY };
     push_text(cmds, "Buy", 4.0, HEADER_Y + 9.0, 9.0, buy_color);
@@ -62,7 +62,6 @@ fn draw_header(shop: &ShopUiState, party: &Party, cmds: &mut Vec<TextCmd>) {
         push_text(cmds, label, x, HEADER_Y + 9.0, 8.0, color);
         x += label.len() as f32 * 5.5 + 8.0;
     }
-    push_text(cmds, format!("Gold: {}", party.gold), CANVAS_WIDTH - 70.0, HEADER_Y + 9.0, 9.0, GOLD);
     push_text(
         cmds,
         "left-right Buy/Sell, Tab cycles tabs, x sells all Common, Esc leave",
@@ -129,9 +128,9 @@ fn draw_buy_list(
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
@@ -143,6 +142,10 @@ fn draw_buy_list(
                 let atk_color = if affordable { stat_color(AllocStat::Attack) } else { DARKGRAY };
                 push_text(cmds, atk_part.clone(), atk_x, ty, 8.0, atk_color);
                 push_text(cmds, format!(" {price}g"), atk_x + atk_part.len() as f32 * 5.5, ty, 8.0, color);
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Armor => {
@@ -153,9 +156,9 @@ fn draw_buy_list(
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let color = if !affordable { DARKGRAY } else { rarity_color(sample.rarity) };
                 let marker = if selected { "> " } else { "  " };
@@ -167,6 +170,10 @@ fn draw_buy_list(
                 let def_color = if affordable { stat_color(AllocStat::Defense) } else { DARKGRAY };
                 push_text(cmds, def_part.clone(), def_x, ty, 8.0, def_color);
                 push_text(cmds, format!(" {price}g"), def_x + def_part.len() as f32 * 5.5, ty, 8.0, color);
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Rings => {
@@ -177,9 +184,9 @@ fn draw_buy_list(
                 let sample = factory();
                 let affordable = party.gold >= price;
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let mut bonus = String::new();
                 if sample.attack_bonus > 0 {
@@ -199,6 +206,10 @@ fn draw_buy_list(
                     8.0,
                     color,
                 );
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&sample.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
     }
@@ -248,9 +259,9 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
             for (row, i) in range.enumerate() {
                 let w = &inventory.weapons[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, weapon_icon_rect(), pad, ty - 7.0, ICON_SIZE);
@@ -262,6 +273,10 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                     8.0,
                     rarity_color(w.rarity),
                 );
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&w.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Armor => {
@@ -273,9 +288,9 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
             for (row, i) in range.enumerate() {
                 let a = &inventory.armors[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.characters, armor_icon_rect(), pad, ty - 7.0, ICON_SIZE);
@@ -287,6 +302,10 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                     8.0,
                     rarity_color(a.rarity),
                 );
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&a.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
         ShopTab::Rings => {
@@ -298,9 +317,9 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
             for (row, i) in range.enumerate() {
                 let r = &inventory.rings[i];
                 let selected = i == shop.cursor;
-                let ty = y0 + 10.0 + row as f32 * 12.0;
+                let ty = y0 + 10.0 + row as f32 * 28.0;
                 if selected {
-                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 11.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                    draw_rectangle(0.0, ty - 8.0, LEFT_W, 26.0, Color::new(1.0, 1.0, 1.0, 0.12));
                 }
                 let marker = if selected { "> " } else { "  " };
                 draw_icon(&assets.tiles, ring_icon_rect(), pad, ty - 7.0, ICON_SIZE);
@@ -312,6 +331,10 @@ fn draw_sell_list(assets: &Assets, shop: &ShopUiState, inventory: &Inventory, y0
                     8.0,
                     rarity_color(r.rarity),
                 );
+                let detail_color = if selected { LIGHTGRAY } else { DARKGRAY };
+                for (li, line) in wrap_lines(&r.description, 52, 2).iter().enumerate() {
+                    push_text(cmds, line, text_pad + 4.0, ty + 10.0 + li as f32 * 7.0, 7.0, detail_color);
+                }
             }
         }
     }

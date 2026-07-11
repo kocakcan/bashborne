@@ -30,7 +30,7 @@ const SPECIES_PALETTE: [Color; 8] = [
     Color::new(0.50, 0.50, 0.50, 1.0),
 ];
 
-fn species_color(name: &str, elite: bool) -> Color {
+pub(super) fn species_color(name: &str, elite: bool) -> Color {
     let hash: u32 = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     let mut c = SPECIES_PALETTE[(hash as usize) % SPECIES_PALETTE.len()];
     if elite {

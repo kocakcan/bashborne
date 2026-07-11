@@ -21,6 +21,9 @@ pub fn draw_status_bar(world: &World, font: &Font, cmds: &mut Vec<TextCmd>) {
     if world.ng_plus > 0 {
         text.push_str(&format!("   NG+{}", world.ng_plus));
     }
+    if world.difficulty > 0 {
+        text.push_str("   [Accursed]");
+    }
     push_text(cmds, text, 4.0, 9.0, HUD_FONT, WHITE);
 
     let gold_text = format!("Gold: {}", world.party.gold);
@@ -41,11 +44,12 @@ pub fn draw_status_bar(world: &World, font: &Font, cmds: &mut Vec<TextCmd>) {
 /// Two columns of keybind reference (left: the screens with the fewest
 /// entries, right: the rest) plus a map legend, since a single column can no
 /// longer fit every screen's keybinds in the overlay's fixed 230px height.
-const HELP_LEFT: [&str; 14] = [
+const HELP_LEFT: [&str; 15] = [
     "Exploration",
     "arrows/WASD  move",
     "i            inventory",
     "l            quest log",
+    "b            bestiary",
     "u            level up",
     "e            interact (shop/NPC)",
     "S            save (works anywhere)",

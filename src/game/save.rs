@@ -32,6 +32,15 @@ pub struct SaveData {
     /// without this field default to 0 rather than failing to load.
     #[serde(default)]
     pub ng_plus: u32,
+    /// Raw `Character.name`s of every species/boss the party has fought,
+    /// gating what the bestiary reveals. Older saves default to empty.
+    #[serde(default)]
+    pub bestiary_seen: HashSet<String>,
+    /// Starting difficulty offset picked at new-game time (0 = Normal),
+    /// composed with `ng_plus` via `World::challenge_cycle`. Older saves
+    /// default to Normal.
+    #[serde(default)]
+    pub difficulty: u32,
 }
 
 /// How many save slots the main menu offers. Slot 3 is labeled "(Dev)" in
@@ -125,6 +134,8 @@ mod tests {
             quest_log,
             player_pos: Position { x: 4, y: 7 },
             ng_plus: 0,
+            bestiary_seen: HashSet::from(["Slime".to_string()]),
+            difficulty: 0,
         }
     }
 
@@ -161,6 +172,7 @@ mod tests {
         assert!(back.npc_flags.contains(&NpcId::OldHerbalist));
         assert!(back.quest_log.is_active(QuestId::HerbalistsRequest));
         assert_eq!(back.player_pos, Position { x: 4, y: 7 });
+        assert!(back.bestiary_seen.contains("Slime"));
     }
 
     #[test]
@@ -170,6 +182,24 @@ mod tests {
         value.as_object_mut().unwrap().remove("ng_plus");
         let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
         assert_eq!(back.ng_plus, 0);
+    }
+
+    #[test]
+    fn a_save_json_missing_bestiary_seen_defaults_to_empty() {
+        // Simulates a save file written before the bestiary existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value.as_object_mut().unwrap().remove("bestiary_seen");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert!(back.bestiary_seen.is_empty());
+    }
+
+    #[test]
+    fn a_save_json_missing_difficulty_defaults_to_normal() {
+        // Simulates a save file written before the difficulty setting existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value.as_object_mut().unwrap().remove("difficulty");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert_eq!(back.difficulty, 0);
     }
 
     #[test]

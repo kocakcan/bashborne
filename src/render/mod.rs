@@ -4,6 +4,7 @@ use crate::app::World;
 use crate::game::state::GameState;
 
 pub mod assets;
+mod bestiary;
 mod blacksmith;
 mod combat;
 mod common;
@@ -56,6 +57,7 @@ pub fn draw(assets: &Assets, world: &World) {
         GameState::QuestLog(ql_ui) => {
             quest_log::draw(ql_ui, &world.quest_log, &world.inventory, &mut text)
         }
+        GameState::Bestiary(b_ui) => bestiary::draw(b_ui, &world.bestiary_seen, &mut text),
         GameState::LevelUp(lu_ui) => levelup::draw(lu_ui, &world.party, &mut text),
         GameState::Blacksmith(bs_ui) => blacksmith::draw(
             assets,

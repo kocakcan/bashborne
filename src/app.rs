@@ -25,7 +25,7 @@ use crate::game::shop::{
 };
 use crate::game::state::{
     roll_field_event, EventState, ExploreState, FieldEvent, GameState, MainMenuState,
-    MAIN_MENU_ROWS,
+    DIFFICULTY_OPTIONS, MAIN_MENU_ROWS,
 };
 
 /// `World.anim_timer` wraps at this many seconds so it doesn't grow without
@@ -66,6 +66,17 @@ pub struct World {
     /// `start_new_game_plus` after beating the final boss, capped at 7.
     /// Multiplies every enemy's stats via `Character::apply_ng_plus`.
     pub ng_plus: u32,
+    /// Starting difficulty offset picked on the main menu (0 = Normal,
+    /// see `DIFFICULTY_OPTIONS`). Composed with `ng_plus` by
+    /// `challenge_cycle()` for all combat scaling; never shown as part of
+    /// the NG+ story-cycle counter.
+    pub difficulty: u32,
+    /// Raw `Character.name`s of every species/boss the party has fought at
+    /// least once — gates what the bestiary screen reveals. Recorded at
+    /// combat start (seeing the fight counts, winning isn't required) and
+    /// deliberately NOT cleared by `start_new_game_plus`: the codex is a
+    /// chronicle of the whole journey, not one cycle.
+    pub bestiary_seen: std::collections::HashSet<String>,
     /// Accumulates real elapsed seconds, wrapping at `ANIM_TIMER_WRAP` — a
     /// plain monotonic clock `render::combat` samples to drive the idle-bob
     /// sine wave on combat sprites.
@@ -105,6 +116,8 @@ impl World {
             npc_flags: std::collections::HashSet::new(),
             quest_log: crate::game::quest::QuestLog::new(),
             ng_plus: 0,
+            difficulty: 0,
+            bestiary_seen: std::collections::HashSet::new(),
             anim_timer: 0.0,
             show_help: false,
             confirm_quit: false,
@@ -133,7 +146,20 @@ impl World {
             quest_log: self.quest_log.clone(),
             player_pos,
             ng_plus: self.ng_plus,
+            bestiary_seen: self.bestiary_seen.clone(),
+            difficulty: self.difficulty,
         }
+    }
+
+    /// The gameplay challenge tier: the NG+ story cycle plus the starting
+    /// difficulty offset, saturating at the same NG+7 cap. Every combat
+    /// consumer (encounter scaling, loot, flee odds, elites, boss NG+
+    /// multipliers) reads this; the HUD and menu keep displaying the raw
+    /// `ng_plus` so the story-cycle counter never lies. Accepted
+    /// consequence: an Accursed run unlocks the NG+1/NG+2 blessing and
+    /// curse pools immediately and saturates the cap two cycles early.
+    pub fn challenge_cycle(&self) -> u32 {
+        (self.ng_plus + self.difficulty).min(7)
     }
 
     /// Rebuilds a `World` from a snapshot loaded out of `slot`, dropping the
@@ -143,8 +169,17 @@ impl World {
         let mut explore = ExploreState::for_chapter(data.current_chapter);
         explore.player_pos = data.player_pos;
         explore.push_log("Loaded saved game.");
+        // Abilities are serialized with the party, so a save written before
+        // a class gained an ability would never show it — resync every
+        // member's kit from the class table on load.
+        let mut party = data.party;
+        for member in &mut party.members {
+            if member.class != crate::game::character::Class::Monster {
+                member.abilities = crate::game::character::class_abilities(member.class);
+            }
+        }
         Self {
-            party: data.party,
+            party,
             inventory: data.inventory,
             state: GameState::Explore(explore),
             rng: rand::thread_rng(),
@@ -154,6 +189,8 @@ impl World {
             npc_flags: data.npc_flags,
             quest_log: data.quest_log,
             ng_plus: data.ng_plus,
+            difficulty: data.difficulty,
+            bestiary_seen: data.bestiary_seen,
             anim_timer: 0.0,
             show_help: false,
             confirm_quit: false,
@@ -164,9 +201,10 @@ impl World {
     /// Starts a brand-new game and marks `slot` as the active save slot from
     /// now on, so a later Shift+S quicksave lands in the slot the player
     /// picked rather than a default.
-    fn start_new_game_in_slot(&mut self, slot: u8) {
+    fn start_new_game_in_slot(&mut self, slot: u8, difficulty: u32) {
         *self = Self::new();
         self.active_slot = Some(slot);
+        self.difficulty = difficulty;
     }
 
     /// Where the player is standing right now, if there's a meaningful
@@ -181,6 +219,7 @@ impl World {
             GameState::Inventory(ui) => Some(ui.return_pos),
             GameState::Shop(ui) => Some(ui.return_pos),
             GameState::QuestLog(ui) => Some(ui.return_pos),
+            GameState::Bestiary(ui) => Some(ui.return_pos),
             GameState::LevelUp(ui) => Some(ui.return_pos),
             GameState::Blacksmith(ui) => Some(ui.return_pos),
             GameState::MainMenu(_)
@@ -202,6 +241,7 @@ impl World {
             GameState::LevelUp(ui) => ui.message = Some(message),
             GameState::Blacksmith(ui) => ui.message = Some(message),
             GameState::QuestLog(_)
+            | GameState::Bestiary(_)
             | GameState::MainMenu(_)
             | GameState::Combat(_)
             | GameState::Event(_)
@@ -215,6 +255,15 @@ impl World {
     /// one, and drops the player back at its spawn. Party level, gear, gold,
     /// and inventory are deliberately preserved — that's the whole point of
     /// New Game+.
+    /// Marks every species/boss in `enemies` as encountered, unlocking its
+    /// bestiary entry. Keyed on the raw `Character.name` (never
+    /// `display_name`), matching `loot_profile`/`bestiary_entries`.
+    fn record_bestiary(&mut self, enemies: &[Character]) {
+        for e in enemies {
+            self.bestiary_seen.insert(e.name.clone());
+        }
+    }
+
     pub fn start_new_game_plus(&mut self) {
         self.ng_plus = (self.ng_plus + 1).min(7);
         self.current_chapter = ChapterId::One;
@@ -289,6 +338,7 @@ impl World {
             GameState::Inventory(_) => self.handle_inventory_key(key),
             GameState::Shop(_) => self.handle_shop_key(key),
             GameState::QuestLog(_) => self.handle_quest_log_key(key),
+            GameState::Bestiary(_) => self.handle_bestiary_key(key),
             GameState::LevelUp(_) => self.handle_levelup_key(key),
             GameState::Blacksmith(_) => self.handle_blacksmith_key(key),
             GameState::Event(ev) => {
@@ -317,11 +367,38 @@ impl World {
         let GameState::MainMenu(menu) = &mut self.state else {
             return;
         };
+        // The difficulty picker is modal: it's the last stop before any new
+        // game actually starts (every new-game entry point below arms it).
+        if let Some(slot) = menu.pending_new_game {
+            match key {
+                Key::Up | Key::Char('w') | Key::Left | Key::Char('a') => {
+                    menu.difficulty_cursor = (menu.difficulty_cursor + DIFFICULTY_OPTIONS.len()
+                        - 1)
+                        % DIFFICULTY_OPTIONS.len();
+                }
+                Key::Down | Key::Char('s') | Key::Right | Key::Char('d') => {
+                    menu.difficulty_cursor = (menu.difficulty_cursor + 1) % DIFFICULTY_OPTIONS.len();
+                }
+                Key::Enter => {
+                    let difficulty = DIFFICULTY_OPTIONS[menu.difficulty_cursor].1;
+                    self.start_new_game_in_slot(slot, difficulty);
+                }
+                Key::Esc => {
+                    menu.pending_new_game = None;
+                    menu.difficulty_cursor = 0;
+                }
+                _ => {}
+            }
+            return;
+        }
         // The overwrite confirmation is modal: nothing else reacts until the
         // player commits or backs out.
         if let Some(slot) = menu.confirm_overwrite {
             match key {
-                Key::Enter | Key::Char('y') => self.start_new_game_in_slot(slot),
+                Key::Enter | Key::Char('y') => {
+                    menu.confirm_overwrite = None;
+                    menu.pending_new_game = Some(slot);
+                }
                 Key::Esc | Key::Char('n') => menu.confirm_overwrite = None,
                 _ => {}
             }
@@ -346,7 +423,7 @@ impl World {
                     if menu.slots[cursor].is_some() {
                         menu.confirm_overwrite = Some(slot);
                     } else {
-                        self.start_new_game_in_slot(slot);
+                        menu.pending_new_game = Some(slot);
                     }
                 }
             }
@@ -358,7 +435,7 @@ impl World {
                     let slot = (cursor + 1) as u8;
                     match menu.slots[cursor].take() {
                         Some(data) => *self = Self::from_save(data, slot),
-                        None => self.start_new_game_in_slot(slot),
+                        None => menu.pending_new_game = Some(slot),
                     }
                 }
             }
@@ -409,6 +486,15 @@ impl World {
             self.state = GameState::LevelUp(LevelUpUiState::new(return_pos));
             return;
         }
+        if key == Key::Char('b') {
+            let GameState::Explore(explore) = &self.state else {
+                return;
+            };
+            let return_pos = explore.player_pos;
+            self.state =
+                GameState::Bestiary(crate::game::bestiary_ui::BestiaryUiState::new(return_pos));
+            return;
+        }
         if key == Key::Char('e') {
             let GameState::Explore(explore) = &self.state else {
                 return;
@@ -452,11 +538,13 @@ impl World {
             // ~1 in 4 steps through grass triggers *some* field event (not always a fight).
             if self.rng.gen_ratio(1, 4) {
                 let enemy_level = chapter_def(self.current_chapter).enemy_level;
-                match roll_field_event(&mut self.rng, enemy_level, self.ng_plus) {
+                let challenge = self.challenge_cycle();
+                match roll_field_event(&mut self.rng, enemy_level, challenge) {
                     FieldEvent::Combat(enemies) => {
+                        self.record_bestiary(&enemies);
                         let mut combat = CombatState::new(&self.party, enemies);
                         combat.return_pos = Some(next);
-                        combat.ng_plus = self.ng_plus;
+                        combat.ng_plus = self.challenge_cycle();
                         self.state = GameState::Combat(combat);
                     }
                     FieldEvent::Blessing(effect) => {
@@ -551,10 +639,11 @@ impl World {
             let def = chapter_def(self.current_chapter);
             let mut boss = (def.boss)(def.boss_display_name);
             boss.scale_boss_to_party(self.party.average_level(), def.boss_baseline_level());
-            boss.apply_ng_plus(self.ng_plus);
+            boss.apply_ng_plus(self.challenge_cycle());
+            self.record_bestiary(std::slice::from_ref(&boss));
             let mut combat = CombatState::new(&self.party, vec![boss]);
             combat.return_pos = Some(next);
-            combat.ng_plus = self.ng_plus;
+            combat.ng_plus = self.challenge_cycle();
             self.state = GameState::Combat(combat);
         }
     }
@@ -693,6 +782,38 @@ impl World {
             Key::Down | Key::Char('s') => {
                 let len = self.quest_log.active.len().max(1);
                 let GameState::QuestLog(ui) = &mut self.state else {
+                    return;
+                };
+                ui.cursor = (cursor + 1) % len;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_bestiary_key(&mut self, key: Key) {
+        let GameState::Bestiary(ui_ref) = &self.state else {
+            return;
+        };
+        let cursor = ui_ref.cursor;
+        let len = crate::game::bestiary_ui::bestiary_entries().len().max(1);
+        match key {
+            Key::Esc => {
+                let GameState::Bestiary(ui) = &self.state else {
+                    return;
+                };
+                let return_pos = ui.return_pos;
+                let mut explore = ExploreState::for_chapter(self.current_chapter);
+                explore.player_pos = return_pos;
+                self.state = GameState::Explore(explore);
+            }
+            Key::Up | Key::Char('w') => {
+                let GameState::Bestiary(ui) = &mut self.state else {
+                    return;
+                };
+                ui.cursor = (cursor + len - 1) % len;
+            }
+            Key::Down | Key::Char('s') => {
+                let GameState::Bestiary(ui) = &mut self.state else {
                     return;
                 };
                 ui.cursor = (cursor + 1) % len;
@@ -2377,8 +2498,15 @@ mod tests {
         let mut world = world_at_menu(empty_slots());
         world.handle_key(Key::Down); // Slot 1 -> Slot 2
         world.handle_key(Key::Enter);
+        assert_eq!(
+            menu(&world).pending_new_game,
+            Some(2),
+            "picking an empty slot should ask for a difficulty first"
+        );
+        world.handle_key(Key::Enter); // confirm Normal
         assert!(matches!(world.state, GameState::Explore(_)));
         assert_eq!(world.active_slot, Some(2));
+        assert_eq!(world.difficulty, 0);
     }
 
     #[test]
@@ -2417,7 +2545,9 @@ mod tests {
         );
 
         world.handle_key(Key::Char('n')); // force New Game again
-        world.handle_key(Key::Enter); // confirm this time
+        world.handle_key(Key::Enter); // confirm this time -> difficulty picker
+        assert_eq!(menu(&world).pending_new_game, Some(1));
+        world.handle_key(Key::Enter); // pick Normal
         assert!(matches!(world.state, GameState::Explore(_)));
         assert_eq!(world.active_slot, Some(1));
         assert_ne!(
@@ -2430,8 +2560,73 @@ mod tests {
     fn n_on_an_empty_slot_starts_fresh_without_confirming() {
         let mut world = world_at_menu(empty_slots());
         world.handle_key(Key::Char('n'));
+        assert_eq!(
+            menu(&world).pending_new_game,
+            Some(1),
+            "no overwrite confirm needed, straight to the difficulty picker"
+        );
+        world.handle_key(Key::Enter); // pick Normal
         assert!(matches!(world.state, GameState::Explore(_)));
         assert_eq!(world.active_slot, Some(1));
+    }
+
+    #[test]
+    fn picking_accursed_starts_at_difficulty_two_without_touching_ng_plus() {
+        let mut world = world_at_menu(empty_slots());
+        world.handle_key(Key::Enter); // empty Slot 1 -> difficulty picker
+        world.handle_key(Key::Down); // Normal -> Accursed
+        world.handle_key(Key::Enter);
+        assert!(matches!(world.state, GameState::Explore(_)));
+        assert_eq!(world.difficulty, 2);
+        assert_eq!(world.ng_plus, 0, "difficulty must not masquerade as a story cycle");
+        assert_eq!(world.challenge_cycle(), 2);
+    }
+
+    #[test]
+    fn esc_backs_out_of_the_difficulty_picker_without_starting() {
+        let mut world = world_at_menu(empty_slots());
+        world.handle_key(Key::Enter);
+        assert_eq!(menu(&world).pending_new_game, Some(1));
+        world.handle_key(Key::Down); // move to Accursed, then bail
+        world.handle_key(Key::Esc);
+        assert!(matches!(world.state, GameState::MainMenu(_)));
+        assert_eq!(menu(&world).pending_new_game, None);
+        assert_eq!(
+            menu(&world).difficulty_cursor,
+            0,
+            "the picker should reset for the next visit"
+        );
+    }
+
+    #[test]
+    fn challenge_cycle_composes_ng_plus_and_difficulty_capped_at_seven() {
+        let mut world = World::new();
+        world.difficulty = 2;
+        assert_eq!(world.challenge_cycle(), 2);
+        world.ng_plus = 3;
+        assert_eq!(world.challenge_cycle(), 5);
+        world.ng_plus = 7;
+        assert_eq!(world.challenge_cycle(), 7, "the NG+7 cap holds");
+    }
+
+    #[test]
+    fn new_game_plus_preserves_the_chosen_difficulty() {
+        let mut world = World::new();
+        world.difficulty = 2;
+        world.start_new_game_plus();
+        assert_eq!(world.ng_plus, 1);
+        assert_eq!(world.difficulty, 2, "the burden carries across cycles");
+    }
+
+    #[test]
+    fn a_save_round_trip_preserves_difficulty() {
+        let mut world = World::new();
+        world.difficulty = 2;
+        let json = serde_json::to_string(&world.to_save(Position { x: 1, y: 1 }))
+            .expect("save should serialize");
+        let restored =
+            World::from_save(serde_json::from_str(&json).expect("save should parse"), 1);
+        assert_eq!(restored.difficulty, 2);
     }
 
     #[test]
@@ -2691,6 +2886,54 @@ mod tests {
             panic!("expected the boss fight to start");
         };
         assert!(combat.enemies.iter().any(|e| e.name == "The Barrow Knight"));
+    }
+
+    #[test]
+    fn starting_a_fight_records_the_enemy_in_the_bestiary() {
+        let mut world = World::new();
+        assert!(world.bestiary_seen.is_empty());
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = Position { x: 26, y: 7 };
+        }
+        world.handle_key(Key::Down); // step onto the boss lair
+
+        assert!(matches!(world.state, GameState::Combat(_)));
+        assert!(
+            world.bestiary_seen.contains("The Barrow Knight"),
+            "seeing the fight (not winning it) should unlock the codex entry"
+        );
+    }
+
+    #[test]
+    fn b_opens_the_bestiary_and_esc_returns_to_the_same_tile() {
+        let mut world = World::new();
+        let pos = Position { x: 3, y: 2 };
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = pos;
+        }
+        world.handle_key(Key::Char('b'));
+        let GameState::Bestiary(ui) = &world.state else {
+            panic!("expected 'b' to open the bestiary");
+        };
+        assert_eq!(ui.return_pos, pos);
+
+        world.handle_key(Key::Down);
+        world.handle_key(Key::Esc);
+        let GameState::Explore(explore) = &world.state else {
+            panic!("expected Esc to return to Explore");
+        };
+        assert_eq!(explore.player_pos, pos, "the player should stand where they left off");
+    }
+
+    #[test]
+    fn new_game_plus_preserves_the_bestiary() {
+        let mut world = World::new();
+        world.bestiary_seen.insert("Slime".to_string());
+        world.start_new_game_plus();
+        assert!(
+            world.bestiary_seen.contains("Slime"),
+            "the codex chronicles the whole journey, not one cycle"
+        );
     }
 
     #[test]
@@ -3168,6 +3411,26 @@ mod tests {
             Tile::BossLair,
             "the loaded map should be chapter two's"
         );
+    }
+
+    #[test]
+    fn loading_an_old_save_backfills_newly_added_class_abilities() {
+        let world = World::new();
+        let mut data = world.to_save(Position { x: 1, y: 1 });
+        // Simulate a save written before every class gained its 3rd ability.
+        for member in &mut data.party.members {
+            member.abilities.truncate(2);
+        }
+        let json = serde_json::to_string(&data).expect("save should serialize");
+        let restored = World::from_save(serde_json::from_str(&json).expect("save should parse"), 1);
+        for member in &restored.party.members {
+            assert_eq!(
+                member.abilities.len(),
+                3,
+                "{} should have been resynced to the full class kit",
+                member.name
+            );
+        }
     }
 
     #[test]
