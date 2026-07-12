@@ -5,8 +5,8 @@
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 7,
-        "xp": 21,
+        "level": 8,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
           "max_hp": 50,
@@ -14,7 +14,7 @@
           "max_mp": 5,
           "mp": 5,
           "attack": 9,
-          "defense": 22,
+          "defense": 28,
           "speed": 5,
           "luck": 3
         },
@@ -62,29 +62,29 @@
         "is_elite": false,
         "elite_signature_used": false,
         "growth_carry": [
-          0.8399999,
-          0.32000002,
-          0.059999943,
-          0.36,
-          0.08000004,
-          0.08000004
+          0.4799999,
+          0.54,
+          0.56999993,
+          0.92,
+          0.26000005,
+          0.26000005
         ]
       },
       {
         "name": "Sella",
         "class": "Mage",
-        "level": 7,
-        "xp": 21,
+        "level": 8,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 24,
-          "hp": 24,
-          "max_mp": 18,
-          "mp": 18,
-          "attack": 11,
-          "defense": 2,
-          "speed": 7,
-          "luck": 7
+          "max_hp": 27,
+          "hp": 27,
+          "max_mp": 19,
+          "mp": 19,
+          "attack": 12,
+          "defense": 3,
+          "speed": 8,
+          "luck": 8
         },
         "abilities": [
           {
@@ -136,26 +136,26 @@
         "is_elite": false,
         "elite_signature_used": false,
         "growth_carry": [
-          0.42,
-          0.8399999,
-          0.72,
-          0.9,
-          0.82000005,
-          0.82000005
+          0.48999998,
+          0.4799999,
+          0.34000003,
+          0.049999952,
+          0.29000008,
+          0.29000008
         ]
       },
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 7,
-        "xp": 21,
+        "level": 8,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 45,
-          "hp": 45,
-          "max_mp": 17,
-          "mp": 17,
-          "attack": 5,
+          "max_hp": 48,
+          "hp": 48,
+          "max_mp": 18,
+          "mp": 18,
+          "attack": 6,
           "defense": 9,
           "speed": 5,
           "luck": 6
@@ -202,29 +202,29 @@
         "is_elite": false,
         "elite_signature_used": false,
         "growth_carry": [
-          0.30000007,
-          0.4799999,
-          0.73999995,
+          0.8500001,
           0.059999943,
-          0.08000004,
-          0.4
+          0.029999971,
+          0.56999993,
+          0.26000005,
+          0.8
         ]
       },
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 7,
-        "xp": 21,
+        "level": 8,
+        "xp": 0,
         "unspent_points": 0,
         "stats": {
-          "max_hp": 27,
-          "hp": 27,
+          "max_hp": 31,
+          "hp": 31,
           "max_mp": 5,
           "mp": 5,
-          "attack": 11,
+          "attack": 12,
           "defense": 3,
-          "speed": 14,
-          "luck": 14
+          "speed": 15,
+          "luck": 15
         },
         "abilities": [
           {
@@ -285,24 +285,17 @@
         "is_elite": false,
         "elite_signature_used": false,
         "growth_carry": [
-          0.98000014,
-          0.32000002,
-          0.72,
-          0.32000002,
-          0.9199999,
-          0.9199999
+          0.31000018,
+          0.54,
+          0.34000003,
+          0.54,
+          0.7399999,
+          0.7399999
         ]
       }
     ],
-    "gold": 448,
-    "effects": [
-      {
-        "name": "Blessing of Swiftness",
-        "target": "Speed",
-        "delta": 4,
-        "encounters_remaining": 1
-      }
-    ]
+    "gold": 539,
+    "effects": []
   },
   "inventory": {
     "items": [
@@ -317,7 +310,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        4
+        5
       ],
       [
         {
@@ -375,23 +368,25 @@
     ]
   },
   "player_pos": {
-    "x": 26,
-    "y": 4
+    "x": 22,
+    "y": 3
   },
   "ng_plus": 0,
   "bestiary_seen": [
-    "Fell Acolyte",
-    "The Barrow Knight",
-    "Forsaken Knight",
-    "Skeleton",
-    "Carrion Crow",
-    "Slime",
-    "Grave Ghoul",
-    "Wraith",
     "Mimic",
+    "Bandit",
+    "Fell Acolyte",
+    "Grave Ghoul",
     "Wolf",
+    "Bat",
+    "Orc",
+    "Carrion Crow",
+    "The Barrow Knight",
+    "Skeleton",
     "Hollow",
-    "Bat"
+    "Forsaken Knight",
+    "Slime",
+    "Wraith"
   ],
   "difficulty": 2
 }

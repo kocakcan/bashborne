@@ -1,54 +1,120 @@
 {
-  "version": 1,
+  "version": 2,
   "party": {
     "members": [
       {
         "name": "Bram",
         "class": "Warrior",
-        "level": 10,
-        "xp": 15,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 16,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 203,
-          "hp": 203,
-          "max_mp": 19,
-          "mp": 19,
-          "attack": 30,
-          "defense": 34,
-          "speed": 6,
-          "luck": 5
+          "max_hp": 50,
+          "hp": 50,
+          "max_mp": 50,
+          "mp": 50,
+          "attack": 50,
+          "defense": 50,
+          "speed": 50,
+          "luck": 50
         },
         "abilities": [
           {
             "name": "Power Strike",
-            "mp_cost": 3,
+            "mp_cost": 1,
             "base_power": 10,
             "kind": "PhysicalDamage",
             "targets_all_enemies": false
           },
           {
             "name": "Crushing Blow",
-            "mp_cost": 6,
+            "mp_cost": 2,
             "base_power": 18,
             "kind": "PhysicalDamage",
             "targets_all_enemies": false
           },
           {
             "name": "Quaking Slam",
-            "mp_cost": 8,
+            "mp_cost": 3,
             "base_power": 12,
             "kind": "PhysicalDamage",
             "targets_all_enemies": true
           }
         ],
         "equipped_weapon": {
-          "name": "Fell Censer",
-          "rarity": "Rare",
-          "attack_bonus": 9,
-          "defense_bonus": 1,
-          "description": "Swings heavy; the smoke it sheds still prays.",
+          "name": "Worn Shortsword",
+          "rarity": "Common",
+          "attack_bonus": 1,
+          "defense_bonus": 0,
+          "description": "A nicked, well-used blade. Better than fists.",
+          "source": "Starting",
+          "upgrade_level": 0,
+          "passive": null
+        },
+        "equipped_armor": null,
+        "equipped_rings": [
+          null,
+          null
+        ],
+        "boss_kind": null,
+        "is_elite": false,
+        "elite_signature_used": false,
+        "growth_carry": [
+          0.64,
+          0.22,
+          0.51,
+          0.56,
+          0.18,
+          0.18
+        ]
+      },
+      {
+        "name": "Sella",
+        "class": "Mage",
+        "level": 2,
+        "xp": 16,
+        "unspent_points": 0,
+        "stats": {
+          "max_hp": 50,
+          "hp": 50,
+          "max_mp": 50,
+          "mp": 50,
+          "attack": 50,
+          "defense": 50,
+          "speed": 50,
+          "luck": 50
+        },
+        "abilities": [
+          {
+            "name": "Firebolt",
+            "mp_cost": 3,
+            "base_power": 16,
+            "kind": "MagicDamage",
+            "targets_all_enemies": false
+          },
+          {
+            "name": "Lightning Bolt",
+            "mp_cost": 6,
+            "base_power": 26,
+            "kind": "MagicDamage",
+            "targets_all_enemies": false
+          },
+          {
+            "name": "Chaos Storm",
+            "mp_cost": 9,
+            "base_power": 20,
+            "kind": "MagicDamage",
+            "targets_all_enemies": true
+          }
+        ],
+        "equipped_weapon": {
+          "name": "Goblin Shiv",
+          "rarity": "Common",
+          "attack_bonus": 2,
+          "defense_bonus": 0,
+          "description": "Crude but wickedly sharp.",
           "source": {
-            "EnemyDrop": "Fell Acolyte"
+            "EnemyDrop": "Goblin"
           },
           "upgrade_level": 0,
           "passive": null
@@ -60,106 +126,50 @@
         ],
         "boss_kind": null,
         "is_elite": false,
-        "elite_signature_used": false
-      },
-      {
-        "name": "Sella",
-        "class": "Mage",
-        "level": 10,
-        "xp": 15,
-        "unspent_points": 9,
-        "stats": {
-          "max_hp": 92,
-          "hp": 92,
-          "max_mp": 75,
-          "mp": 75,
-          "attack": 14,
-          "defense": 18,
-          "speed": 17,
-          "luck": 15
-        },
-        "abilities": [
-          {
-            "name": "Firebolt",
-            "mp_cost": 6,
-            "base_power": 16,
-            "kind": "MagicDamage",
-            "targets_all_enemies": false
-          },
-          {
-            "name": "Lightning Bolt",
-            "mp_cost": 12,
-            "base_power": 26,
-            "kind": "MagicDamage",
-            "targets_all_enemies": false
-          },
-          {
-            "name": "Chaos Storm",
-            "mp_cost": 18,
-            "base_power": 20,
-            "kind": "MagicDamage",
-            "targets_all_enemies": true
-          }
-        ],
-        "equipped_weapon": {
-          "name": "Sunken Relic Blade",
-          "rarity": "Rare",
-          "attack_bonus": 11,
-          "defense_bonus": 0,
-          "description": "Pulled from somewhere it should never have been found.",
-          "source": "World",
-          "upgrade_level": 0,
-          "passive": null
-        },
-        "equipped_armor": {
-          "name": "Barrow-Touched Plate",
-          "rarity": "Epic",
-          "defense_bonus": 15,
-          "description": "Unearthed from the barrow's outer vaults, still faintly humming.",
-          "source": "World"
-        },
-        "equipped_rings": [
-          null,
-          null
-        ],
-        "boss_kind": null,
-        "is_elite": false,
-        "elite_signature_used": false
+        "elite_signature_used": false,
+        "growth_carry": [
+          0.07,
+          0.64,
+          0.62,
+          0.15,
+          0.47,
+          0.47
+        ]
       },
       {
         "name": "Idris",
         "class": "Cleric",
-        "level": 10,
-        "xp": 15,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 16,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 142,
-          "hp": 142,
-          "max_mp": 60,
-          "mp": 60,
-          "attack": 15,
-          "defense": 34,
-          "speed": 7,
-          "luck": 13
+          "max_hp": 50,
+          "hp": 50,
+          "max_mp": 50,
+          "mp": 50,
+          "attack": 50,
+          "defense": 50,
+          "speed": 50,
+          "luck": 50
         },
         "abilities": [
           {
             "name": "Mend",
-            "mp_cost": 8,
+            "mp_cost": 5,
             "base_power": 18,
             "kind": "Heal",
             "targets_all_enemies": false
           },
           {
             "name": "Smite",
-            "mp_cost": 5,
+            "mp_cost": 3,
             "base_power": 12,
             "kind": "PhysicalDamage",
             "targets_all_enemies": false
           },
           {
             "name": "Wrath of the Gods",
-            "mp_cost": 12,
+            "mp_cost": 7,
             "base_power": 15,
             "kind": "MagicDamage",
             "targets_all_enemies": true
@@ -168,7 +178,7 @@
         "equipped_weapon": {
           "name": "Acolyte's Mace",
           "rarity": "Common",
-          "attack_bonus": 2,
+          "attack_bonus": 1,
           "defense_bonus": 1,
           "description": "Blunt and humble, blessed only lightly.",
           "source": "Starting",
@@ -182,81 +192,104 @@
         ],
         "boss_kind": null,
         "is_elite": false,
-        "elite_signature_used": false
+        "elite_signature_used": false,
+        "growth_carry": [
+          0.55,
+          0.58,
+          0.29,
+          0.51,
+          0.18,
+          0.4
+        ]
       },
       {
         "name": "Wren",
         "class": "Rogue",
-        "level": 10,
-        "xp": 15,
-        "unspent_points": 9,
+        "level": 2,
+        "xp": 16,
+        "unspent_points": 0,
         "stats": {
-          "max_hp": 120,
-          "hp": 120,
-          "max_mp": 32,
-          "mp": 32,
-          "attack": 30,
-          "defense": 17,
-          "speed": 29,
-          "luck": 30
+          "max_hp": 50,
+          "hp": 50,
+          "max_mp": 50,
+          "mp": 50,
+          "attack": 50,
+          "defense": 50,
+          "speed": 50,
+          "luck": 50
         },
         "abilities": [
           {
             "name": "Backstab",
-            "mp_cost": 4,
+            "mp_cost": 1,
             "base_power": 12,
             "kind": "PhysicalDamage",
             "targets_all_enemies": false
           },
           {
             "name": "Fan of Knives",
-            "mp_cost": 9,
+            "mp_cost": 3,
             "base_power": 14,
             "kind": "PhysicalDamage",
             "targets_all_enemies": true
           },
           {
             "name": "Hornet Sting",
-            "mp_cost": 12,
+            "mp_cost": 3,
             "base_power": 26,
             "kind": "PhysicalDamage",
             "targets_all_enemies": false
           }
         ],
         "equipped_weapon": {
-          "name": "Knightsbane",
-          "rarity": "Legendary",
-          "attack_bonus": 24,
-          "defense_bonus": 4,
-          "description": "Forged in the barrow's cold fire; still hums with the Knight's fury.",
-          "source": {
-            "EnemyDrop": "The Barrow Knight"
-          },
+          "name": "Thief's Dirk",
+          "rarity": "Common",
+          "attack_bonus": 2,
+          "defense_bonus": 0,
+          "description": "Slim, quick, and honest about none of its history.",
+          "source": "Starting",
           "upgrade_level": 0,
-          "passive": {
-            "Lifesteal": 0.15
-          }
+          "passive": null
         },
-        "equipped_armor": {
-          "name": "Acolyte's Vestment",
-          "rarity": "Uncommon",
-          "defense_bonus": 5,
-          "description": "Ash-gray robes, hemmed with prayers best left unread.",
-          "source": {
-            "EnemyDrop": "Fell Acolyte"
-          }
-        },
+        "equipped_armor": null,
         "equipped_rings": [
           null,
           null
         ],
         "boss_kind": null,
         "is_elite": false,
-        "elite_signature_used": false
+        "elite_signature_used": false,
+        "growth_carry": [
+          0.33,
+          0.22,
+          0.62,
+          0.22,
+          0.82,
+          0.82
+        ]
       }
     ],
-    "gold": 570,
-    "effects": []
+    "gold": 80,
+    "effects": [
+      {
+        "name": "Curse of Sloth",
+        "target": "Speed",
+        "delta": -4,
+        "encounters_remaining": 1
+      },
+      {
+        "name": "Blessing of Iron Skin",
+        "target": "Defense",
+        "delta": 5,
+        "encounters_remaining": 1
+      },
+      {
+        "name": "Blessing of Swiftness",
+        "target": "Speed",
+        "delta": 4,
+        "encounters_remaining": 2
+      }
+    ]
   },
   "inventory": {
     "items": [
@@ -271,7 +304,7 @@
           "value": 15,
           "description": "A murky red draught that knits shallow wounds shut."
         },
-        6
+        3
       ],
       [
         {
@@ -284,84 +317,41 @@
           "value": 20,
           "description": "Bitter and metallic; steadies the mind enough to cast again."
         },
-        1
-      ],
-      [
-        {
-          "name": "Sovereign Elixir",
-          "kind": "Elixir",
-          "value": 90,
-          "description": "A regal cure-all, brewed for a king who never earned it."
-        },
-        1
+        2
       ]
     ],
     "weapons": [
       {
-        "name": "Worn Shortsword",
+        "name": "Apprentice's Wand",
         "rarity": "Common",
-        "attack_bonus": 2,
+        "attack_bonus": 1,
         "defense_bonus": 0,
-        "description": "A nicked, well-used blade. Better than fists.",
+        "description": "A simple wand every mage starts with.",
         "source": "Starting",
         "upgrade_level": 0,
         "passive": null
-      },
-      {
-        "name": "Warden's Fang",
-        "rarity": "Legendary",
-        "attack_bonus": 24,
-        "defense_bonus": 4,
-        "description": "Torn from the Warden's own jaw; the scales along its edge still shed.",
-        "source": {
-          "EnemyDrop": "Wyrmscale Warden"
-        },
-        "upgrade_level": 0,
-        "passive": {
-          "DamageReduction": 0.15
-        }
       }
     ],
-    "armors": [
-      {
-        "name": "Dragonscale Aegis",
-        "rarity": "Legendary",
-        "defense_bonus": 24,
-        "description": "Overlapping scales said to have turned aside a dragon's breath.",
-        "source": "World"
-      }
-    ],
+    "armors": [],
     "rings": [],
-    "upgrade_materials": 17
+    "upgrade_materials": 0
   },
-  "current_chapter": "Three",
-  "bosses_defeated": [
-    "Two",
-    "One"
-  ],
-  "npc_flags": [
-    "WoundedScout"
-  ],
+  "current_chapter": "One",
+  "bosses_defeated": [],
+  "npc_flags": [],
   "quest_log": {
     "active": [],
-    "completed": [
-      "ScoutsCommendation"
-    ]
+    "completed": []
   },
   "player_pos": {
-    "x": 4,
-    "y": 2
+    "x": 19,
+    "y": 4
   },
   "ng_plus": 0,
   "bestiary_seen": [
-    "Goblin",
     "Bat",
-    "Rat",
-    "Wyrmscale Warden",
-    "Fell Acolyte",
-    "Hollow",
-    "Forsaken Knight",
-    "The Barrow Knight"
+    "Slime",
+    "Goblin"
   ],
-  "difficulty": 2
+  "difficulty": 0
 }

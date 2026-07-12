@@ -1,6 +1,8 @@
 use macroquad::prelude::*;
 
-use crate::game::character::{xp_to_next_level, AllocPreview, ALLOC_STATS, MAX_LEVEL};
+use crate::game::character::{
+    xp_to_next_level, AllocPreview, ALLOC_STATS, MAX_LEVEL, PLAYER_HARD_CAP,
+};
 use crate::game::levelup::LevelUpUiState;
 use crate::game::party::Party;
 use crate::render::assets::{CANVAS_HEIGHT, CANVAS_WIDTH};
@@ -54,7 +56,8 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
     };
 
     for (i, &stat) in ALLOC_STATS.iter().enumerate() {
-        let current = member.base_stat(stat);
+        let rank = member.rank(stat);
+        let value = member.base_stat(stat);
         let preview = member.alloc_preview(stat);
         let increment = match preview {
             AllocPreview::Full(n) => format!("+{n}/pt"),
@@ -70,7 +73,12 @@ fn draw_stat_list(ui: &LevelUpUiState, party: &Party, y0: f32, y1: f32, cmds: &m
         let marker = if selected { "> " } else { "  " };
         push_text(
             cmds,
-            format!("{marker}{:<10} {:>4}   ({increment})", stat.to_string(), current),
+            format!(
+                "{marker}{:<10} {:>2}/{PLAYER_HARD_CAP} -> {:>4}   ({increment})",
+                stat.to_string(),
+                rank,
+                value
+            ),
             4.0,
             ty,
             9.0,

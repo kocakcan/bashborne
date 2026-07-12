@@ -127,16 +127,19 @@ pub const POINTS_PER_LEVEL: u32 = 3;
 /// a separate, already-bounded path and is intentionally not capped here.
 pub const MAX_LEVEL: u32 = 40;
 
-/// How one allocated point behaves for one stat: the full-value gain, the
-/// soft cap past which the gain is halved (rounded up, floored at +1 — see
-/// `AllocPreview::Diminished`), and the hard cap past which the stat refuses
-/// to grow at all (`AllocPreview::Capped`). The hard cap is enforced against
-/// *every* source of growth, not just hand-spent points — see
-/// `Character::apply_stat_delta`, the single chokepoint both automatic
+/// How one invested rank behaves for one stat: the full-value gain it
+/// converts into, the soft cap (in *ranks*) past which the gain is halved
+/// (rounded up, floored at +1 — see `AllocPreview::Diminished`), and the hard
+/// cap (in ranks) past which the stat refuses to grow at all
+/// (`AllocPreview::Capped`). Crucially, `soft_cap`/`hard_cap` bound
+/// `Character::alloc_ranks` — the number of ranks invested — not the derived
+/// stat value itself (`stats.attack` etc.), which is `gain`-per-rank and
+/// therefore differs by class even at the same rank. The hard cap is
+/// enforced against *every* source of growth, not just hand-spent points —
+/// see `Character::invest_rank`, the single chokepoint both automatic
 /// `level_growth` and `allocate_point_tracked` go through — so a stat can
 /// never sneak past its cap via leveling alone while allocation still thinks
-/// there's headroom. The soft cap compares against the *base* stat
-/// (`stats.attack`, not `total_attack()`), so gear never eats headroom.
+/// there's headroom.
 #[derive(Debug, Clone, Copy)]
 pub struct AllocRule {
     pub gain: i32,
@@ -175,10 +178,13 @@ const fn rule(gain: i32, soft_cap: i32, hard_cap: i32) -> AllocRule {
     AllocRule { gain, soft_cap, hard_cap }
 }
 
-/// Every stat a playable class can allocate into is hard-capped here — see
-/// `AllocRule`'s doc comment for why this is enforced against automatic
-/// growth too, not just spent points.
-const PLAYER_HARD_CAP: i32 = 50;
+/// Every stat a playable class can allocate into has its *invested rank*
+/// hard-capped here — the same ceiling for every class and every stat, so
+/// "50" is a uniform cap on how much you've invested, not on what that
+/// investment is worth in actual HP/MP/Attack/etc. (that's `gain`, which
+/// differs by class — see `AllocRule`'s doc comment for why this is enforced
+/// against automatic growth too, not just spent points).
+pub const PLAYER_HARD_CAP: i32 = 50;
 
 /// Monster/boss automatic growth (`Character::scale_to_level`) is a
 /// percentage of the species' *own* level-1 base stat per level, not a flat
@@ -195,8 +201,11 @@ const MONSTER_DEFENSE_GROWTH_RATE: f32 = 0.09;
 
 /// Each class's allocation table — this is where class identity in
 /// point-spending lives (the Warrior is the premier HP investment, the Mage
-/// and Rogue get the best attack-per-point), via `gain` and `soft_cap`, all
-/// under the shared `PLAYER_HARD_CAP` ceiling.
+/// and Rogue get the best attack-per-point), via `gain` (the derived-value
+/// payoff per rank) and `soft_cap` (in ranks), all under the shared
+/// `PLAYER_HARD_CAP` *rank* ceiling — every class can invest the same 50
+/// ranks, but a rank is worth a different amount of HP/MP/Attack/etc.
+/// depending on `gain`.
 pub fn alloc_profile(class: Class) -> AllocProfile {
     match class {
         // Off-tank: the best HP-per-point in the party, a real attack gain,
@@ -273,11 +282,13 @@ pub fn xp_to_next_level(level: u32) -> u32 {
 /// to the banked points the player spends by hand — so each class grows into
 /// a different shape on its own (the Warrior toughens, the Mage's mana pool
 /// deepens, the Rogue gets faster and luckier) even before any allocation.
-/// Fields are fractional (rather than the old flat integers) since hitting
-/// the right fraction of a 50-point hard cap by level 40 needs rates like
-/// 0.51/level — see `Character::growth_carry`, which accumulates the
-/// fractional remainder between levels so a small rate doesn't silently
-/// round up to +1/level every single level.
+/// Fields are *ranks* per level (run through `Character::invest_rank`, same
+/// as hand-spent points, so `gain` converts them into the actual derived
+/// value), fractional rather than flat integers since hitting the right
+/// fraction of a 50-rank hard cap by level 40 needs rates like 0.51/level —
+/// see `Character::growth_carry`, which accumulates the fractional remainder
+/// between levels so a small rate doesn't silently round up to +1/level
+/// every single level.
 #[derive(Debug, Clone, Copy)]
 pub struct LevelGrowth {
     pub max_hp: f32,
@@ -288,13 +299,14 @@ pub struct LevelGrowth {
     pub luck: f32,
 }
 
-/// Each class's growth profile — these rates alone (zero points allocated)
-/// land every class/stat at or under ~66% of `PLAYER_HARD_CAP` by
-/// `MAX_LEVEL`, leaving real headroom for allocation to matter. `Monster`'s
-/// table is unused: regular monsters/bosses grow via a percentage of their
-/// own species base stat instead (see `Character::scale_to_level`'s
-/// `monster_base` argument), so their hierarchy doesn't compress at high
-/// levels the way a flat shared rate would.
+/// Each class's growth profile — these rank rates alone (zero points
+/// allocated) land every class/stat at or under ~66% of `PLAYER_HARD_CAP`'s
+/// rank ceiling by `MAX_LEVEL`, leaving real headroom for allocation to
+/// matter. `Monster`'s table is unused: regular monsters/bosses grow via a
+/// percentage of their own species base stat instead (see
+/// `Character::scale_to_level`'s `monster_base` argument), so their
+/// hierarchy doesn't compress at high levels the way a flat shared rate
+/// would.
 pub fn level_growth(class: Class) -> LevelGrowth {
     match class {
         Class::Warrior => LevelGrowth {
@@ -393,6 +405,12 @@ pub struct Character {
     /// saves/tests predating this field.
     #[serde(default)]
     pub growth_carry: [f32; 6],
+    /// Total ranks invested per stat (indexed in `ALLOC_STATS` order), from
+    /// hand-spent points and automatic growth alike — this, not the derived
+    /// stat value, is what `PLAYER_HARD_CAP` bounds. See `invest_rank`.
+    /// Defaults to zero for saves/tests predating this field.
+    #[serde(default)]
+    pub alloc_ranks: [i32; 6],
 }
 
 impl Character {
@@ -486,39 +504,64 @@ impl Character {
     }
 
     /// Applies one level's worth of automatic growth, scaled by
-    /// `growth_multiplier` so it doesn't keep compounding forever (hand-
-    /// allocated points are untouched by this taper) and routed through
-    /// `apply_stat_delta` so it can never push a stat past its hard cap.
-    /// `monster_base` is `None` for playable characters (uses this class's
-    /// `level_growth` table) or `Some(species' own level-1 stats)` for
-    /// monsters (see `scale_to_level`), which grow as a fixed percentage of
-    /// their own base stats instead of a shared flat table — that keeps
-    /// weaker/stronger species properly separated at high levels instead of
-    /// compressing toward the same numbers. Fractional remainders that don't
-    /// add up to a whole point yet are kept in `growth_carry` rather than
-    /// rounded away, so a small rate still adds up correctly over many
-    /// levels instead of silently becoming +1/level every level.
+    /// `growth_multiplier` so it doesn't keep compounding forever
+    /// (hand-allocated points are untouched by this taper). `monster_base`
+    /// is `None` for playable characters (uses this class's `level_growth`
+    /// table, interpreted as *ranks* per level and routed through
+    /// `invest_rank` so automatic leveling can never push a stat's rank past
+    /// its hard cap) or `Some(species' own level-1 stats)` for monsters (see
+    /// `scale_to_level`), which grow as a fixed percentage of their own base
+    /// stats instead of a shared flat table — that keeps weaker/stronger
+    /// species properly separated at high levels instead of compressing
+    /// toward the same numbers, and is applied straight to `stats` since
+    /// monsters have no rank concept (their `AllocRule` is unbounded).
+    /// Fractional remainders that don't add up to a whole unit yet are kept
+    /// in `growth_carry` rather than rounded away, so a small rate still adds
+    /// up correctly over many levels instead of silently becoming +1/level
+    /// every level.
     fn apply_level_growth(&mut self, monster_base: Option<&Stats>) {
         let m = growth_multiplier(self.level);
-        let rates: [f32; 6] = match monster_base {
-            Some(base) => [
-                base.max_hp as f32 * MONSTER_HP_GROWTH_RATE,
-                0.0,
-                base.attack as f32 * MONSTER_ATTACK_GROWTH_RATE,
-                base.defense as f32 * MONSTER_DEFENSE_GROWTH_RATE,
-                0.0,
-                0.0,
-            ],
+        match monster_base {
+            Some(base) => {
+                let rates: [f32; 6] = [
+                    base.max_hp as f32 * MONSTER_HP_GROWTH_RATE,
+                    0.0,
+                    base.attack as f32 * MONSTER_ATTACK_GROWTH_RATE,
+                    base.defense as f32 * MONSTER_DEFENSE_GROWTH_RATE,
+                    0.0,
+                    0.0,
+                ];
+                for (i, _stat) in ALLOC_STATS.iter().enumerate() {
+                    self.growth_carry[i] += rates[i] * m;
+                    let whole = self.growth_carry[i].trunc();
+                    self.growth_carry[i] -= whole;
+                    let whole = whole as i32;
+                    match ALLOC_STATS[i] {
+                        AllocStat::MaxHp => {
+                            self.stats.max_hp += whole;
+                            self.stats.hp += whole;
+                        }
+                        AllocStat::MaxMp => {
+                            self.stats.max_mp += whole;
+                            self.stats.mp += whole;
+                        }
+                        AllocStat::Attack => self.stats.attack += whole,
+                        AllocStat::Defense => self.stats.defense += whole,
+                        AllocStat::Speed => self.stats.speed += whole,
+                        AllocStat::Luck => self.stats.luck += whole,
+                    }
+                }
+            }
             None => {
                 let g = level_growth(self.class);
-                [g.max_hp, g.max_mp, g.attack, g.defense, g.speed, g.luck]
+                let rates: [f32; 6] = [g.max_hp, g.max_mp, g.attack, g.defense, g.speed, g.luck];
+                for (i, stat) in ALLOC_STATS.iter().enumerate() {
+                    self.growth_carry[i] += rates[i] * m;
+                    let whole = self.growth_carry[i].trunc();
+                    self.growth_carry[i] -= whole;
+                    self.invest_rank(*stat, whole as i32);
+                }
             }
-        };
-        for (i, stat) in ALLOC_STATS.iter().enumerate() {
-            self.growth_carry[i] += rates[i] * m;
-            let whole = self.growth_carry[i].trunc();
-            self.growth_carry[i] -= whole;
-            self.apply_stat_delta(*stat, whole as i32);
         }
     }
 
@@ -582,9 +625,9 @@ impl Character {
         self.stats.hp = self.stats.max_hp;
     }
 
-    /// The current *base* value of an allocatable stat — what the caps in
-    /// `alloc_profile` compare against (deliberately not `total_attack()`
-    /// etc., so gear bonuses never eat allocation headroom).
+    /// The current *base* value of an allocatable stat — the actual
+    /// gameplay number combat reads (deliberately not `total_attack()` etc.,
+    /// so gear bonuses aren't counted twice).
     pub fn base_stat(&self, stat: AllocStat) -> i32 {
         match stat {
             AllocStat::MaxHp => self.stats.max_hp,
@@ -596,20 +639,29 @@ impl Character {
         }
     }
 
+    /// How many ranks are currently invested in `stat` — what the caps in
+    /// `alloc_profile` compare against. This is "the stat" the level-up
+    /// screen shows (0 up to the shared `PLAYER_HARD_CAP`), distinct from
+    /// `base_stat`'s derived gameplay value, which is worth a different
+    /// amount per class (see `AllocRule`'s doc comment).
+    pub fn rank(&self, stat: AllocStat) -> i32 {
+        self.alloc_ranks[ALLOC_STATS.iter().position(|s| *s == stat).unwrap()]
+    }
+
     /// What spending one point on `stat` would do right now, given this
-    /// class's `alloc_profile` and the stat's current base value. Clips the
-    /// gain to whatever headroom remains under the hard cap, and refuses
-    /// entirely (`Capped`) once there's none left.
+    /// class's `alloc_profile` and the stat's current invested rank. Clips
+    /// the gain to whatever rank headroom remains under the hard cap, and
+    /// refuses entirely (`Capped`) once there's none left.
     pub fn alloc_preview(&self, stat: AllocStat) -> AllocPreview {
         let rule = alloc_profile(self.class).rule(stat);
-        let current = self.base_stat(stat);
-        let headroom = rule.hard_cap - current;
+        let rank = self.rank(stat);
+        let headroom = rule.hard_cap - rank;
         if headroom <= 0 {
             AllocPreview::Capped
-        } else if current >= rule.soft_cap {
-            AllocPreview::Diminished(((rule.gain + 1) / 2).min(headroom))
+        } else if rank >= rule.soft_cap {
+            AllocPreview::Diminished((rule.gain + 1) / 2)
         } else {
-            AllocPreview::Full(rule.gain.min(headroom))
+            AllocPreview::Full(rule.gain)
         }
     }
 
@@ -628,50 +680,65 @@ impl Character {
         if self.unspent_points == 0 {
             return None;
         }
-        let gain = match self.alloc_preview(stat) {
-            AllocPreview::Full(n) | AllocPreview::Diminished(n) => n,
-            AllocPreview::Capped => return None,
-        };
+        if matches!(self.alloc_preview(stat), AllocPreview::Capped) {
+            return None;
+        }
         self.unspent_points -= 1;
-        Some(self.apply_stat_delta(stat, gain))
+        Some(self.invest_rank(stat, 1))
     }
 
     /// The single chokepoint every source of stat growth — automatic
     /// `level_growth` and hand-spent allocation alike — goes through to
-    /// mutate `stats`, clamping against this class's hard cap (`alloc_profile`)
-    /// on every call. Clamping against the *current* value each time (rather
-    /// than only at the end of a longer computation) makes the cap
-    /// bypass-proof no matter how growth and allocation interleave across a
-    /// playthrough. Returns the amount actually applied, which may be less
-    /// than `delta` (or zero) if the cap was reached.
-    fn apply_stat_delta(&mut self, stat: AllocStat, delta: i32) -> i32 {
-        let hard_cap = alloc_profile(self.class).rule(stat).hard_cap;
-        let current = self.base_stat(stat);
-        let new_value = (current + delta).min(hard_cap);
-        let applied = new_value - current;
-        match stat {
-            AllocStat::MaxHp => {
-                self.stats.max_hp = new_value;
-                self.stats.hp += applied;
+    /// mutate `stats`. Grants up to `ranks` ranks of `stat`, one at a time
+    /// (so a multi-rank grant that crosses the soft cap mid-way still
+    /// diminishes correctly partway through), converting each rank into a
+    /// derived-value delta via this class's `gain` (halved past the soft
+    /// cap), and stopping the moment the rank hard cap is reached. Returns
+    /// the total derived-value delta actually applied, which may be less
+    /// than `ranks * gain` (or zero) if the cap was reached.
+    fn invest_rank(&mut self, stat: AllocStat, ranks: i32) -> i32 {
+        let rule = alloc_profile(self.class).rule(stat);
+        let mut applied = 0;
+        for _ in 0..ranks {
+            let rank = self.rank(stat);
+            if rank >= rule.hard_cap {
+                break;
             }
-            AllocStat::MaxMp => {
-                self.stats.max_mp = new_value;
-                self.stats.mp += applied;
+            let gain = if rank >= rule.soft_cap {
+                (rule.gain + 1) / 2
+            } else {
+                rule.gain
+            };
+            let idx = ALLOC_STATS.iter().position(|s| *s == stat).unwrap();
+            self.alloc_ranks[idx] += 1;
+            match stat {
+                AllocStat::MaxHp => {
+                    self.stats.max_hp += gain;
+                    self.stats.hp += gain;
+                }
+                AllocStat::MaxMp => {
+                    self.stats.max_mp += gain;
+                    self.stats.mp += gain;
+                }
+                AllocStat::Attack => self.stats.attack += gain,
+                AllocStat::Defense => self.stats.defense += gain,
+                AllocStat::Speed => self.stats.speed += gain,
+                AllocStat::Luck => self.stats.luck += gain,
             }
-            AllocStat::Attack => self.stats.attack = new_value,
-            AllocStat::Defense => self.stats.defense = new_value,
-            AllocStat::Speed => self.stats.speed = new_value,
-            AllocStat::Luck => self.stats.luck = new_value,
+            applied += gain;
         }
         applied
     }
 
-    /// Inverse of `allocate_point_tracked`: refunds one banked point and
-    /// subtracts exactly `amount` (the gain that call returned) back off
-    /// `stat`. Takes the exact amount rather than recomputing it so undo is
-    /// always precise regardless of where the soft cap sits now.
+    /// Inverse of `allocate_point_tracked`: refunds one banked point,
+    /// un-invests one rank, and subtracts exactly `amount` (the gain that
+    /// call returned) back off `stat`. Takes the exact amount rather than
+    /// recomputing it so undo is always precise regardless of where the soft
+    /// cap sits now.
     pub fn deallocate_point(&mut self, stat: AllocStat, amount: i32) {
         self.unspent_points += 1;
+        let idx = ALLOC_STATS.iter().position(|s| *s == stat).unwrap();
+        self.alloc_ranks[idx] -= 1;
         match stat {
             AllocStat::MaxHp => {
                 self.stats.max_hp -= amount;
@@ -927,6 +994,7 @@ pub fn warrior(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -955,6 +1023,7 @@ pub fn mage(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -984,6 +1053,7 @@ pub fn cleric(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1012,6 +1082,7 @@ pub fn rogue(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1040,6 +1111,7 @@ pub fn slime(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1068,6 +1140,7 @@ pub fn goblin(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1096,6 +1169,7 @@ pub fn bat(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1124,6 +1198,7 @@ pub fn wolf(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1152,6 +1227,7 @@ pub fn skeleton(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1180,6 +1256,7 @@ pub fn orc(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1210,6 +1287,7 @@ pub fn wraith(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1239,6 +1317,7 @@ pub fn mimic(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1267,6 +1346,7 @@ pub fn hollow(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1295,6 +1375,7 @@ pub fn rat(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1323,6 +1404,7 @@ pub fn carrion_crow(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1351,6 +1433,7 @@ pub fn bandit(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1382,6 +1465,7 @@ pub fn fell_acolyte(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1412,6 +1496,7 @@ pub fn grave_ghoul(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1442,6 +1527,7 @@ pub fn barrow_sentinel(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1472,6 +1558,7 @@ pub fn forsaken_knight(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1521,6 +1608,7 @@ pub fn barrow_knight(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1552,6 +1640,7 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1584,6 +1673,7 @@ pub fn ashen_sovereign(name: &str) -> Character {
         is_elite: false,
         elite_signature_used: false,
         growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
     }
 }
 
@@ -1878,29 +1968,35 @@ mod tests {
     fn gains_are_halved_past_the_soft_cap() {
         let mut hero = warrior("Bram");
         let rule = alloc_profile(Class::Warrior).rule(AllocStat::MaxHp);
-        hero.stats.max_hp = rule.soft_cap;
-        hero.stats.hp = rule.soft_cap;
+        let idx = ALLOC_STATS
+            .iter()
+            .position(|s| *s == AllocStat::MaxHp)
+            .unwrap();
+        hero.alloc_ranks[idx] = rule.soft_cap;
         hero.unspent_points = 1;
+        let before = hero.stats.max_hp;
         assert_eq!(
             hero.alloc_preview(AllocStat::MaxHp),
             AllocPreview::Diminished((rule.gain + 1) / 2)
         );
         assert!(hero.allocate_point(AllocStat::MaxHp));
-        assert_eq!(hero.stats.max_hp, rule.soft_cap + (rule.gain + 1) / 2);
+        assert_eq!(hero.stats.max_hp, before + (rule.gain + 1) / 2);
     }
 
     #[test]
     fn allocate_point_refuses_once_a_stat_hits_its_hard_cap() {
-        // Every playable class/stat is hard-capped at `PLAYER_HARD_CAP` (50)
-        // — dumping hundreds of banked points into one stat must eventually
-        // refuse rather than let it climb forever (the exact bug this
-        // rescale fixes: unlimited stat growth from spamming one stat).
+        // Every playable class/stat's invested *rank* is hard-capped at
+        // `PLAYER_HARD_CAP` (50) — dumping hundreds of banked points into one
+        // stat must eventually refuse rather than let it climb forever (the
+        // exact bug this rescale fixes: unlimited stat growth from spamming
+        // one stat). The derived value itself is not capped at 50 — it's
+        // rank * gain, which differs by class.
         for mut hero in [warrior("B"), mage("S"), cleric("I"), rogue("W")] {
             for &stat in &ALLOC_STATS {
                 hero.unspent_points = 500;
                 while hero.allocate_point(stat) {}
                 assert_eq!(
-                    hero.base_stat(stat),
+                    hero.rank(stat),
                     PLAYER_HARD_CAP,
                     "{:?}'s {stat} should settle exactly at the hard cap",
                     hero.class
@@ -1918,11 +2014,16 @@ mod tests {
     #[test]
     fn allocate_point_keeps_the_point_banked_when_already_capped() {
         let mut hero = warrior("Bram");
-        hero.stats.max_hp = PLAYER_HARD_CAP;
+        let idx = ALLOC_STATS
+            .iter()
+            .position(|s| *s == AllocStat::MaxHp)
+            .unwrap();
+        hero.alloc_ranks[idx] = PLAYER_HARD_CAP;
         hero.unspent_points = 3;
+        let before = hero.stats.max_hp;
         assert!(!hero.allocate_point(AllocStat::MaxHp));
         assert_eq!(hero.unspent_points, 3, "a refused point must stay banked");
-        assert_eq!(hero.stats.max_hp, PLAYER_HARD_CAP);
+        assert_eq!(hero.stats.max_hp, before);
     }
 
     #[test]
@@ -1930,8 +2031,9 @@ mod tests {
         // The bug this whole rescale fixes: automatic per-level growth used
         // to be completely unbounded, so a character with zero points ever
         // spent on Attack could still reach a high Attack purely by leveling.
-        // Now every stat — grown or allocated — is clamped by the same
-        // `apply_stat_delta` chokepoint.
+        // Now every stat's *rank* — grown or allocated — is clamped by the
+        // same `invest_rank` chokepoint (the derived value it's worth is
+        // uncapped and differs by class).
         for factory in [warrior as fn(&str) -> Character, mage, cleric, rogue] {
             let mut hero = factory("Zero-Alloc");
             for _ in 0..(MAX_LEVEL - 1) {
@@ -1939,13 +2041,34 @@ mod tests {
             }
             for &stat in &ALLOC_STATS {
                 assert!(
-                    hero.base_stat(stat) <= PLAYER_HARD_CAP,
+                    hero.rank(stat) <= PLAYER_HARD_CAP,
                     "{:?}'s {stat} exceeded the hard cap from growth alone: {}",
                     hero.class,
-                    hero.base_stat(stat)
+                    hero.rank(stat)
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_same_maxed_rank_is_worth_a_different_derived_value_per_class() {
+        // The whole point of the rank/value split: a Warrior and a Mage both
+        // fully investing in Max HP (rank 50 for both) must not converge on
+        // the same actual HP — that's the bug this rescale fixes.
+        let mut warrior = warrior("Bram");
+        let mut mage = mage("Sella");
+        warrior.unspent_points = 500;
+        mage.unspent_points = 500;
+        while warrior.allocate_point(AllocStat::MaxHp) {}
+        while mage.allocate_point(AllocStat::MaxHp) {}
+        assert_eq!(warrior.rank(AllocStat::MaxHp), PLAYER_HARD_CAP);
+        assert_eq!(mage.rank(AllocStat::MaxHp), PLAYER_HARD_CAP);
+        assert!(
+            warrior.stats.max_hp > mage.stats.max_hp,
+            "same rank (50) should be worth more HP for the Warrior than the Mage: {} vs {}",
+            warrior.stats.max_hp,
+            mage.stats.max_hp
+        );
     }
 
     #[test]
