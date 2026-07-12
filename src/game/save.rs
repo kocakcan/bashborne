@@ -219,6 +219,27 @@ mod tests {
     }
 
     #[test]
+    fn a_save_json_missing_bench_defaults_to_empty() {
+        // Simulates a save file written before recruitable NPCs existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value["party"].as_object_mut().unwrap().remove("bench");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert!(back.party.bench.is_empty());
+    }
+
+    #[test]
+    fn a_save_json_missing_spent_ranks_defaults_to_zero() {
+        // Simulates a save file written before the full-respec system existed.
+        let mut value: serde_json::Value = serde_json::to_value(sample_save()).unwrap();
+        value["party"]["members"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("spent_ranks");
+        let back: SaveData = serde_json::from_value(value).expect("old saves should still parse");
+        assert_eq!(back.party.members[0].spent_ranks, [0; 6]);
+    }
+
+    #[test]
     fn a_stale_save_version_reads_as_no_save() {
         let mut data = sample_save();
         data.version = SAVE_VERSION + 1;

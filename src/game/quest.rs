@@ -12,10 +12,12 @@ pub enum QuestId {
     HerbalistsRequest,
     ScoutsCommendation,
     PilgrimsBlessing,
+    ExilesVengeance,
 }
 
-/// What must be true for a quest to be turned in. Deliberately single-stage
-/// — no multi-step quests.
+/// What must be true for a quest to be turned in. One condition per quest —
+/// not a multi-step chain — but the condition itself can require ongoing
+/// progress (`KillCount`), not just a fact that's already true or false.
 pub enum QuestObjective {
     /// The party's shared bag contains at least `qty` of the named item.
     /// `qty` is deliberately set above what the party starts with, so the
@@ -27,6 +29,11 @@ pub enum QuestObjective {
     /// this is a retroactive commendation rather than a wait-and-see
     /// objective — it's already true the moment the NPC can be reached.
     DefeatBoss(ChapterId),
+    /// The party has defeated at least `count` enemies of the named species
+    /// (matched against `Character.name`, the same raw-name convention
+    /// `combat::resolve_enemy_action` uses) since `QuestLog::record_kill`
+    /// started tracking it — tracked cumulatively, not reset on accept.
+    KillCount { species: &'static str, count: u32 },
 }
 
 /// One component of a quest's payout. A quest can pay out several of these
@@ -82,15 +89,30 @@ pub fn quest_def(id: QuestId) -> Quest {
                 QuestReward::Ring(crate::game::item::band_of_the_barrow),
             ],
         },
+        QuestId::ExilesVengeance => Quest {
+            id,
+            giver: NpcId::ExiledKnight,
+            title: "The Exile's Vengeance",
+            objective: QuestObjective::KillCount {
+                species: "Grave Ghoul",
+                count: 5,
+            },
+            rewards: vec![
+                QuestReward::Gold(150),
+                QuestReward::Ring(crate::game::item::knights_absolution),
+            ],
+        },
     }
 }
 
 /// Whether `objective` is currently satisfied, given what's in the party's
-/// bag and which chapters' bosses have fallen so far.
+/// bag, which chapters' bosses have fallen so far, and the quest log's
+/// kill-count tracking.
 pub fn objective_satisfied(
     objective: &QuestObjective,
     inventory: &Inventory,
     bosses_defeated: &std::collections::HashSet<ChapterId>,
+    quest_log: &QuestLog,
 ) -> bool {
     match objective {
         QuestObjective::DeliverItem { item_name, qty } => inventory
@@ -98,6 +120,9 @@ pub fn objective_satisfied(
             .iter()
             .any(|(item, have)| item.name == *item_name && *have >= *qty),
         QuestObjective::DefeatBoss(chapter) => bosses_defeated.contains(chapter),
+        QuestObjective::KillCount { species, count } => {
+            quest_log.kill_progress.get(*species).copied().unwrap_or(0) >= *count
+        }
     }
 }
 
@@ -107,6 +132,11 @@ pub fn objective_satisfied(
 pub struct QuestLog {
     pub active: Vec<QuestId>,
     pub completed: Vec<QuestId>,
+    /// Cumulative kills per species name, feeding `QuestObjective::KillCount`.
+    /// Tracked unconditionally (not just while a relevant quest is active),
+    /// so a `KillCount` quest offered after the fact can credit prior kills.
+    #[serde(default)]
+    pub kill_progress: std::collections::HashMap<String, u32>,
 }
 
 impl QuestLog {
@@ -114,6 +144,7 @@ impl QuestLog {
         Self {
             active: Vec::new(),
             completed: Vec::new(),
+            kill_progress: std::collections::HashMap::new(),
         }
     }
 
@@ -132,6 +163,11 @@ impl QuestLog {
         if !self.completed.contains(&id) {
             self.completed.push(id);
         }
+    }
+
+    /// Increments the kill counter for `species` by one.
+    pub fn record_kill(&mut self, species: &str) {
+        *self.kill_progress.entry(species.to_string()).or_insert(0) += 1;
     }
 }
 
@@ -175,28 +211,60 @@ mod tests {
     fn deliver_item_objective_requires_more_than_the_starting_stock() {
         let mut inv = Inventory::starting(); // starts with 3 Potions
         let bosses_defeated = std::collections::HashSet::new();
+        let log = QuestLog::new();
         let objective = QuestObjective::DeliverItem {
             item_name: "Potion",
             qty: 4,
         };
         assert!(
-            !objective_satisfied(&objective, &inv, &bosses_defeated),
+            !objective_satisfied(&objective, &inv, &bosses_defeated, &log),
             "the starting stock alone shouldn't satisfy the quest"
         );
 
         inv.add(crate::game::item::potion(), 1);
-        assert!(objective_satisfied(&objective, &inv, &bosses_defeated));
+        assert!(objective_satisfied(&objective, &inv, &bosses_defeated, &log));
     }
 
     #[test]
     fn defeat_boss_objective_checks_the_bosses_defeated_set() {
         let inv = Inventory::starting();
         let mut bosses_defeated = std::collections::HashSet::new();
+        let log = QuestLog::new();
         let objective = QuestObjective::DefeatBoss(ChapterId::One);
-        assert!(!objective_satisfied(&objective, &inv, &bosses_defeated));
+        assert!(!objective_satisfied(&objective, &inv, &bosses_defeated, &log));
 
         bosses_defeated.insert(ChapterId::One);
-        assert!(objective_satisfied(&objective, &inv, &bosses_defeated));
+        assert!(objective_satisfied(&objective, &inv, &bosses_defeated, &log));
+    }
+
+    #[test]
+    fn record_kill_increments_only_the_named_species() {
+        let mut log = QuestLog::new();
+        log.record_kill("Orc");
+        log.record_kill("Orc");
+        log.record_kill("Goblin");
+        assert_eq!(log.kill_progress.get("Orc"), Some(&2));
+        assert_eq!(log.kill_progress.get("Goblin"), Some(&1));
+        assert_eq!(log.kill_progress.get("Wolf"), None);
+    }
+
+    #[test]
+    fn kill_count_objective_is_satisfied_once_the_threshold_is_met() {
+        let inv = Inventory::starting();
+        let bosses_defeated = std::collections::HashSet::new();
+        let mut log = QuestLog::new();
+        let objective = QuestObjective::KillCount {
+            species: "Orc",
+            count: 3,
+        };
+        assert!(!objective_satisfied(&objective, &inv, &bosses_defeated, &log));
+
+        log.record_kill("Orc");
+        log.record_kill("Orc");
+        assert!(!objective_satisfied(&objective, &inv, &bosses_defeated, &log));
+
+        log.record_kill("Orc");
+        assert!(objective_satisfied(&objective, &inv, &bosses_defeated, &log));
     }
 
     #[test]
@@ -205,6 +273,7 @@ mod tests {
             QuestId::HerbalistsRequest,
             QuestId::ScoutsCommendation,
             QuestId::PilgrimsBlessing,
+            QuestId::ExilesVengeance,
         ] {
             assert_eq!(quest_def(id).id, id);
             assert!(!quest_def(id).rewards.is_empty());

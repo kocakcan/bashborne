@@ -12,6 +12,7 @@ pub enum NpcId {
     OldHerbalist,
     WoundedScout,
     AshenPilgrim,
+    ExiledKnight,
     /// The blacksmith, routed to its own `GameState::Blacksmith` screen
     /// (see `app.rs::handle_explore_key`) rather than the generic dialogue
     /// path every other NPC uses — so its `intro`/`reminder`/`quest` fields
@@ -89,6 +90,23 @@ pub fn npc_def(id: NpcId) -> NpcDef {
             after: vec!["\"Go carefully. Ash remembers who disturbs it.\""],
             quest: Some(QuestId::PilgrimsBlessing),
         },
+        NpcId::ExiledKnight => NpcDef {
+            name: "Exiled Knight",
+            intro: vec![
+                "A knight in cracked, waterlogged armor watches the cathedral's flooded nave.",
+                "\"So you mean to face what's drowned down there. I was cast out for less.\"",
+                "\"The ghouls it raised still wear my brothers' faces. Thin their number for me.\"",
+            ],
+            reminder: vec![
+                "\"Five of the risen dead, no more, no less. Then we'll speak of the King.\"",
+            ],
+            turn_in: vec![
+                "\"Five fallen. You've done what I couldn't stomach doing myself.\"",
+                "\"Take this — I've no more use for pride where I'm going.\"",
+            ],
+            after: vec!["\"Go. The Drowned King doesn't wait for absolution.\""],
+            quest: Some(QuestId::ExilesVengeance),
+        },
         NpcId::Blacksmith => NpcDef {
             name: "Andre of Astora",
             intro: vec![
@@ -114,6 +132,7 @@ mod tests {
             NpcId::OldHerbalist,
             NpcId::WoundedScout,
             NpcId::AshenPilgrim,
+            NpcId::ExiledKnight,
             NpcId::Blacksmith,
         ] {
             let def = npc_def(id);

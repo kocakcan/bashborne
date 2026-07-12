@@ -117,6 +117,22 @@ impl Map {
         ])
     }
 
+    /// Chapter four: the flooded cathedral guarding the Drowned King.
+    pub fn chapter_four() -> Self {
+        Self::from_layout(&[
+            "############################",
+            "#TTTTTTTT..................#",
+            "#TTTTTTTT..................#",
+            "#TTTTTTTT..................#",
+            "#..........................#",
+            "#..............,,,,,,,,,,,,#",
+            "#..............,,,,,,,,,,,,#",
+            "#..............,,,,,,,,,,,,#",
+            "#..............,,,,,,,,,,,B#",
+            "############################",
+        ])
+    }
+
     pub fn tile_at(&self, pos: Position) -> Tile {
         if pos.x < 0 || pos.y < 0 || pos.x >= self.width || pos.y >= self.height {
             return Tile::Wall;
@@ -161,6 +177,7 @@ mod tests {
             Map::starting_area(),
             Map::chapter_two(),
             Map::chapter_three(),
+            Map::chapter_four(),
         ] {
             let count = map.tiles.iter().filter(|&&t| t == Tile::BossLair).count();
             assert_eq!(

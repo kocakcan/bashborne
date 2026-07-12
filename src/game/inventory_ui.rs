@@ -94,6 +94,13 @@ pub enum InventoryMode {
         slot: EquipSlot,
         to_cursor: usize,
     },
+    /// Browsing the active roster to pick who to bench, for the recruit
+    /// swap screen (`r` from `Browsing`). A no-op mode if the bench is
+    /// empty — there's nothing to swap in.
+    Roster { active_cursor: usize },
+    /// Picking which benched recruit replaces `active_idx` once `Roster`
+    /// has picked an active member to swap out.
+    RosterTarget { active_idx: usize, bench_cursor: usize },
 }
 
 /// What moving one member's equipped piece onto another member would do to

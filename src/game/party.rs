@@ -8,6 +8,12 @@ pub struct Party {
     pub members: Vec<Character>,
     pub gold: u32,
     pub effects: Vec<StatusEffect>,
+    /// Recruited characters not currently in the active `members` roster.
+    /// Combat/rendering only ever look at `members`, so the bench is purely
+    /// a holding area — see `Party::swap` to bring someone in from it.
+    /// Defaults to empty for saves predating recruitable NPCs.
+    #[serde(default)]
+    pub bench: Vec<Character>,
 }
 
 impl Party {
@@ -16,7 +22,27 @@ impl Party {
             members,
             gold: 50,
             effects: Vec::new(),
+            bench: Vec::new(),
         }
+    }
+
+    /// Adds a newly recruited character to the bench. Recruits always land
+    /// here rather than being auto-inserted into the active roster, so
+    /// which four (or fewer) members are actually fighting stays a
+    /// deliberate player choice made via `swap`.
+    pub fn recruit(&mut self, character: Character) {
+        self.bench.push(character);
+    }
+
+    /// Swaps an active member out for a benched one, in place. Returns
+    /// whether the swap happened — `false` (a no-op) if either index is out
+    /// of range, e.g. the bench is empty.
+    pub fn swap(&mut self, active_idx: usize, bench_idx: usize) -> bool {
+        if active_idx >= self.members.len() || bench_idx >= self.bench.len() {
+            return false;
+        }
+        std::mem::swap(&mut self.members[active_idx], &mut self.bench[bench_idx]);
+        true
     }
 
     pub fn alive_members(&self) -> impl Iterator<Item = &Character> {
@@ -87,7 +113,34 @@ impl Party {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::character::warrior;
+    use crate::game::character::{rogue, warrior};
+
+    #[test]
+    fn recruit_always_lands_on_the_bench() {
+        let mut party = Party::new(vec![warrior("Bram")]);
+        party.recruit(rogue("Wren"));
+        assert_eq!(party.members.len(), 1, "the active roster is untouched");
+        assert_eq!(party.bench.len(), 1);
+        assert_eq!(party.bench[0].name, "Wren");
+    }
+
+    #[test]
+    fn swap_exchanges_an_active_and_benched_member() {
+        let mut party = Party::new(vec![warrior("Bram")]);
+        party.recruit(rogue("Wren"));
+
+        assert!(party.swap(0, 0));
+        assert_eq!(party.members[0].name, "Wren", "the recruit is now active");
+        assert_eq!(party.bench[0].name, "Bram", "the displaced member lands on the bench");
+    }
+
+    #[test]
+    fn swap_with_an_out_of_range_index_is_a_no_op() {
+        let mut party = Party::new(vec![warrior("Bram")]);
+        assert!(!party.swap(0, 0), "the bench is empty");
+        assert!(!party.swap(1, 0), "no active member at index 1");
+        assert_eq!(party.members[0].name, "Bram");
+    }
 
     #[test]
     fn cure_curses_lifts_only_the_negative_effects() {

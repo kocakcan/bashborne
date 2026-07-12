@@ -18,6 +18,11 @@ pub enum ItemKind {
     /// Strips every active curse (negative status effect) from the party.
     /// Party-wide by nature, so it never asks for a target.
     CureCurse,
+    /// Refunds every point the target has ever hand-spent at a level-up
+    /// (`Character::full_respec`) — a persistent, any-time respec, distinct
+    /// from the level-up screen's own single-visit undo. Out-of-combat only;
+    /// respeccing mid-fight has no use.
+    Respec,
 }
 
 impl ItemKind {
@@ -34,6 +39,7 @@ impl ItemKind {
                 format!("Revives a fallen ally at {:.0}% HP", heal_percent * 100.0)
             }
             ItemKind::CureCurse => "Removes all active curses".into(),
+            ItemKind::Respec => "Refunds every hand-spent level-up point".into(),
         }
     }
 }
@@ -108,6 +114,15 @@ pub fn purging_stone() -> Item {
         kind: ItemKind::CureCurse,
         value: 40,
         description: "Smooth and cold; it drinks in whatever curse clings to you.".into(),
+    }
+}
+
+pub fn rite_of_undoing() -> Item {
+    Item {
+        name: "Rite of Undoing".into(),
+        kind: ItemKind::Respec,
+        value: 150,
+        description: "A rite for those who chose wrong and won't live with it.".into(),
     }
 }
 
@@ -593,8 +608,8 @@ pub fn wardens_fang() -> Weapon {
     }
 }
 
-/// The Ashen Sovereign's signature weapon — the single strongest item in
-/// the game, and the only reward for beating the final chapter's boss.
+/// The Ashen Sovereign's signature weapon — chapter three's guaranteed
+/// boss drop, outclassed only by the new final boss's `last_rites`.
 pub fn sovereigns_reckoning() -> Weapon {
     Weapon {
         name: "Sovereign's Reckoning".into(),
@@ -605,6 +620,21 @@ pub fn sovereigns_reckoning() -> Weapon {
         source: GearSource::EnemyDrop("The Ashen Sovereign".into()),
         upgrade_level: 0,
         passive: Some(WeaponPassive::ArmorPierce(0.5)),
+    }
+}
+
+/// The Drowned King's signature weapon — the single strongest item in the
+/// game, and the only guaranteed reward for beating the final chapter's boss.
+pub fn last_rites() -> Weapon {
+    Weapon {
+        name: "Last Rites".into(),
+        rarity: Rarity::Legendary,
+        attack_bonus: 14,
+        defense_bonus: 3,
+        description: "A closing prayer, said over and over, to no one left to hear it.".into(),
+        source: GearSource::EnemyDrop("The Drowned King".into()),
+        upgrade_level: 0,
+        passive: Some(WeaponPassive::ArmorPierce(0.6)),
     }
 }
 
@@ -762,6 +792,16 @@ pub fn dragonscale_aegis() -> Armor {
         rarity: Rarity::Legendary,
         defense_bonus: 11,
         description: "Overlapping scales said to have turned aside a dragon's breath.".into(),
+        source: GearSource::World,
+    }
+}
+
+pub fn sunken_regalia() -> Armor {
+    Armor {
+        name: "Sunken Regalia".into(),
+        rarity: Rarity::Legendary,
+        defense_bonus: 13,
+        description: "Vestments dredged from the flooded nave, still faintly ceremonial.".into(),
         source: GearSource::World,
     }
 }
@@ -938,6 +978,18 @@ pub fn band_of_the_barrow() -> Ring {
     }
 }
 
+/// Quest reward for the Exiled Knight's commendation, chapter four.
+pub fn knights_absolution() -> Ring {
+    Ring {
+        name: "Knight's Absolution".into(),
+        rarity: Rarity::Epic,
+        attack_bonus: 2,
+        defense_bonus: 4,
+        description: "Given up by a knight who no longer believed he'd earned it.".into(),
+        source: GearSource::World,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Inventory {
     // (item, quantity)
@@ -1037,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn sovereigns_reckoning_is_the_single_strongest_weapon() {
+    fn last_rites_is_the_single_strongest_weapon() {
         let contenders = [
             worn_shortsword(),
             iron_sword(),
@@ -1058,8 +1110,9 @@ mod tests {
             dragonslayers_oath(),
             knightsbane(),
             wardens_fang(),
+            sovereigns_reckoning(),
         ];
-        let strongest_atk = sovereigns_reckoning().attack_bonus;
+        let strongest_atk = last_rites().attack_bonus;
         assert!(
             contenders.iter().all(|w| w.attack_bonus < strongest_atk),
             "the final boss's signature weapon should outclass every other weapon in the game"
@@ -1070,6 +1123,7 @@ mod tests {
     fn boss_signature_weapons_are_at_least_as_strong_chapter_over_chapter() {
         assert!(wardens_fang().attack_bonus >= knightsbane().attack_bonus);
         assert!(sovereigns_reckoning().attack_bonus > wardens_fang().attack_bonus);
+        assert!(last_rites().attack_bonus > sovereigns_reckoning().attack_bonus);
     }
 
     #[test]

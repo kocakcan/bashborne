@@ -1,55 +1,43 @@
 # Future Plans
 
-A backlog of next-improvement ideas for Bashborne, gathered while auditing
-the leveling system and QoL pass (see git history around the hard-cap
-removal). Nothing here is scheduled — it's a reference for prioritizing
-future work, roughly ordered cheapest/highest-value first within each tier.
+A backlog of next-improvement ideas for Bashborne. Nothing here is
+scheduled — it's a reference for prioritizing future work. Items are struck
+once shipped rather than deleted, so this file stays a record of what's
+already been decided rather than just what's left.
 
-## Cheap, mostly content (no new plumbing needed)
+## Done
 
-- **2nd/3rd ability per class** — `AbilityKind`/`Vec<Ability>`
-  (`src/game/character.rs`) already support more than one ability; nothing
-  in combat resolution assumes a single ability per class. Probably the
-  best next investment for the effort involved.
+- **2nd/3rd ability per class** — every playable class now has a 3-ability
+  kit (`class_abilities`, `character.rs`).
+- **Difficulty setting at game start** — a main-menu difficulty pick reuses
+  `Character::apply_ng_plus`'s cycle math as a starting offset.
+- **Bestiary/codex screen** — `b` from Explore opens a read-only codex
+  enumerating every species/boss (`bestiary_ui.rs`, `render/bestiary.rs`).
+- **Chapter/boss #4** — "The Drowned Cathedral," guarded by the Drowned
+  King, is now the game's final chapter (`chapter.rs`, `map.rs::chapter_four`,
+  `combat::resolve_boss_move`'s `BossKind::DrownedKing` arm). Chapter Three's
+  Ashen Sovereign is no longer the last fight.
+- **NG+-gated loot tables** — shop stock unlocks a dedicated Epic
+  weapon/armor/ring plus `sovereign_elixir` from Chapter Two onward
+  (`game/shop.rs`).
+- **Full respec system** — the "Rite of Undoing" consumable
+  (`item.rs::rite_of_undoing`, sold from Chapter Two onward) calls
+  `Character::full_respec`, refunding every hand-spent level-up point
+  regardless of when it was spent — distinct from the level-up screen's
+  existing single-visit Backspace-undo.
+- **Multi-stage quests** — `QuestObjective::KillCount` (`quest.rs`) tracks
+  cumulative kills via `QuestLog::record_kill`; the Exiled Knight's quest in
+  Chapter Four uses it. True multi-step quest chains (several sequential
+  objectives per quest) remain out of scope.
+- **Recruitable roster** — the Wounded Scout, Ashen Pilgrim, and Exiled
+  Knight can be recruited onto a bench (`Party::bench`) the moment their
+  quest is turned in, and swapped into the active 4-member roster from the
+  inventory screen's `r` Roster mode (`Party::swap`). The active combat
+  party stays capped at 4 (the combat party panel's layout is hardcoded to
+  fit exactly that many rows); the bench itself is uncapped.
 
-## Moderate, touches a few systems
+## Remaining
 
-- **Full respec system** — the level-up screen now supports Backspace-undo
-  within a single visit to the screen (`LevelUpUiState::history`,
-  `Character::deallocate_point`), which covers "I picked the wrong stat
-  just now." A persistent, any-time respec — refunding *all* banked points
-  on a member regardless of when they were spent, e.g. via a consumable —
-  is still a distinct, unimplemented feature.
-- **Difficulty setting at game start** — `Character::apply_ng_plus` already
-  takes a `u32` cycle multiplier; a main-menu difficulty pick could reuse
-  that math as a starting offset instead of always beginning at NG+0.
-- **Bestiary/codex screen** — all 16 species + elites + 3 bosses already
-  have loot/sprite/move data keyed by name (`combat::loot_profile`,
-  `render::combat::species_color`, etc.); a codex screen could mostly just
-  enumerate the existing tables rather than needing new content.
-- **Chapter/boss #4** — mechanical but not free: a new `Tile` map layout,
-  a new `BossKind` variant, scripted moves added to
-  `combat::resolve_boss_move`, and a tied NPC/quest.
-
-## Balance-only, no new content
-
-- **NG+-gated loot tables** — shop stock (`game/shop.rs`) now unlocks a
-  dedicated Epic weapon/armor/ring plus `sovereign_elixir` from Chapter Two
-  onward (see git history), but `combat::loot_profile`'s field-drop odds
-  don't scale with NG+ cycle at all. Higher-NG+ drop chances (or a
-  higher-still tier gated behind a specific NG+ cycle) would give replay
-  more to chase beyond bigger stat numbers.
-
-## Bigger lifts
-
-- **Multi-stage quests** — `QuestObjective` (`game/quest.rs`) is
-  deliberately single-stage per its own doc comment; a `KillCount`/
-  `ReachChapter` variant is a cheap extension, but true multi-stage quests
-  are a bigger structural change.
-- **Recruitable/customizable roster** — the fixed 4-character party is a
-  documented stub (see `CLAUDE.md`'s "Known stubs" section);
-  `Party.members: Vec<Character>` doesn't fight it, but this is the biggest
-  architectural lift on this list (main-menu flow, save format, UI).
 - **Audio** — nothing exists yet: no sound/music assets, no
   `macroquad::audio` usage anywhere in `src/`. Bounded scope but needs new
   assets and a check that the audio feature exists at the pinned

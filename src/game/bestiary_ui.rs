@@ -1,7 +1,7 @@
 use crate::game::character::{
-    ashen_sovereign, bandit, barrow_knight, barrow_sentinel, bat, carrion_crow, fell_acolyte,
-    forsaken_knight, goblin, grave_ghoul, hollow, mimic, orc, rat, skeleton, slime, wolf, wraith,
-    wyrmscale_warden, Character,
+    ashen_sovereign, bandit, barrow_knight, barrow_sentinel, bat, carrion_crow, drowned_king,
+    fell_acolyte, forsaken_knight, goblin, grave_ghoul, hollow, mimic, orc, rat, skeleton, slime,
+    wolf, wraith, wyrmscale_warden, Character,
 };
 use crate::game::map::Position;
 
@@ -34,7 +34,7 @@ pub struct BestiaryEntry {
 }
 
 /// The full codex: every species `roll_encounter` can field, the Mimic
-/// (treasure ambushes only), and the three chapter bosses, in the rough
+/// (treasure ambushes only), and the four chapter bosses, in the rough
 /// order the player is likely to meet them.
 pub fn bestiary_entries() -> Vec<BestiaryEntry> {
     fn species(name: &'static str, factory: fn(&str) -> Character, signature: &'static str) -> BestiaryEntry {
@@ -73,6 +73,7 @@ pub fn bestiary_entries() -> Vec<BestiaryEntry> {
         boss("The Barrow Knight", barrow_knight, "Rending Cleave; near death it draws a Second Wind, once."),
         boss("Wyrmscale Warden", wyrmscale_warden, "Tail Sweep rakes the whole party; when pressed it rallies its scales, once."),
         boss("The Ashen Sovereign", ashen_sovereign, "Cinder Nova sears everyone; it rises from its own ashes twice."),
+        boss("The Drowned King", drowned_king, "Drowning Tide sweeps the whole party; the flood raises it back up twice."),
     ]
 }
 
@@ -84,7 +85,7 @@ mod tests {
     #[test]
     fn entries_cover_every_species_and_boss_with_no_duplicates() {
         let entries = bestiary_entries();
-        assert_eq!(entries.len(), 19, "16 species + 3 bosses");
+        assert_eq!(entries.len(), 20, "16 species + 4 bosses");
         let names: HashSet<&str> = entries.iter().map(|e| e.name).collect();
         assert_eq!(names.len(), entries.len(), "entry names must be unique");
         // Every species the encounter table can roll, plus the treasure-only
@@ -93,10 +94,11 @@ mod tests {
             "Slime", "Goblin", "Bat", "Wolf", "Skeleton", "Orc", "Wraith", "Mimic", "Hollow",
             "Rat", "Carrion Crow", "Bandit", "Fell Acolyte", "Grave Ghoul", "Barrow Sentinel",
             "Forsaken Knight", "The Barrow Knight", "Wyrmscale Warden", "The Ashen Sovereign",
+            "The Drowned King",
         ] {
             assert!(names.contains(expected), "missing bestiary entry: {expected}");
         }
-        assert_eq!(entries.iter().filter(|e| e.is_boss).count(), 3);
+        assert_eq!(entries.iter().filter(|e| e.is_boss).count(), 4);
     }
 
     #[test]

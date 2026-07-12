@@ -16,12 +16,13 @@ const RIGHT_W: f32 = CANVAS_WIDTH - LEFT_W;
 pub fn draw(ui: &QuestLogUiState, quest_log: &QuestLog, inventory: &Inventory, cmds: &mut Vec<TextCmd>) {
     let content_y1 = CANVAS_HEIGHT - FOOTER_H;
 
-    draw_active(&quest_log.active, ui.cursor, inventory, content_y1, cmds);
+    draw_active(quest_log, ui.cursor, inventory, content_y1, cmds);
     draw_completed(&quest_log.completed, content_y1, cmds);
     draw_footer(content_y1, cmds);
 }
 
-fn draw_active(ids: &[QuestId], cursor: usize, inventory: &Inventory, y1: f32, cmds: &mut Vec<TextCmd>) {
+fn draw_active(quest_log: &QuestLog, cursor: usize, inventory: &Inventory, y1: f32, cmds: &mut Vec<TextCmd>) {
+    let ids = &quest_log.active;
     draw_rectangle_lines(0.0, CONTENT_Y0, LEFT_W, y1 - CONTENT_Y0, 1.0, WHITE);
     push_text(cmds, "Active Quests", 4.0, CONTENT_Y0 + 9.0, 8.0, WHITE);
 
@@ -54,6 +55,13 @@ fn draw_active(ids: &[QuestId], cursor: usize, inventory: &Inventory, y1: f32, c
                 )
             }
             QuestObjective::DefeatBoss(_) => format!("From: {}", npc_def(quest.giver).name),
+            QuestObjective::KillCount { species, count } => {
+                let have = quest_log.kill_progress.get(species).copied().unwrap_or(0);
+                format!(
+                    "Slay {count}x {species} ({have}/{count}) - From: {}",
+                    npc_def(quest.giver).name
+                )
+            }
         };
         push_text(cmds, detail, 12.0, ty + 10.0, 7.0, detail_color);
     }

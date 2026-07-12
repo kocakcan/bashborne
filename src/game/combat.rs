@@ -6,11 +6,11 @@ use crate::game::item::{
     acolytes_vestment, bandits_falchion, barrow_touched_plate, bone_blade, brigand_leathers,
     chainmail_hauberk, dragonscale_aegis, elite_knights_armor, ether, fell_censer,
     forsaken_longsword, ghouls_knucklebone, goblin_shiv, hollow_soldiers_blade, knights_plate,
-    knightsbane, mimics_coil, mimics_fang, orcish_greataxe, potion, ring_of_vigor, ring_of_warding,
-    sentinels_bulwark, sentinels_greathammer, sentinels_seal, sovereign_elixir,
-    sovereigns_reckoning, sovereigns_signet, warded_chainmail, wardens_fang, wolfsbane_signet,
-    wraithbane_edge, Armor, ArmorFactory, Item, ItemFactory, ItemKind, Ring, RingFactory, Weapon,
-    WeaponFactory, WeaponPassive,
+    knightsbane, last_rites, mimics_coil, mimics_fang, orcish_greataxe, potion, ring_of_vigor,
+    ring_of_warding, sentinels_bulwark, sentinels_greathammer, sentinels_seal, sovereign_elixir,
+    sovereigns_reckoning, sovereigns_signet, sunken_regalia, warded_chainmail, wardens_fang,
+    wolfsbane_signet, wraithbane_edge, Armor, ArmorFactory, Item, ItemFactory, ItemKind, Ring,
+    RingFactory, Weapon, WeaponFactory, WeaponPassive,
 };
 use crate::game::map::Position;
 use crate::game::party::Party;
@@ -248,6 +248,14 @@ fn boss_loot_profile(kind: BossKind) -> BossLootProfile {
             shards: 12..=18,
             armor: None,
             ring: Some(sovereigns_signet as RingFactory),
+        },
+        BossKind::DrownedKing => BossLootProfile {
+            gold: 350..=550,
+            item: Some((sovereign_elixir as ItemFactory, 0.5)),
+            weapon: last_rites as WeaponFactory,
+            shards: 15..=22,
+            armor: Some(sunken_regalia as ArmorFactory),
+            ring: None,
         },
     }
 }
@@ -1327,6 +1335,52 @@ impl CombatState {
 
                 false
             }
+            BossKind::DrownedKing => {
+                // Two-stage rally: the flood rises once below 45% HP, and
+                // again below 15%, each time hitting harder.
+                if self.enrage_stage < 2 {
+                    let boss = &self.enemies[ei];
+                    let hp_ratio = boss.stats.hp as f32 / boss.stats.max_hp as f32;
+                    let threshold = if self.enrage_stage == 0 { 0.45 } else { 0.15 };
+                    if hp_ratio <= threshold {
+                        self.enrage_stage += 1;
+                        let heal_pct = if self.enrage_stage == 1 { 0.15 } else { 0.10 };
+                        let heal_amount = (self.enemies[ei].stats.max_hp as f32 * heal_pct) as i32;
+                        self.enemies[ei].heal(heal_amount);
+                        self.enemies[ei].stats.attack += 5;
+                        self.push_log(format!("{ename} drags itself back up as the flood rises!"));
+                        self.push_log(format!(
+                            "{ename} recovers {heal_amount} HP and fights harder!"
+                        ));
+                        return true;
+                    }
+                }
+
+                // Occasionally sweeps a wave of floodwater across the whole party.
+                if rng.gen_bool(0.35) {
+                    self.push_log(format!("{ename} calls up a Drowning Tide across the whole party!"));
+                    let def_delta = party.stat_delta(StatEffectTarget::Defense);
+                    let luck = self.enemies[ei].total_luck();
+                    for member in party.alive_members_mut() {
+                        let def = member.total_defense() + def_delta;
+                        let (dmg, crit) = roll_damage(atk, def, luck, rng);
+                        let dmg = apply_damage_reduction(dmg, member);
+                        member.take_damage(dmg);
+                        let tname = member.name.clone();
+                        let alive = member.is_alive();
+                        self.push_log(format!(
+                            "{tname} takes {dmg} damage.{}",
+                            if crit { " A critical hit!" } else { "" }
+                        ));
+                        if !alive {
+                            self.push_log(format!("{tname} falls!"));
+                        }
+                    }
+                    return true;
+                }
+
+                false
+            }
         }
     }
 
@@ -1462,6 +1516,14 @@ pub fn use_item_kind(kind: ItemKind, target: &mut Character) -> String {
             }
         }
         ItemKind::CureCurse => format!("Nothing clings to {}.", target.name),
+        ItemKind::Respec => {
+            let refunded = target.full_respec();
+            if refunded > 0 {
+                format!("{} refunds {refunded} hand-spent point(s).", target.name)
+            } else {
+                format!("{} has no hand-spent points to refund.", target.name)
+            }
+        }
     }
 }
 
@@ -3097,6 +3159,22 @@ mod tests {
         use_item_kind(ItemKind::Elixir, &mut hero);
         assert_eq!(hero.stats.hp, hero.stats.max_hp);
         assert_eq!(hero.stats.mp, hero.stats.max_mp);
+    }
+
+    #[test]
+    fn a_respec_refunds_hand_spent_points_and_reports_the_count() {
+        let mut hero = warrior("Bram");
+        hero.unspent_points = 2;
+        assert!(hero.allocate_point(crate::game::character::AllocStat::Attack));
+        assert!(hero.allocate_point(crate::game::character::AllocStat::Defense));
+
+        let msg = use_item_kind(ItemKind::Respec, &mut hero);
+
+        assert_eq!(hero.unspent_points, 2);
+        assert!(msg.contains("2"));
+
+        let msg_again = use_item_kind(ItemKind::Respec, &mut hero);
+        assert!(msg_again.contains("no hand-spent points"));
     }
 
     #[test]

@@ -36,7 +36,8 @@ pub fn draw(
     draw_header(inventory, cmds);
     draw_weapon_list(bs, party, inventory, content_y0, content_y1, cmds);
     draw_party_gear(assets, party, &InventoryMode::Browsing, None, RIGHT_X, content_y0, RIGHT_W, content_y1, cmds);
-    draw_footer(bs.message.as_deref(), current_chapter == ChapterId::Three, content_y1, cmds);
+    let shards_available = matches!(current_chapter, ChapterId::Three | ChapterId::Four);
+    draw_footer(bs.message.as_deref(), shards_available, content_y1, cmds);
 }
 
 fn draw_header(inventory: &Inventory, cmds: &mut Vec<TextCmd>) {

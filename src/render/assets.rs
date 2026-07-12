@@ -170,6 +170,7 @@ pub fn npc_rect(id: NpcId) -> Rect {
         NpcId::OldHerbalist => cell(0, 9),
         NpcId::WoundedScout => cell(0, 6),
         NpcId::AshenPilgrim => cell(1, 11),
+        NpcId::ExiledKnight => cell(2, 6),
         NpcId::Blacksmith => cell(1, 9),
     }
 }
@@ -219,7 +220,7 @@ pub fn material_icon_rect() -> Rect {
 }
 
 /// Consumable icon (in `tiles`), one distinct bottle/token per `ItemKind`
-/// variant so Potion/Ether/Elixir/Revive/CureCurse read apart at a glance.
+/// variant so Potion/Ether/Elixir/Revive/CureCurse/Respec read apart at a glance.
 pub fn item_kind_icon_rect(kind: &ItemKind) -> Rect {
     match kind {
         ItemKind::Potion { .. } => cell(54, 12),
@@ -227,6 +228,7 @@ pub fn item_kind_icon_rect(kind: &ItemKind) -> Rect {
         ItemKind::Elixir => cell(56, 11),
         ItemKind::Revive { .. } => cell(55, 12),
         ItemKind::CureCurse => cell(53, 9),
+        ItemKind::Respec => cell(53, 11),
     }
 }
 
@@ -265,5 +267,6 @@ pub fn boss_monster_rect(kind: BossKind) -> Rect {
         BossKind::BarrowKnight => cell(1, 3),
         BossKind::WyrmscaleWarden => cell(2, 3),
         BossKind::AshenSovereign => cell(3, 3),
+        BossKind::DrownedKing => cell(0, 4),
     }
 }

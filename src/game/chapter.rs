@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::game::character::{ashen_sovereign, barrow_knight, wyrmscale_warden, Character};
+use crate::game::character::{ashen_sovereign, barrow_knight, drowned_king, wyrmscale_warden, Character};
 use crate::game::map::{Map, Position};
 use crate::game::npc::NpcId;
 
@@ -14,6 +14,7 @@ pub enum ChapterId {
     One,
     Two,
     Three,
+    Four,
 }
 
 impl ChapterId {
@@ -23,6 +24,7 @@ impl ChapterId {
             ChapterId::One => 1,
             ChapterId::Two => 2,
             ChapterId::Three => 3,
+            ChapterId::Four => 4,
         }
     }
 }
@@ -36,6 +38,7 @@ pub enum BossKind {
     BarrowKnight,
     WyrmscaleWarden,
     AshenSovereign,
+    DrownedKing,
 }
 
 /// Static data describing a chapter: its map, where the player spawns into
@@ -110,6 +113,20 @@ pub fn chapter_def(id: ChapterId) -> ChapterDef {
                 (Position { x: 5, y: 5 }, NpcId::AshenPilgrim),
                 (Position { x: 3, y: 2 }, NpcId::Blacksmith),
             ],
+            next: Some(ChapterId::Four),
+        },
+        ChapterId::Four => ChapterDef {
+            id,
+            name: "The Drowned Cathedral",
+            map: Map::chapter_four,
+            spawn: Position { x: 4, y: 2 },
+            boss: drowned_king,
+            boss_display_name: "The Drowned King",
+            enemy_level: 16,
+            npcs: vec![
+                (Position { x: 10, y: 4 }, NpcId::ExiledKnight),
+                (Position { x: 3, y: 2 }, NpcId::Blacksmith),
+            ],
             next: None,
         },
     }
@@ -120,21 +137,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chapters_chain_one_to_two_to_three_and_then_end() {
+    fn chapters_chain_one_to_two_to_three_to_four_and_then_end() {
         assert_eq!(chapter_def(ChapterId::One).next, Some(ChapterId::Two));
         assert_eq!(chapter_def(ChapterId::Two).next, Some(ChapterId::Three));
-        assert!(chapter_def(ChapterId::Three).next.is_none());
+        assert_eq!(chapter_def(ChapterId::Three).next, Some(ChapterId::Four));
+        assert!(chapter_def(ChapterId::Four).next.is_none());
     }
 
     #[test]
     fn each_chapters_boss_factory_sets_the_matching_boss_kind() {
-        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
+        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three, ChapterId::Four] {
             let def = chapter_def(id);
             let boss = (def.boss)(def.boss_display_name);
             let expected = match id {
                 ChapterId::One => BossKind::BarrowKnight,
                 ChapterId::Two => BossKind::WyrmscaleWarden,
                 ChapterId::Three => BossKind::AshenSovereign,
+                ChapterId::Four => BossKind::DrownedKing,
             };
             assert_eq!(boss.boss_kind, Some(expected));
         }
@@ -145,12 +164,13 @@ mod tests {
         let one = chapter_def(ChapterId::One).enemy_level;
         let two = chapter_def(ChapterId::Two).enemy_level;
         let three = chapter_def(ChapterId::Three).enemy_level;
-        assert!(one < two && two < three);
+        let four = chapter_def(ChapterId::Four).enemy_level;
+        assert!(one < two && two < three && three < four);
     }
 
     #[test]
     fn every_chapters_npcs_and_spawn_sit_on_walkable_tiles() {
-        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
+        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three, ChapterId::Four] {
             let def = chapter_def(id);
             let map = (def.map)();
             assert!(
@@ -171,7 +191,7 @@ mod tests {
 
     #[test]
     fn every_chapter_has_at_least_one_npc() {
-        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
+        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three, ChapterId::Four] {
             assert!(
                 !chapter_def(id).npcs.is_empty(),
                 "{:?} should have an NPC",
@@ -182,7 +202,7 @@ mod tests {
 
     #[test]
     fn andre_is_reachable_in_every_chapter() {
-        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three] {
+        for id in [ChapterId::One, ChapterId::Two, ChapterId::Three, ChapterId::Four] {
             let def = chapter_def(id);
             assert!(
                 def.npcs.iter().any(|(_, npc)| *npc == NpcId::Blacksmith),

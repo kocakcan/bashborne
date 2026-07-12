@@ -2,9 +2,9 @@ use crate::game::chapter::ChapterId;
 use crate::game::item::{
     chainmail_hauberk, coinwrought_blade, coinwrought_plate, copper_band, ember_of_return, ether,
     greater_ether, greater_potion, iron_loop, iron_sword, merchants_blessing, potion,
-    purging_stone, rangers_cloak, ring_of_vigor, sovereign_elixir, sunken_relic_blade,
-    sunlit_straightsword, travelers_chestguard, travelers_spear, warded_loop, ArmorFactory,
-    ItemFactory, Rarity, RingFactory, WeaponFactory,
+    purging_stone, rangers_cloak, ring_of_vigor, rite_of_undoing, sovereign_elixir,
+    sunken_relic_blade, sunlit_straightsword, travelers_chestguard, travelers_spear, warded_loop,
+    ArmorFactory, ItemFactory, Rarity, RingFactory, WeaponFactory,
 };
 use crate::game::map::Position;
 
@@ -98,6 +98,7 @@ pub fn shop_item_stock(chapter: ChapterId) -> Vec<(ItemFactory, u32)> {
     ];
     if chapter != ChapterId::One {
         stock.push((sovereign_elixir as ItemFactory, 90));
+        stock.push((rite_of_undoing as ItemFactory, 150));
     }
     stock
 }
@@ -248,6 +249,18 @@ mod tests {
             assert!(shop_item_stock(chapter)
                 .iter()
                 .any(|(f, _)| f().name == "Sovereign Elixir"));
+        }
+    }
+
+    #[test]
+    fn rite_of_undoing_is_only_sold_from_chapter_two_onward() {
+        assert!(shop_item_stock(ChapterId::One)
+            .iter()
+            .all(|(f, _)| f().name != "Rite of Undoing"));
+        for chapter in [ChapterId::Two, ChapterId::Three, ChapterId::Four] {
+            assert!(shop_item_stock(chapter)
+                .iter()
+                .any(|(f, _)| f().name == "Rite of Undoing"));
         }
     }
 }

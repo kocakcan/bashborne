@@ -62,11 +62,12 @@ const HELP_LEFT: [&str; 15] = [
     "PageUp/Dn    scroll the log",
 ];
 
-const HELP_RIGHT: [&str; 21] = [
+const HELP_RIGHT: [&str; 22] = [
     "Inventory",
     "up/down choose item",
     "left/right change tab",
     "p party gear, Enter act",
+    "r roster, Enter swap",
     "",
     "Shop",
     "left/right Buy/Sell",

@@ -8,7 +8,8 @@ use crate::game::blacksmith::{
 };
 use crate::game::chapter::{chapter_def, ChapterId};
 use crate::game::character::{
-    cleric, mage, rogue, warrior, Character, RingSlot, ALLOC_STATS,
+    cleric, exiled_knight_recruit, mage, pilgrim_recruit, rogue, scout_recruit, warrior, Character,
+    RingSlot, ALLOC_STATS,
 };
 use crate::game::combat::{
     ActorRef, CombatAction, CombatPhase, CombatState, FLOATING_NUMBER_TTL, RESOLVING_HOLD_SECONDS,
@@ -664,6 +665,14 @@ impl World {
     /// see `NpcDef`'s doc comment), and grants the quest's reward plus
     /// marks it completed if this visit is the turn-in.
     fn interact_with_npc(&mut self, id: NpcId, return_pos: Position) -> EventState {
+        fn recruit_factory_for(id: NpcId) -> Option<fn() -> Character> {
+            match id {
+                NpcId::WoundedScout => Some(scout_recruit),
+                NpcId::AshenPilgrim => Some(pilgrim_recruit),
+                NpcId::ExiledKnight => Some(exiled_knight_recruit),
+                NpcId::OldHerbalist | NpcId::Blacksmith => None,
+            }
+        }
         let def = npc_def(id);
         let first_visit = !self.npc_flags.contains(&id);
         if first_visit {
@@ -683,6 +692,7 @@ impl World {
                     &quest.objective,
                     &self.inventory,
                     &self.bosses_defeated,
+                    &self.quest_log,
                 ) {
                     self.consume_objective_item(&quest.objective);
                     let mut lines = to_strings(&def.turn_in);
@@ -691,6 +701,13 @@ impl World {
                         lines.push(format!("You received: {}", reward_msgs.join(", ")));
                     }
                     self.quest_log.complete(qid);
+                    if let Some(factory) = recruit_factory_for(id) {
+                        let mut recruit = factory();
+                        recruit.scale_to_level(self.party.average_level());
+                        let name = recruit.name.clone();
+                        self.party.recruit(recruit);
+                        lines.push(format!("{name} joins your bench."));
+                    }
                     lines
                 } else if first_visit {
                     to_strings(&def.intro)
@@ -973,6 +990,14 @@ impl World {
                     }
                     Key::Enter => {
                         if let Some((item, _)) = self.inventory.items.get(cursor) {
+                            // A respec has no use mid-fight; refuse rather
+                            // than waste it or open a meaningless target picker.
+                            if matches!(item.kind, ItemKind::Respec) {
+                                combat.push_log(
+                                    "The Rite of Undoing has no effect mid-battle. Use it while exploring.",
+                                );
+                                return;
+                            }
                             // Revives can only target the fallen; refuse to
                             // enter target selection if no one is down.
                             let target_idx = if matches!(item.kind, ItemKind::Revive { .. }) {
@@ -1140,6 +1165,12 @@ impl World {
                         member_cursor: 0,
                         slot_cursor: 0,
                     };
+                }
+                Key::Char('r') => {
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::Roster { active_cursor: 0 };
                 }
                 Key::Up | Key::Char('w') => {
                     let len = self.inventory_tab_len(tab);
@@ -1425,6 +1456,94 @@ impl World {
                     inv.mode = InventoryMode::PartyGear {
                         member_cursor: from_member,
                         slot_cursor: equip_slot_index(slot),
+                    };
+                }
+                _ => {}
+            },
+            InventoryMode::Roster { active_cursor } => match key {
+                Key::Esc => {
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::Browsing;
+                }
+                Key::Up | Key::Char('w') => {
+                    let len = self.party.members.len().max(1);
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::Roster {
+                        active_cursor: (active_cursor + len - 1) % len,
+                    };
+                }
+                Key::Down | Key::Char('s') => {
+                    let len = self.party.members.len().max(1);
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::Roster {
+                        active_cursor: (active_cursor + 1) % len,
+                    };
+                }
+                Key::Enter => {
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    if self.party.bench.is_empty() {
+                        inv.message = Some("No one is waiting on the bench.".to_string());
+                        return;
+                    }
+                    inv.mode = InventoryMode::RosterTarget {
+                        active_idx: active_cursor,
+                        bench_cursor: 0,
+                    };
+                }
+                _ => {}
+            },
+            InventoryMode::RosterTarget {
+                active_idx,
+                bench_cursor,
+            } => match key {
+                Key::Esc => {
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::Roster {
+                        active_cursor: active_idx,
+                    };
+                }
+                Key::Up | Key::Char('w') => {
+                    let len = self.party.bench.len().max(1);
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::RosterTarget {
+                        active_idx,
+                        bench_cursor: (bench_cursor + len - 1) % len,
+                    };
+                }
+                Key::Down | Key::Char('s') => {
+                    let len = self.party.bench.len().max(1);
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    inv.mode = InventoryMode::RosterTarget {
+                        active_idx,
+                        bench_cursor: (bench_cursor + 1) % len,
+                    };
+                }
+                Key::Enter => {
+                    let incoming_name = self.party.bench.get(bench_cursor).map(|m| m.name.clone());
+                    let outgoing_name = self.party.members.get(active_idx).map(|m| m.name.clone());
+                    self.party.swap(active_idx, bench_cursor);
+                    let GameState::Inventory(inv) = &mut self.state else {
+                        return;
+                    };
+                    if let (Some(incoming), Some(outgoing)) = (incoming_name, outgoing_name) {
+                        inv.message = Some(format!("{incoming} joins the party. {outgoing} takes their place on the bench."));
+                    }
+                    inv.mode = InventoryMode::Roster {
+                        active_cursor: active_idx,
                     };
                 }
                 _ => {}
@@ -2137,7 +2256,7 @@ impl World {
     /// Andre only stocks Titanite Shards once the party has reached chapter
     /// three — before that, upgrade materials come solely from drops/finds.
     fn buy_titanite_shard(&mut self) {
-        let message = if self.current_chapter != ChapterId::Three {
+        let message = if !matches!(self.current_chapter, ChapterId::Three | ChapterId::Four) {
             "Andre has no Titanite Shards to sell yet.".to_string()
         } else if self.party.gold < SHARD_PRICE {
             format!("Not enough gold ({SHARD_PRICE}g needed for a Titanite Shard).")
@@ -2237,11 +2356,15 @@ impl World {
         let loot = combat.loot.clone();
         let return_pos = combat.return_pos;
         let boss_was_here = combat.enemies.iter().any(|e| e.boss_kind.is_some());
+        let defeated_species: Vec<String> = combat.enemies.iter().map(|e| e.name.clone()).collect();
         // The borrow of self.state (via `combat`) ends here, freeing self.party/self.inventory
         // up for mutation below.
 
         if victory {
             self.party.tick_effects();
+            for species in &defeated_species {
+                self.quest_log.record_kill(species);
+            }
             let mut messages = Vec::new();
             let mut chapter_advanced = false;
             let mut game_won = false;
@@ -2780,6 +2903,32 @@ mod tests {
     }
 
     #[test]
+    fn using_a_rite_of_undoing_from_the_inventory_refunds_hand_spent_points() {
+        let mut world = World::new();
+        world.inventory.add(crate::game::item::rite_of_undoing(), 1);
+        world.party.members[0].unspent_points = 2;
+        assert!(world.party.members[0].allocate_point(crate::game::character::AllocStat::Attack));
+        assert!(world.party.members[0].allocate_point(crate::game::character::AllocStat::Defense));
+        assert_eq!(world.party.members[0].unspent_points, 0);
+        let attack_before_respec = world.party.members[0].stats.attack;
+
+        world.handle_key(Key::Char('i')); // open inventory (Items tab: Potion, Ether, Rite of Undoing)
+        world.handle_key(Key::Down); // Potion -> Ether
+        world.handle_key(Key::Down); // Ether -> Rite of Undoing
+        world.handle_key(Key::Enter); // pick it -> choose member (Bram, cursor 0)
+        world.handle_key(Key::Enter); // confirm use on Bram
+
+        assert_eq!(
+            world.party.members[0].unspent_points, 2,
+            "both hand-spent points should come back"
+        );
+        assert!(
+            world.party.members[0].stats.attack < attack_before_respec,
+            "the hand-spent attack bonus should be reverted"
+        );
+    }
+
+    #[test]
     fn combat_item_submenu_lets_you_pick_ether_over_potion() {
         use crate::game::character::slime;
 
@@ -2820,6 +2969,42 @@ mod tests {
             .unwrap_or(0);
         assert_eq!(potions, 3, "the untouched item slot should keep its count");
         assert_eq!(ethers, 1, "the picked item slot should be the one consumed");
+    }
+
+    #[test]
+    fn a_respec_cannot_be_used_from_the_combat_item_submenu() {
+        use crate::game::character::slime;
+
+        let mut world = World::new();
+        world.inventory.add(crate::game::item::rite_of_undoing(), 1);
+        world.party.members[0].unspent_points = 1;
+        assert!(world.party.members[0].allocate_point(crate::game::character::AllocStat::Attack));
+        let attack_before = world.party.members[0].stats.attack;
+
+        let combat = CombatState::new(&world.party, vec![slime("Slime")]);
+        world.state = GameState::Combat(combat);
+        let GameState::Combat(combat) = &mut world.state else {
+            unreachable!()
+        };
+        combat.phase = CombatPhase::SelectAction {
+            actor: ActorRef::Player(0),
+        };
+        combat.menu_cursor = 2; // Item
+
+        world.handle_key(Key::Enter); // open the item submenu (Potion, Ether, Rite of Undoing)
+        world.handle_key(Key::Down);
+        world.handle_key(Key::Down); // move to Rite of Undoing
+        world.handle_key(Key::Enter); // try to use it
+
+        let GameState::Combat(combat) = &world.state else {
+            unreachable!()
+        };
+        assert!(
+            matches!(combat.phase, CombatPhase::SelectItem { .. }),
+            "a mid-combat respec attempt should refuse rather than open a target picker"
+        );
+        assert_eq!(world.party.members[0].stats.attack, attack_before, "nothing should be refunded");
+        assert_eq!(world.party.members[0].unspent_points, 0);
     }
 
     #[test]
@@ -2981,9 +3166,9 @@ mod tests {
     #[test]
     fn defeating_the_final_chapter_boss_ends_the_game_in_victory() {
         let mut world = World::new();
-        world.current_chapter = ChapterId::Three;
-        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Three));
-        // Chapter three's boss lair sits at (26, 8); approach from directly above.
+        world.current_chapter = ChapterId::Four;
+        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Four));
+        // Chapter four's boss lair sits at (26, 8); approach from directly above.
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 26, y: 7 };
         }
@@ -2995,15 +3180,15 @@ mod tests {
         combat.phase = CombatPhase::Victory;
         world.conclude_combat();
 
-        assert!(world.bosses_defeated.contains(&ChapterId::Three));
+        assert!(world.bosses_defeated.contains(&ChapterId::Four));
         assert!(matches!(world.state, GameState::GameOver { victory: true }));
     }
 
     #[test]
     fn defeating_the_final_boss_grants_its_loot_before_ending_the_game() {
         let mut world = World::new();
-        world.current_chapter = ChapterId::Three;
-        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Three));
+        world.current_chapter = ChapterId::Four;
+        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Four));
         if let GameState::Explore(explore) = &mut world.state {
             explore.player_pos = Position { x: 26, y: 7 };
         }
@@ -3016,7 +3201,7 @@ mod tests {
         combat.loot = Some(crate::game::combat::Loot {
             gold: 500,
             items: Vec::new(),
-            weapons: vec![crate::game::item::sovereigns_reckoning()],
+            weapons: vec![crate::game::item::last_rites()],
             armors: Vec::new(),
             rings: vec![crate::game::item::sovereigns_signet()],
             overkill_bonus: 0,
@@ -3032,12 +3217,36 @@ mod tests {
             .inventory
             .weapons
             .iter()
-            .any(|w| w.name == crate::game::item::sovereigns_reckoning().name));
+            .any(|w| w.name == crate::game::item::last_rites().name));
         assert!(world
             .inventory
             .rings
             .iter()
             .any(|r| r.name == crate::game::item::sovereigns_signet().name));
+    }
+
+    #[test]
+    fn defeating_chapter_threes_boss_advances_to_chapter_four() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Three;
+        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Three));
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = Position { x: 26, y: 7 };
+        }
+        world.handle_key(Key::Down); // enter the boss fight
+
+        let GameState::Combat(combat) = &mut world.state else {
+            panic!("expected the boss fight to start");
+        };
+        combat.phase = CombatPhase::Victory;
+        world.conclude_combat();
+
+        assert!(world.bosses_defeated.contains(&ChapterId::Three));
+        assert_eq!(world.current_chapter, ChapterId::Four);
+        let GameState::Explore(explore) = &world.state else {
+            panic!("expected to land back in Explore on the new chapter's map");
+        };
+        assert_eq!(explore.player_pos, chapter_def(ChapterId::Four).spawn);
     }
 
     #[test]
@@ -3090,7 +3299,7 @@ mod tests {
     }
 
     #[test]
-    fn andre_sells_titanite_shards_only_in_chapter_three() {
+    fn andre_does_not_sell_titanite_shards_before_chapter_three() {
         let mut world = World::new();
         world.current_chapter = ChapterId::One;
         world.party.gold = 1000;
@@ -3119,6 +3328,24 @@ mod tests {
     fn buying_a_titanite_shard_in_chapter_three_spends_gold_and_grants_a_shard() {
         let mut world = World::new();
         world.current_chapter = ChapterId::Three;
+        world.party.gold = 1000;
+        world.state =
+            GameState::Blacksmith(crate::game::blacksmith::BlacksmithUiState::new(Position {
+                x: 0,
+                y: 0,
+            }));
+        let shards_before = world.inventory.upgrade_materials;
+
+        world.handle_key(Key::Char('b'));
+
+        assert_eq!(world.party.gold, 1000 - SHARD_PRICE);
+        assert_eq!(world.inventory.upgrade_materials, shards_before + 1);
+    }
+
+    #[test]
+    fn buying_a_titanite_shard_in_chapter_four_spends_gold_and_grants_a_shard() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Four;
         world.party.gold = 1000;
         world.state =
             GameState::Blacksmith(crate::game::blacksmith::BlacksmithUiState::new(Position {
@@ -3316,6 +3543,44 @@ mod tests {
             world.inventory.weapons.is_empty(),
             "a direct member-to-member move should never touch the shared bag"
         );
+    }
+
+    #[test]
+    fn roster_swap_exchanges_a_bench_recruit_into_the_active_party() {
+        let mut world = World::new();
+        world.party.recruit(crate::game::character::scout_recruit());
+        let bram = world.party.members[0].name.clone();
+
+        world.handle_key(Key::Char('i')); // open inventory (Browsing)
+        world.handle_key(Key::Char('r')); // Roster, active_cursor 0 (Bram)
+        world.handle_key(Key::Enter); // -> RosterTarget, bench_cursor 0 (Wounded Scout)
+        world.handle_key(Key::Enter); // confirm the swap
+
+        assert_eq!(
+            world.party.members[0].name, "Wounded Scout",
+            "the recruit should now be active"
+        );
+        assert_eq!(
+            world.party.bench[0].name, bram,
+            "the displaced starter should land on the bench"
+        );
+        assert_eq!(world.party.members.len(), 4);
+        assert_eq!(world.party.bench.len(), 1);
+    }
+
+    #[test]
+    fn roster_screen_refuses_to_swap_when_the_bench_is_empty() {
+        let mut world = World::new();
+
+        world.handle_key(Key::Char('i'));
+        world.handle_key(Key::Char('r')); // Roster, active_cursor 0
+        world.handle_key(Key::Enter); // bench is empty -> should stay in Roster
+
+        let GameState::Inventory(inv) = &world.state else {
+            panic!("expected to remain in the inventory screen");
+        };
+        assert!(matches!(inv.mode, InventoryMode::Roster { .. }));
+        assert_eq!(world.party.members.len(), 4);
     }
 
     #[test]
@@ -3567,6 +3832,15 @@ mod tests {
             .weapons
             .iter()
             .any(|w| w.name == "Sunken Relic Blade"));
+        assert!(
+            world.party.bench.iter().any(|m| m.name == "Wounded Scout"),
+            "completing the scout's quest should recruit her onto the bench"
+        );
+        assert_eq!(
+            world.party.members.len(),
+            4,
+            "a recruit lands on the bench, not the active roster"
+        );
     }
 
     #[test]
@@ -3597,6 +3871,55 @@ mod tests {
             .rings
             .iter()
             .any(|r| r.name == "Band of the Barrow"));
+    }
+
+    #[test]
+    fn slaying_five_grave_ghouls_completes_the_exiled_knights_quest() {
+        let mut world = World::new();
+        world.current_chapter = ChapterId::Four;
+        world.bosses_defeated.insert(ChapterId::One);
+        world.bosses_defeated.insert(ChapterId::Two);
+        world.bosses_defeated.insert(ChapterId::Three);
+        world.state = GameState::Explore(ExploreState::for_chapter(ChapterId::Four));
+        let gold_before = world.party.gold;
+
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = Position { x: 10, y: 4 }; // the Exiled Knight's spot
+        }
+        world.handle_key(Key::Char('e')); // first talk: accepts the quest, not yet satisfied
+        let GameState::Event(ev) = &world.state else {
+            panic!("expected talking to the knight to open dialogue");
+        };
+        assert!(!ev.lines.iter().any(|l| l.contains("You received")));
+        assert!(!world
+            .quest_log
+            .completed
+            .contains(&crate::game::quest::QuestId::ExilesVengeance));
+        world.handle_key(Key::Enter); // dismiss
+
+        for _ in 0..5 {
+            world.quest_log.record_kill("Grave Ghoul");
+        }
+
+        if let GameState::Explore(explore) = &mut world.state {
+            explore.player_pos = Position { x: 10, y: 4 };
+        }
+        world.handle_key(Key::Char('e')); // second talk: now satisfied
+
+        let GameState::Event(ev) = &world.state else {
+            panic!("expected the turn-in dialogue to open");
+        };
+        assert!(ev.lines.iter().any(|l| l.contains("You received")));
+        assert!(world
+            .quest_log
+            .completed
+            .contains(&crate::game::quest::QuestId::ExilesVengeance));
+        assert!(world.party.gold > gold_before);
+        assert!(world
+            .inventory
+            .rings
+            .iter()
+            .any(|r| r.name == "Knight's Absolution"));
     }
 
     #[test]

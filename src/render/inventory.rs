@@ -155,6 +155,10 @@ pub fn draw(assets: &Assets, inv_ui: &InventoryUiState, party: &Party, inventory
         InventoryMode::PartyGearTarget { from_member, slot, to_cursor } => {
             draw_party_gear_target_picker(party, *from_member, *slot, *to_cursor, content_y0, cmds)
         }
+        InventoryMode::Roster { active_cursor } => draw_roster_picker(party, *active_cursor, content_y0, cmds),
+        InventoryMode::RosterTarget { active_idx, bench_cursor } => {
+            draw_roster_target_picker(party, *active_idx, *bench_cursor, content_y0, cmds)
+        }
     }
 
     draw_party_gear(
@@ -239,7 +243,7 @@ fn draw_tabs(active: InventoryTab, cmds: &mut Vec<TextCmd>) {
     }
     push_text(
         cmds,
-        "Tab/left-right switch, p party gear, Esc close",
+        "Tab/left-right switch, p party gear, r roster, Esc close",
         4.0,
         TAB_Y + TAB_H - 2.0,
         7.0,
@@ -729,6 +733,50 @@ fn draw_party_gear_target_picker(
         }
         .unwrap_or_else(|| "empty".to_string());
         push_text(cmds, format!("{marker}{} (has: {current})", m.name), 4.0, ty, 8.0, color);
+        ty += 12.0;
+    }
+}
+
+/// The active-roster picker for `InventoryMode::Roster` — pick who to bench
+/// to make room for a recruit. Bench membership itself is shown below the
+/// active list so the player can see who's waiting before committing.
+fn draw_roster_picker(party: &Party, active_cursor: usize, y0: f32, cmds: &mut Vec<TextCmd>) {
+    push_text(cmds, "Roster: pick who to bench...", 4.0, y0 + 10.0, 8.0, WHITE);
+
+    let mut ty = y0 + 24.0;
+    for (i, m) in party.members.iter().enumerate() {
+        let selected = i == active_cursor;
+        let color = if selected { YELLOW } else { WHITE };
+        let marker = if selected { "> " } else { "  " };
+        push_text(cmds, format!("{marker}{} (Lv{})", m.name, m.level), 4.0, ty, 8.0, color);
+        ty += 12.0;
+    }
+
+    ty += 6.0;
+    if party.bench.is_empty() {
+        push_text(cmds, "Bench: empty", 4.0, ty, 8.0, GRAY);
+    } else {
+        push_text(cmds, "Bench:", 4.0, ty, 8.0, LIGHTGRAY);
+        ty += 12.0;
+        for m in &party.bench {
+            push_text(cmds, format!("  {} (Lv{})", m.name, m.level), 4.0, ty, 8.0, LIGHTGRAY);
+            ty += 12.0;
+        }
+    }
+}
+
+/// The bench picker for `InventoryMode::RosterTarget` — who replaces the
+/// active member picked in `Roster`.
+fn draw_roster_target_picker(party: &Party, active_idx: usize, bench_cursor: usize, y0: f32, cmds: &mut Vec<TextCmd>) {
+    let outgoing_name = party.members.get(active_idx).map(|m| m.name.as_str()).unwrap_or("???");
+    push_text(cmds, format!("Bench {outgoing_name} for..."), 4.0, y0 + 10.0, 8.0, WHITE);
+
+    let mut ty = y0 + 24.0;
+    for (i, m) in party.bench.iter().enumerate() {
+        let selected = i == bench_cursor;
+        let color = if selected { YELLOW } else { WHITE };
+        let marker = if selected { "> " } else { "  " };
+        push_text(cmds, format!("{marker}{} (Lv{})", m.name, m.level), 4.0, ty, 8.0, color);
         ty += 12.0;
     }
 }

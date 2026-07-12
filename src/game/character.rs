@@ -178,6 +178,17 @@ const fn rule(gain: i32, soft_cap: i32, hard_cap: i32) -> AllocRule {
     AllocRule { gain, soft_cap, hard_cap }
 }
 
+/// Total derived-stat bonus for investing `ranks` ranks under `rule`, from
+/// scratch — the same per-rank gain/soft-cap-halving formula `invest_rank`
+/// applies incrementally, summed closed-form. Used by `Character::full_respec`
+/// to recompute a stat's total bonus for a rank count without replaying the
+/// exact history of individual invests.
+fn total_gain(rule: AllocRule, ranks: i32) -> i32 {
+    (0..ranks)
+        .map(|r| if r >= rule.soft_cap { (rule.gain + 1) / 2 } else { rule.gain })
+        .sum()
+}
+
 /// Every stat a playable class can allocate into has its *invested rank*
 /// hard-capped here — the same ceiling for every class and every stat, so
 /// "50" is a uniform cap on how much you've invested, not on what that
@@ -411,6 +422,12 @@ pub struct Character {
     /// Defaults to zero for saves/tests predating this field.
     #[serde(default)]
     pub alloc_ranks: [i32; 6],
+    /// Ranks invested via hand-spent points only (`allocate_point_tracked`),
+    /// a strict subset of `alloc_ranks` — automatic per-level growth never
+    /// touches this. The ledger `full_respec` refunds from; see its doc
+    /// comment for why the split from `alloc_ranks` matters.
+    #[serde(default)]
+    pub spent_ranks: [i32; 6],
 }
 
 impl Character {
@@ -684,6 +701,8 @@ impl Character {
             return None;
         }
         self.unspent_points -= 1;
+        let idx = ALLOC_STATS.iter().position(|s| *s == stat).unwrap();
+        self.spent_ranks[idx] += 1;
         Some(self.invest_rank(stat, 1))
     }
 
@@ -739,6 +758,7 @@ impl Character {
         self.unspent_points += 1;
         let idx = ALLOC_STATS.iter().position(|s| *s == stat).unwrap();
         self.alloc_ranks[idx] -= 1;
+        self.spent_ranks[idx] -= 1;
         match stat {
             AllocStat::MaxHp => {
                 self.stats.max_hp -= amount;
@@ -753,6 +773,57 @@ impl Character {
             AllocStat::Speed => self.stats.speed -= amount,
             AllocStat::Luck => self.stats.luck -= amount,
         }
+    }
+
+    /// Refunds every hand-spent point ever allocated on this character (see
+    /// `spent_ranks`), regardless of when it was spent — unlike
+    /// `deallocate_point`, which only undoes the current level-up screen
+    /// visit's history. Automatic per-level growth (the rest of
+    /// `alloc_ranks`) is left untouched: it isn't a player choice to undo,
+    /// and reversing it would desync `alloc_ranks` from `level`.
+    ///
+    /// `invest_rank`'s gain formula depends only on how many ranks are
+    /// already invested in a stat, not on which specific increments were
+    /// hand-spent versus automatic, so the total stat bonus for a given
+    /// rank count is the same regardless of how the two interleaved over
+    /// this character's history — recomputing each stat's total gain from
+    /// scratch for the before/after rank count is therefore exact, without
+    /// needing to record every individual hand-spend's amount.
+    ///
+    /// Returns the number of points refunded (0 if nothing was ever
+    /// hand-spent).
+    pub fn full_respec(&mut self) -> u32 {
+        let profile = alloc_profile(self.class);
+        let mut refunded = 0u32;
+        for (idx, &stat) in ALLOC_STATS.iter().enumerate() {
+            let to_refund = self.spent_ranks[idx];
+            if to_refund == 0 {
+                continue;
+            }
+            let rule = profile.rule(stat);
+            let old_ranks = self.alloc_ranks[idx];
+            let new_ranks = old_ranks - to_refund;
+            let delta = total_gain(rule, old_ranks) - total_gain(rule, new_ranks);
+            self.alloc_ranks[idx] = new_ranks;
+            self.spent_ranks[idx] = 0;
+            match stat {
+                AllocStat::MaxHp => {
+                    self.stats.max_hp -= delta;
+                    self.stats.hp = self.stats.hp.min(self.stats.max_hp);
+                }
+                AllocStat::MaxMp => {
+                    self.stats.max_mp -= delta;
+                    self.stats.mp = self.stats.mp.min(self.stats.max_mp);
+                }
+                AllocStat::Attack => self.stats.attack -= delta,
+                AllocStat::Defense => self.stats.defense -= delta,
+                AllocStat::Speed => self.stats.speed -= delta,
+                AllocStat::Luck => self.stats.luck -= delta,
+            }
+            refunded += to_refund as u32;
+        }
+        self.unspent_points += refunded;
+        refunded
     }
 
     /// Luck stat, boosting critical-hit chance (`combat::crit_chance`). No
@@ -995,6 +1066,7 @@ pub fn warrior(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1024,6 +1096,7 @@ pub fn mage(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1054,6 +1127,7 @@ pub fn cleric(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1083,7 +1157,26 @@ pub fn rogue(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
+}
+
+/// The Wounded Scout, recruitable after Chapter One's boss falls — a thin
+/// wrapper around the Rogue class factory with a fixed name matching the
+/// NPC (`app.rs::interact_with_npc` scales it to the party's level at the
+/// moment of recruitment, so a late recruit isn't dead weight).
+pub fn scout_recruit() -> Character {
+    rogue("Wounded Scout")
+}
+
+/// The Ashen Pilgrim, recruitable after Chapter Two's boss falls.
+pub fn pilgrim_recruit() -> Character {
+    cleric("Ashen Pilgrim")
+}
+
+/// The Exiled Knight, recruitable after Chapter Four's story quest concludes.
+pub fn exiled_knight_recruit() -> Character {
+    warrior("Exiled Knight")
 }
 
 pub fn slime(name: &str) -> Character {
@@ -1112,6 +1205,7 @@ pub fn slime(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1141,6 +1235,7 @@ pub fn goblin(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1170,6 +1265,7 @@ pub fn bat(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1199,6 +1295,7 @@ pub fn wolf(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1228,6 +1325,7 @@ pub fn skeleton(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1257,6 +1355,7 @@ pub fn orc(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1288,6 +1387,7 @@ pub fn wraith(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1318,6 +1418,7 @@ pub fn mimic(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1347,6 +1448,7 @@ pub fn hollow(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1376,6 +1478,7 @@ pub fn rat(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1405,6 +1508,7 @@ pub fn carrion_crow(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1434,6 +1538,7 @@ pub fn bandit(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1466,6 +1571,7 @@ pub fn fell_acolyte(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1497,6 +1603,7 @@ pub fn grave_ghoul(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1528,6 +1635,7 @@ pub fn barrow_sentinel(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1559,6 +1667,7 @@ pub fn forsaken_knight(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1609,6 +1718,7 @@ pub fn barrow_knight(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -1641,13 +1751,14 @@ pub fn wyrmscale_warden(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
-/// The final boss, guarding the throne at the end of chapter three.
-/// Outclasses every other boss on raw stats, with two scripted moves
-/// handled in `combat::resolve_boss_move`: Cinder Nova, and a two-stage
-/// Ashen Rebirth rally (once below 50% HP, again below 20%).
+/// Chapter three's boss, guarding the throne at the end of the ashen
+/// approach. Outclasses the Wyrmscale Warden on raw stats, with two
+/// scripted moves handled in `combat::resolve_boss_move`: Cinder Nova, and
+/// a two-stage Ashen Rebirth rally (once below 50% HP, again below 20%).
 pub fn ashen_sovereign(name: &str) -> Character {
     Character {
         name: name.to_string(),
@@ -1674,6 +1785,42 @@ pub fn ashen_sovereign(name: &str) -> Character {
         elite_signature_used: false,
         growth_carry: [0.0; 6],
         alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
+    }
+}
+
+/// Chapter four's boss, and the new final boss. Outclasses the Ashen
+/// Sovereign on raw stats, with two scripted moves handled in
+/// `combat::resolve_boss_move`: a party-wide Drowning Tide, and a two-stage
+/// rally (the flood rises twice, at 45% and 15% HP) mirroring the Ashen
+/// Sovereign's Ashen Rebirth but themed around the cathedral's flooding.
+pub fn drowned_king(name: &str) -> Character {
+    Character {
+        name: name.to_string(),
+        class: Class::Monster,
+        level: 1,
+        xp: 0,
+        unspent_points: 0,
+        stats: Stats {
+            max_hp: 300,
+            hp: 300,
+            max_mp: 0,
+            mp: 0,
+            attack: 38,
+            defense: 24,
+            speed: 12,
+            luck: 17,
+        },
+        abilities: vec![],
+        equipped_weapon: None,
+        equipped_armor: None,
+        equipped_rings: [None, None],
+        boss_kind: Some(BossKind::DrownedKing),
+        is_elite: false,
+        elite_signature_used: false,
+        growth_carry: [0.0; 6],
+        alloc_ranks: [0; 6],
+        spent_ranks: [0; 6],
     }
 }
 
@@ -2024,6 +2171,75 @@ mod tests {
         assert!(!hero.allocate_point(AllocStat::MaxHp));
         assert_eq!(hero.unspent_points, 3, "a refused point must stay banked");
         assert_eq!(hero.stats.max_hp, before);
+    }
+
+    #[test]
+    fn full_respec_refunds_only_hand_spent_points_not_automatic_growth() {
+        let mut hero = warrior("Bram");
+        // Pure automatic growth from leveling — no hand-spent points yet.
+        hero.gain_xp(xp_to_next_level(1) + xp_to_next_level(2) + xp_to_next_level(3));
+        let auto_ranks = hero.alloc_ranks;
+        let auto_stats = hero.stats;
+
+        hero.unspent_points = 3;
+        assert!(hero.allocate_point(AllocStat::Attack));
+        assert!(hero.allocate_point(AllocStat::Attack));
+        assert!(hero.allocate_point(AllocStat::Defense));
+
+        let refunded = hero.full_respec();
+
+        assert_eq!(refunded, 3);
+        assert_eq!(hero.unspent_points, 3, "all 3 hand-spent points come back");
+        assert_eq!(hero.spent_ranks, [0; 6]);
+        assert_eq!(hero.alloc_ranks, auto_ranks, "only automatic growth's ranks remain");
+        assert_eq!(hero.stats.attack, auto_stats.attack, "hand-spent attack is fully refunded");
+        assert_eq!(hero.stats.defense, auto_stats.defense, "hand-spent defense is fully refunded");
+        assert_eq!(hero.stats.max_hp, auto_stats.max_hp, "untouched stats are unaffected");
+    }
+
+    #[test]
+    fn full_respec_is_a_no_op_with_nothing_hand_spent() {
+        let mut hero = warrior("Bram");
+        hero.gain_xp(xp_to_next_level(1) + xp_to_next_level(2));
+        let before_ranks = hero.alloc_ranks;
+        let before_stats = hero.stats;
+        let before_unspent = hero.unspent_points;
+
+        assert_eq!(hero.full_respec(), 0);
+        assert_eq!(hero.alloc_ranks, before_ranks);
+        assert_eq!(hero.stats.attack, before_stats.attack);
+        assert_eq!(hero.stats.max_hp, before_stats.max_hp);
+        assert_eq!(hero.unspent_points, before_unspent);
+    }
+
+    #[test]
+    fn full_respec_zeroes_spent_ranks_so_a_second_respec_refunds_nothing() {
+        let mut hero = warrior("Bram");
+        hero.unspent_points = 2;
+        assert!(hero.allocate_point(AllocStat::Speed));
+        assert!(hero.allocate_point(AllocStat::Luck));
+
+        assert_eq!(hero.full_respec(), 2);
+        assert_eq!(hero.full_respec(), 0, "a second respec has nothing left to refund");
+    }
+
+    #[test]
+    fn full_respec_exactly_reverses_hand_spent_points_that_cross_the_soft_cap() {
+        let mut hero = warrior("Bram");
+        let base_max_hp = hero.stats.max_hp;
+        let rule = alloc_profile(Class::Warrior).rule(AllocStat::MaxHp);
+        let spend = rule.soft_cap + 5;
+        hero.unspent_points = spend as u32;
+        for _ in 0..spend {
+            assert!(hero.allocate_point(AllocStat::MaxHp));
+        }
+        assert!(hero.stats.max_hp > base_max_hp, "sanity: points were actually spent");
+
+        let refunded = hero.full_respec();
+
+        assert_eq!(refunded, spend as u32);
+        assert_eq!(hero.stats.max_hp, base_max_hp, "stats return exactly to baseline, soft cap included");
+        assert_eq!(hero.unspent_points, spend as u32);
     }
 
     #[test]
