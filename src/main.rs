@@ -1,6 +1,7 @@
 mod app;
 mod game;
 mod input;
+mod playtest;
 mod render;
 
 use macroquad::prelude::*;
@@ -29,6 +30,12 @@ fn window_conf() -> Conf {
 #[macroquad::main(window_conf)]
 async fn main() {
     let assets = Assets::load().await;
+
+    if let Ok(dir) = std::env::var("BASHBORNE_PLAYTEST_DIR") {
+        playtest::run(assets, std::path::PathBuf::from(dir)).await;
+        return;
+    }
+
     // Start on the title screen; Continue/New Game decide the save's fate.
     let mut world = World::at_main_menu();
     let mut input = Input::new();

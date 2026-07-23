@@ -2289,11 +2289,11 @@ impl World {
                     let weapon = weapon_for_mut(r, &mut self.inventory, &mut self.party)
                         .expect("weapon_refs stays in sync");
                     weapon.apply_upgrade(atk_inc, def_inc);
-                    format!(
-                        "{} upgraded to +{}!",
-                        weapon.display_name(),
-                        weapon.upgrade_level
-                    )
+                    // Plain `name`, not `display_name()` — the latter already
+                    // appends "+N" once upgraded, which duplicated the level
+                    // this message states explicitly (e.g. "Bone Blade +1
+                    // upgraded to +1!").
+                    format!("{} upgraded to +{}!", weapon.name, weapon.upgrade_level)
                 }
             }
         };

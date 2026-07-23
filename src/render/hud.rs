@@ -24,6 +24,17 @@ pub fn draw_status_bar(world: &World, font: &Font, cmds: &mut Vec<TextCmd>) {
     if world.difficulty > 0 {
         text.push_str("   [Accursed]");
     }
+    // `measure_text` has the side effect of caching every glyph it touches
+    // (macroquad rasterizes+atlases characters lazily, the first time
+    // they're requested at a given size) — call it before `push_text` even
+    // though the result itself is unused, the same way `gold_text` below
+    // does for its own (visibly used) width. Skipping this warm-up is what
+    // let this exact line render with its first few glyphs corrupted on the
+    // very first frame `Explore` ever drew this session: `flush_text`'s
+    // `draw_text_ex` was the first-ever draw at this font size, and
+    // macroquad's atlas isn't safe to draw from in the same call that
+    // populates it.
+    measure_text(&text, Some(font), HUD_FONT as u16, 1.0);
     push_text(cmds, text, 4.0, 9.0, HUD_FONT, WHITE);
 
     let gold_text = format!("Gold: {}", world.party.gold);
